@@ -1,0 +1,3 @@
+[submodule "thirdparty/riscv-isa-sim"]
+	path = thirdparty/riscv-isa-sim
+	url = https://github.com/DangoSys/func-sim.git
