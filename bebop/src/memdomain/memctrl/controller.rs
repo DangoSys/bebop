@@ -6,6 +6,9 @@ use crate::memdomain::mem::bank::{ReadReq, ReadResp};
 pub struct Controller {
   name: String,
 
+  // 输入：读请求信号
+  pub read_req: Wire<ReadReq>,
+
   // 输出：读请求
   pub req_out: Wire<ReadReq>,
 
@@ -13,7 +16,6 @@ pub struct Controller {
   pub resp_in: Wire<ReadResp>,
 
   // 内部状态
-  pending_addr: Option<u32>,
   last_data: u32,
 }
 
@@ -21,16 +23,11 @@ impl Controller {
   pub fn new(name: impl Into<String>) -> Self {
     Self {
       name: name.into(),
+      read_req: Wire::default(),
       req_out: Wire::default(),
       resp_in: Wire::default(),
-      pending_addr: None,
       last_data: 0,
     }
-  }
-
-  /// 发起读请求
-  pub fn read(&mut self, addr: u32) {
-    self.pending_addr = Some(addr);
   }
 
   /// 获取最后读到的数据
@@ -41,10 +38,9 @@ impl Controller {
 
 impl Module for Controller {
   fn run(&mut self) {
-    // 如果有待发送的读请求
-    if let Some(addr) = self.pending_addr {
-      self.req_out.set(ReadReq { addr });
-      self.pending_addr = None;
+    // 处理读请求信号
+    if self.read_req.valid {
+      self.req_out.set(self.read_req.value.clone());
     } else {
       self.req_out.clear();
     }
@@ -56,9 +52,9 @@ impl Module for Controller {
   }
 
   fn reset(&mut self) {
+    self.read_req = Wire::default();
     self.req_out = Wire::default();
     self.resp_in = Wire::default();
-    self.pending_addr = None;
     self.last_data = 0;
   }
 

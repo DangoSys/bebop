@@ -20,46 +20,47 @@ impl MemDomain {
     }
   }
 
-  /// 写入数据到bank（用于初始化）
-  pub fn write(&mut self, addr: usize, data: u32) {
-    self.bank.write(addr, data);
+  /// 写入数据到bank（用于初始化，不经过信号线）
+  pub fn init_write(&mut self, addr: usize, data: u32) {
+    self.bank.init_write(addr, data);
   }
 
   /// 获取最后读到的数据
   pub fn get_data(&self) -> u32 {
     self.controller.get_data()
   }
+
+
 }
 
 impl Module for MemDomain {
   fn run(&mut self) {
     // 从后向前运行
 
-    // 1. 先运行Bank（读取上一周期controller设置的req_in）
+    // 1. 先运行Bank（读取上一周期的请求）
     self.bank.run();
 
-    // 2. 再运行Controller（读取上一周期bank设置的resp_in）
+    // 2. 再运行Controller（读取上一周期bank的响应）
     self.controller.run();
 
-    // 3. 再运行Decoder（读取上一周期设置的input）
+    // 3. 再运行Decoder（读取上一周期的input）
     self.decoder.run();
 
-    // 4. 根据译码结果执行操作（在本周期内的组合逻辑）
-    if self.decoder.output.valid {
-      let memop = &self.decoder.output.value;
+    // 4. 连线更新：本周期的输出 -> 下周期的输入
+    // 写请求：Decoder -> Bank
+    self.bank.write_req = self.decoder.output.value.write_req.clone();
 
-      if memop.is_write {
-        // 写操作：直接写入bank
-        self.bank.write(memop.addr as usize, memop.data);
-      } else if memop.is_read {
-        // 读操作：设置Controller的pending请求（下周期生效）
-        self.controller.read(memop.addr);
-      }
-    }
+    // 读请求：Decoder -> Controller -> Bank
+    self.controller.read_req = self.decoder.output.value.read_req.clone();
+    self.bank.read_req = self.controller.req_out.clone();
 
-    // 5. 连线更新：本周期的输出 -> 下周期的输入
-    self.bank.req_in = self.controller.req_out.clone();
-    self.controller.resp_in = self.bank.resp_out.clone();
+    // Bank -> Controller 读响应
+    self.controller.resp_in = self.bank.read_resp.clone();
+
+    // 传递Decoder输入给Controller（用于DMA操作）
+    // 这里需要从Top模块传递原始的DecoderInput
+    // 暂时用decoder的input
+    // TODO: 需要从Top传递原始的funct, xs1, xs2
   }
 
   fn reset(&mut self) {

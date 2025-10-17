@@ -35,8 +35,10 @@ impl Top {
 
   /// 初始化内存
   pub fn init_mem(&mut self, addr: usize, data: u32) {
-    self.memdomain.write(addr, data);
+    self.memdomain.init_write(addr, data);
   }
+
+
 }
 
 impl Module for Top {

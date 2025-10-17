@@ -2,7 +2,8 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
-use super::protocol::SocketMsg;
+use super::dma_client::DmaClient;
+use super::protocol::{CmdReq, CmdResp};
 use crate::config::NpuConfig;
 use crate::simulator::Simulator;
 
@@ -26,8 +27,8 @@ impl ConnectionHandler {
     println!("New connection from: {}", peer_addr);
 
     loop {
-      // Read message
-      let mut msg_bytes = [0u8; SocketMsg::SIZE];
+      // Read CMD request
+      let mut msg_bytes = [0u8; CmdReq::SIZE];
       match self.stream.read_exact(&mut msg_bytes) {
         Ok(_) => {},
         Err(e) => {
@@ -39,24 +40,27 @@ impl ConnectionHandler {
         },
       }
 
-      // Parse message
-      let msg = SocketMsg::from_bytes(&msg_bytes);
+      // Parse CMD request
+      let cmd_req = CmdReq::from_bytes(&msg_bytes);
 
       // Copy fields to avoid packed struct alignment issues
-      let funct = msg.funct;
-      let xs1 = msg.xs1;
-      let xs2 = msg.xs2;
+      let funct = cmd_req.funct;
+      let xs1 = cmd_req.xs1;
+      let xs2 = cmd_req.xs2;
 
-      println!("Received: funct={}, xs1=0x{:016x}, xs2=0x{:016x}", funct, xs1, xs2);
+      println!("Received CMD: funct={}, xs1=0x{:016x}, xs2=0x{:016x}", funct, xs1, xs2);
+
+      // Create DMA client for this request
+      let mut dma_client = DmaClient::new(&mut self.stream);
 
       // Process instruction
-      let resp = self.simulator.process(&msg);
-      let result = resp.result;
+      let result = self.simulator.process(funct, xs1, xs2)?;
 
-      // Send response
-      let resp_bytes = resp.to_bytes();
+      // Send CMD response
+      let cmd_resp = CmdResp::new(result);
+      let resp_bytes = cmd_resp.to_bytes();
       self.stream.write_all(&resp_bytes)?;
-      println!("Sent: result=0x{:016x}", result);
+      println!("Sent CMD response: result=0x{:016x}\n", result);
     }
   }
 }
