@@ -9,12 +9,14 @@ bool SocketClient::send_cmd_request(const cmd_req_t& req) {
     return false;
   }
   
+  fprintf(stderr, "Socket: Sending CMD request: sizeof(req)=%zu, funct=%u\n", sizeof(req), req.funct);
   ssize_t sent = send(sock_fd, &req, sizeof(req), 0);
   if (sent < 0) {
     fprintf(stderr, "Socket: Failed to send CMD request\n");
     close();
     return false;
   }
+  fprintf(stderr, "Socket: Sent %zd bytes\n", sent);
   
   return true;
 }

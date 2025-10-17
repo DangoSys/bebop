@@ -75,13 +75,13 @@ static reg_t toy_custom(processor_t* p, insn_t insn, reg_t pc) {
   return pc+4;
 }
 
-std::vector<insn_desc_t> toy_t::get_instructions(const processor_t &p) {
+std::vector<insn_desc_t> toy_t::get_instructions() {
   std::vector<insn_desc_t> insns;
   push_custom_insn(insns, ROCC_OPCODE3, ROCC_OPCODE_MASK, ILLEGAL_INSN_FUNC, toy_custom);
   return insns;
 }
 
-std::vector<disasm_insn_t*> toy_t::get_disasms(const processor_t *p) {
+std::vector<disasm_insn_t*> toy_t::get_disasms() {
   std::vector<disasm_insn_t*> insns;
   return insns;
 }

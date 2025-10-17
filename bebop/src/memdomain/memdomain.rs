@@ -1,4 +1,4 @@
-use super::{Bank, Controller, MemDecoder};
+use super::{decoder::DmaOperation, Bank, Controller, MemDecoder};
 /// Memory Domain - 将Decoder、Controller和Bank连接在一起
 use crate::builtin::Module;
 
@@ -30,7 +30,24 @@ impl MemDomain {
     self.controller.get_data()
   }
 
+  /// 获取 DMA 操作（如果有）
+  pub fn get_dma_operation(&self) -> Option<DmaOperation> {
+    if self.decoder.output.valid {
+      self.decoder.output.value.dma_op.clone()
+    } else {
+      None
+    }
+  }
 
+  /// 写入 scratchpad
+  pub fn write_spad(&mut self, addr: usize, data: u32) {
+    self.bank.init_write(addr, data);
+  }
+
+  /// 读取 scratchpad
+  pub fn read_spad(&self, addr: usize) -> u32 {
+    self.bank.read_data(addr)
+  }
 }
 
 impl Module for MemDomain {

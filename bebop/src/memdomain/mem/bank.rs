@@ -54,6 +54,15 @@ impl Bank {
       self.spad[addr] = data;
     }
   }
+
+  /// 直接读取数据（用于 DMA，不经过信号线）
+  pub fn read_data(&self, addr: usize) -> u32 {
+    if addr < self.spad.len() {
+      self.spad[addr]
+    } else {
+      0 // 越界返回0
+    }
+  }
 }
 
 impl Module for Bank {

@@ -1,7 +1,7 @@
 /// Top Module - 顶层模块，连接全局Decoder和各个Domain
 use crate::builtin::Module;
 use crate::global_decoder::{Decoder, DecoderInput};
-use crate::memdomain::MemDomain;
+use crate::memdomain::{decoder::DmaOperation, MemDomain};
 
 /// Top - NPU顶层模块
 pub struct Top {
@@ -38,7 +38,20 @@ impl Top {
     self.memdomain.init_write(addr, data);
   }
 
+  /// 获取 DMA 操作（如果有）
+  pub fn get_dma_operation(&self) -> Option<DmaOperation> {
+    self.memdomain.get_dma_operation()
+  }
 
+  /// 写入 scratchpad
+  pub fn write_spad(&mut self, addr: usize, data: u32) {
+    self.memdomain.write_spad(addr, data);
+  }
+
+  /// 读取 scratchpad
+  pub fn read_spad(&self, addr: usize) -> u32 {
+    self.memdomain.read_spad(addr)
+  }
 }
 
 impl Module for Top {
