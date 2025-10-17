@@ -8,6 +8,8 @@ set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 add_library(toy SHARED
   src/toy.cc
   src/socket/socket.cc
+  src/socket/socket_cmd.cc
+  src/socket/socket_dma.cc
 )
 
 

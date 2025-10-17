@@ -12,8 +12,7 @@ pub struct DecoderInput {
 /// Global Decoder 输出
 #[derive(Clone, Default)]
 pub struct DecoderOutput {
-  pub is_mvin: bool,
-  pub is_mvout: bool,
+  pub funct: u64, // 原始指令码
   pub xs1: u64,
   pub xs2: u64,
 }
@@ -48,25 +47,20 @@ impl Module for Decoder {
 
     let input = &self.input.value;
 
-    // 译码逻辑
+    // 译码逻辑：只负责路由，传递原始指令
     let mut output = DecoderOutput {
-      is_mvin: false,
-      is_mvout: false,
+      funct: input.funct,
       xs1: input.xs1,
       xs2: input.xs2,
     };
 
     let valid = match input.funct {
-      0 => {
-        // MVIN - Move In
-        output.is_mvin = true;
-        println!("[Decoder] MVIN: xs1=0x{:x}, xs2=0x{:x}", input.xs1, input.xs2);
-        true
-      },
-      1 => {
-        // MVOUT - Move Out
-        output.is_mvout = true;
-        println!("[Decoder] MVOUT: xs1=0x{:x}, xs2=0x{:x}", input.xs1, input.xs2);
+      0 | 1 => {
+        // MVIN/MVOUT - 路由到访存域
+        println!(
+          "[Decoder] 路由到访存域: funct={}, xs1=0x{:x}, xs2=0x{:x}",
+          input.funct, input.xs1, input.xs2
+        );
         true
       },
       _ => {

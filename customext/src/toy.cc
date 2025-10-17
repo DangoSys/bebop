@@ -45,6 +45,9 @@ reg_t toy_t::CUSTOMFN(XCUSTOM_ACC)(rocc_insn_t insn, reg_t xs1, reg_t xs2) {
     toy_state.reset();
   }
 
+  // Set processor for socket client (for DMA operations)
+  socket_client->set_processor(p);
+
   // Send socket request and wait for response
   dprintf("TOY: Processing custom instruction with funct=%d\n", insn.funct);
   reg_t result = socket_client->send_and_wait(insn.funct, xs1, xs2);
