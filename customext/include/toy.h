@@ -23,15 +23,15 @@ class toy_t : public extension_t {
 public:
   toy_t();
   ~toy_t();
-  const char *name() const { return "toy"; }
+  const char *name() { return "toy"; }
 
   reg_t CUSTOMFN(XCUSTOM_ACC)(rocc_insn_t insn, reg_t xs1, reg_t xs2);
   void set_processor(processor_t* p) { this->p = p; }
   // void rocc(reg_t rs1, reg_t rs2);
   // void dma_read(reg_t dram_addr);
   // void dma_write(reg_t dram_addr);
-  std::vector<insn_desc_t> get_instructions(const processor_t &p);
-  std::vector<disasm_insn_t*> get_disasms(const processor_t *p = nullptr);
+  std::vector<insn_desc_t> get_instructions();
+  std::vector<disasm_insn_t*> get_disasms();
 
 private:
   toy_state_t toy_state;

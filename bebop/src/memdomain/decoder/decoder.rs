@@ -1,18 +1,25 @@
 /// Memory Domain Decoder - 访存指令译码器
 use crate::builtin::{Module, Wire};
-use crate::global_decoder::DecoderOutput;
+use crate::global_decoder::{DecoderOutput, MvinConfig, MvoutConfig};
 
 /// MemDecoder 输入（来自全局Decoder的输出）
 pub type MemDecoderInput = DecoderOutput;
 
 use crate::memdomain::mem::bank::{ReadReq, WriteReq};
 
+/// DMA 操作类型
+#[derive(Debug, Clone)]
+pub enum DmaOperation {
+  Mvin(MvinConfig),   // Move In - DMA read from DRAM to scratchpad
+  Mvout(MvoutConfig), // Move Out - DMA write from scratchpad to DRAM
+}
+
 /// MemDecoder 输出
 #[derive(Clone, Default)]
 pub struct MemDecoderOutput {
   pub read_req: Wire<ReadReq>,   // 读请求信号线
   pub write_req: Wire<WriteReq>, // 写请求信号线
-  pub is_dma: bool,              // 是否为DMA操作
+  pub dma_op: Option<DmaOperation>, // DMA操作配置
 }
 
 /// Memory Domain Decoder - 访存译码器
@@ -44,31 +51,39 @@ impl Module for MemDecoder {
     }
 
     let input = &self.input.value;
-    let addr = input.xs1 as u32;
-    let data = input.xs2 as u32;
 
     let mut output = MemDecoderOutput::default();
 
     match input.funct {
-      0 => {
-        // MVIN - 写入scratchpad + DMA
-        output.write_req.set(WriteReq { addr, data });
+      24 => {
+        // MVIN - DMA read from DRAM to scratchpad
+        let config = MvinConfig::from_fields(input.xs1, input.xs2);
+        println!(
+          "  [MemDecoder] MVIN: dram=0x{:08x}, spad=0x{:04x}, iter={}, col_stride={}",
+          config.base_dram_addr, config.base_sp_addr, config.iter, config.col_stride
+        );
+        
+        output.dma_op = Some(DmaOperation::Mvin(config));
         output.read_req.clear();
-        output.is_dma = true;
-        println!("  [MemDecoder] MVIN -> WRITE: addr=0x{:x}, data=0x{:x}", addr, data);
-      },
-      1 => {
-        // MVOUT - 从scratchpad读出 + DMA
-        output.read_req.set(ReadReq { addr });
         output.write_req.clear();
-        output.is_dma = true;
-        println!("  [MemDecoder] MVOUT -> READ: addr=0x{:x}", addr);
+      },
+      25 => {
+        // MVOUT - DMA write from scratchpad to DRAM
+        let config = MvoutConfig::from_fields(input.xs1, input.xs2);
+        println!(
+          "  [MemDecoder] MVOUT: dram=0x{:08x}, spad=0x{:04x}, iter={}",
+          config.base_dram_addr, config.base_sp_addr, config.iter
+        );
+        
+        output.dma_op = Some(DmaOperation::Mvout(config));
+        output.read_req.clear();
+        output.write_req.clear();
       },
       _ => {
         println!("  [MemDecoder] UNKNOWN: funct={}", input.funct);
+        output.dma_op = None;
         output.read_req.clear();
         output.write_req.clear();
-        output.is_dma = false;
       },
     }
 

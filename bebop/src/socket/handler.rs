@@ -53,8 +53,8 @@ impl ConnectionHandler {
       // Create DMA client for this request
       let mut dma_client = DmaClient::new(&mut self.stream);
 
-      // Process instruction
-      let result = self.simulator.process(funct, xs1, xs2)?;
+      // Process instruction with DMA client
+      let result = self.simulator.process(funct, xs1, xs2, &mut dma_client)?;
 
       // Send CMD response
       let cmd_resp = CmdResp::new(result);

@@ -12,8 +12,8 @@ pub mod top;
 
 pub use builtin::{Module, Wire};
 pub use config::NpuConfig;
-pub use global_decoder::{Decoder, DecoderInput, DecoderOutput};
-pub use memdomain::{Bank, Controller, MemDecoder, MemDecoderInput, MemDecoderOutput, MemDomain};
+pub use global_decoder::{Decoder, DecoderInput, DecoderOutput, MvinConfig, MvoutConfig};
+pub use memdomain::{Bank, Controller, DmaOperation, MemDecoder, MemDecoderInput, MemDecoderOutput, MemDomain};
 pub use simulator::Simulator;
-pub use socket::{SocketMsg, SocketResp, SocketServer};
+pub use socket::{DmaClient, SocketMsg, SocketResp, SocketServer};
 pub use top::Top;

@@ -48,17 +48,28 @@ impl Module for Decoder {
     let input = &self.input.value;
 
     // 译码逻辑：只负责路由，传递原始指令
-    let mut output = DecoderOutput {
+    let output = DecoderOutput {
       funct: input.funct,
       xs1: input.xs1,
       xs2: input.xs2,
     };
 
+    // 根据 funct7 值路由指令
+    // MVIN_FUNC7 = 24 (0x18)
+    // MVOUT_FUNC7 = 25 (0x19)
     let valid = match input.funct {
-      0 | 1 => {
-        // MVIN/MVOUT - 路由到访存域
+      24 => {
+        // MVIN - 路由到访存域
         println!(
-          "[Decoder] 路由到访存域: funct={}, xs1=0x{:x}, xs2=0x{:x}",
+          "[Decoder] MVIN 路由到访存域: funct={}, xs1=0x{:x}, xs2=0x{:x}",
+          input.funct, input.xs1, input.xs2
+        );
+        true
+      },
+      25 => {
+        // MVOUT - 路由到访存域
+        println!(
+          "[Decoder] MVOUT 路由到访存域: funct={}, xs1=0x{:x}, xs2=0x{:x}",
           input.funct, input.xs1, input.xs2
         );
         true
