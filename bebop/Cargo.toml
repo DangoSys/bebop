@@ -3,15 +3,11 @@ name = "bebop"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-name = "bebop"
-path = "src/lib.rs"
-
-[dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
 [[bin]]
 name = "bebop"
 path = "src/bin/bebop.rs"
 
+[dependencies]
+sim = { path = "src/simrs/sim" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

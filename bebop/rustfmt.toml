@@ -1,24 +1,23 @@
-# Rust 代码格式化配置文件 (仅稳定功能)
-# 更多配置选项: https://rust-lang.github.io/rustfmt/
+# Rust code formatting configuration file (stable features only)
+# More configuration options: https://rust-lang.github.io/rustfmt/
 
-# 每行最大宽度
+# Maximum width per line
 max_width = 120
 
-# 硬标签宽度
+# Hard tab width
 tab_spaces = 2
 
-# 使用字段初始化简写
+# Use field initialization shorthand
 use_field_init_shorthand = true
 
-# 在小数组上使用小布局
+# Use small layout on small arrays
 use_small_heuristics = "Default"
 
-# 匹配块尾随逗号
+# Match block trailing comma
 match_block_trailing_comma = true
 
-# 换行风格
+# Newline style
 newline_style = "Unix"
 
-# 版本
+# Edition
 edition = "2021"
-
