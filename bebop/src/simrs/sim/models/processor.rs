@@ -116,21 +116,21 @@ impl Processor {
         }
     }
 
-    fn add_job(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
-        self.state.queue.push(incoming_message.content.clone());
+    fn add_job(&mut self, msg_input: &ModelMessage, services: &mut Services) {
+        self.state.queue.push(msg_input.content.clone());
         self.record(
             services.global_time(),
             String::from("Arrival"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
     }
 
     fn activate(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
-        self.state.queue.push(incoming_message.content.clone());
+        self.state.queue.push(msg_input.content.clone());
         self.state.phase = Phase::Active;
         self.state.until_next_event = match &self.rng {
             Some(rng) => self.service_time.random_variate(rng.clone())?,
@@ -139,21 +139,21 @@ impl Processor {
         self.record(
             services.global_time(),
             String::from("Arrival"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
         self.record(
             services.global_time(),
             String::from("Processing Start"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
         Ok(())
     }
 
-    fn ignore_job(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn ignore_job(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         self.record(
             services.global_time(),
             String::from("Drop"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
     }
 
@@ -210,18 +210,18 @@ impl Processor {
 impl DevsModel for Processor {
     fn events_ext(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
         match (
-            self.arrival_port(&incoming_message.port_name),
+            self.arrival_port(&msg_input.port_name),
             self.state.queue.is_empty(),
             self.state.queue.len() == self.queue_capacity,
         ) {
             (ArrivalPort::Job, true, true) => Err(SimulationError::InvalidModelState),
-            (ArrivalPort::Job, false, true) => Ok(self.ignore_job(incoming_message, services)),
-            (ArrivalPort::Job, true, false) => self.activate(incoming_message, services),
-            (ArrivalPort::Job, false, false) => Ok(self.add_job(incoming_message, services)),
+            (ArrivalPort::Job, false, true) => Ok(self.ignore_job(msg_input, services)),
+            (ArrivalPort::Job, true, false) => self.activate(msg_input, services),
+            (ArrivalPort::Job, false, false) => Ok(self.add_job(msg_input, services)),
             (ArrivalPort::Unknown, _, _) => Err(SimulationError::InvalidMessage),
         }
     }

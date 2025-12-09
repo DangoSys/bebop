@@ -5,9 +5,9 @@ use sim::models::model_trait::SerializableModel;
 use sim::utils::errors::SimulationError;
 use std::f64::INFINITY;
 
-/// Memory模块 - 处理读写请求
+/// Memdomain模块 - 处理读写请求
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Memory {
+pub struct Memdomain {
   ports_in: PortsIn,
   ports_out: PortsOut,
   state: State,
@@ -36,14 +36,14 @@ enum Phase {
   Processing,
 }
 
-impl Memory {
+impl Memdomain {
   pub fn new() -> Self {
     Self {
       ports_in: PortsIn {
-        request: "request".to_string(),
+        request: "balldomain_memdomain".to_string(),
       },
       ports_out: PortsOut {
-        response: "response".to_string(),
+        response: "memdomain_balldomain".to_string(),
       },
       state: State {
         phase: Phase::Idle,
@@ -54,13 +54,13 @@ impl Memory {
   }
 }
 
-impl DevsModel for Memory {
+impl DevsModel for Memdomain {
   fn events_ext(
     &mut self,
-    incoming_message: &ModelMessage,
+    msg_input: &ModelMessage,
     _services: &mut Services,
   ) -> Result<(), SimulationError> {
-    if incoming_message.port_name == self.ports_in.request {
+    if msg_input.port_name == self.ports_in.request {
       // 收到内存请求
       self.state.phase = Phase::Processing;
       self.state.until_next_event = 1.0; // 模拟内存访问延迟1个cycle
@@ -72,11 +72,11 @@ impl DevsModel for Memory {
     &mut self,
     _services: &mut Services,
   ) -> Result<Vec<ModelMessage>, SimulationError> {
-    let mut messages = Vec::new();
+    let mut msg_output = Vec::new();
     
     if self.state.phase == Phase::Processing {
       // 发送内存响应
-      messages.push(ModelMessage {
+      msg_output.push(ModelMessage {
         port_name: self.ports_out.response.clone(),
         content: "DATA_READY".to_string(),
       });
@@ -85,7 +85,7 @@ impl DevsModel for Memory {
       self.state.until_next_event = INFINITY;
     }
     
-    Ok(messages)
+    Ok(msg_output)
   }
 
   fn time_advance(&mut self, time_delta: f64) {
@@ -97,9 +97,9 @@ impl DevsModel for Memory {
   }
 }
 
-impl Reportable for Memory {
+impl Reportable for Memdomain {
   fn status(&self) -> String {
-    format!("Memory - Phase: {:?}", self.state.phase)
+    format!("Memdomain - Phase: {:?}", self.state.phase)
   }
 
   fn records(&self) -> &Vec<ModelRecord> {
@@ -107,10 +107,10 @@ impl Reportable for Memory {
   }
 }
 
-impl ReportableModel for Memory {}
+impl ReportableModel for Memdomain {}
 
-impl SerializableModel for Memory {
+impl SerializableModel for Memdomain {
   fn get_type(&self) -> &'static str {
-    "Memory"
+    "Memdomain"
   }
 }

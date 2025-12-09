@@ -10,8 +10,8 @@
 //! with better JS/WASM compatibility.
 //!
 //! Most simulation analysis will involve the collection, transformation,
-//! and analysis of messages.  The `step`, `step_n`, and `step_until` methods
-//! return the messages generated during the execution of the simulation
+//! and analysis of msg_output.  The `step`, `step_n`, and `step_until` methods
+//! return the msg_output generated during the execution of the simulation
 //! step(s), for use in message analysis.
 
 use serde::{Deserialize, Serialize};
@@ -33,13 +33,13 @@ pub use self::web::Simulation as WebSimulation;
 /// The `Simulation` struct is the core of sim, and includes everything
 /// needed to run a simulation - models, connectors, and a random number
 /// generator.  State information, specifically global time and active
-/// messages are additionally retained in the struct.
+/// msg_output are additionally retained in the struct.
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Simulation {
     models: Vec<Model>,
     connectors: Vec<Connector>,
-    messages: Vec<Message>,
+    msg_output: Vec<Message>,
     services: Services,
 }
 
@@ -84,15 +84,15 @@ impl Simulation {
         self.connectors = connectors;
     }
 
-    /// Simulation steps generate messages, which are then consumed on
-    /// subsequent simulation steps.  These messages between models in a
+    /// Simulation steps generate msg_output, which are then consumed on
+    /// subsequent simulation steps.  These msg_output between models in a
     /// simulation drive much of the discovery, analysis, and design.  This
-    /// accessor method provides the list of active messages, at the current
+    /// accessor method provides the list of active msg_output, at the current
     /// point of time in the simulation.  Message history is not retained, so
-    /// simulation products and projects should collect messages as needed
+    /// simulation products and projects should collect msg_output as needed
     /// throughout the simulation execution.
-    pub fn get_messages(&self) -> &Vec<Message> {
-        &self.messages
+    pub fn get_msg_output(&self) -> &Vec<Message> {
+        &self.msg_output
     }
 
     /// An accessor method for the simulation global time.
@@ -129,13 +129,13 @@ impl Simulation {
     /// Recreating a simulation from scratch for additional replications
     /// does not work, due to the random number generator seeding.
     pub fn reset(&mut self) {
-        self.reset_messages();
+        self.reset_msg_output();
         self.reset_global_time();
     }
 
-    /// Clear the active messages in a simulation.
-    pub fn reset_messages(&mut self) {
-        self.messages = Vec::new();
+    /// Clear the active msg_output in a simulation.
+    pub fn reset_msg_output(&mut self) {
+        self.msg_output = Vec::new();
     }
 
     /// Reset the simulation global time to 0.0.
@@ -187,21 +187,21 @@ impl Simulation {
     /// disruption, and manipulation - all through the standard simulation
     /// message system.
     pub fn inject_input(&mut self, message: Message) {
-        self.messages.push(message);
+        self.msg_output.push(message);
     }
 
     /// The simulation step is foundational for a discrete event simulation.
     /// This method executes a single discrete event simulation step,
     /// including internal state transitions, external state transitions,
-    /// message orchestration, global time accounting, and step messages
+    /// message orchestration, global time accounting, and step msg_output
     /// output.
     pub fn step(&mut self) -> Result<Vec<Message>, SimulationError> {
-        let messages = self.messages.clone();
-        let mut next_messages: Vec<Message> = Vec::new();
+        let msg_output = self.msg_output.clone();
+        let mut next_msg_output: Vec<Message> = Vec::new();
         // Process external events
-        if !messages.is_empty() {
+        if !msg_output.is_empty() {
             (0..self.models.len()).try_for_each(|model_index| -> Result<(), SimulationError> {
-                let model_messages: Vec<ModelMessage> = messages
+                let model_msg_output: Vec<ModelMessage> = msg_output
                     .iter()
                     .filter_map(|message| {
                         if message.target_id() == self.models[model_index].id() {
@@ -214,15 +214,15 @@ impl Simulation {
                         }
                     })
                     .collect();
-                model_messages
+                model_msg_output
                     .iter()
                     .try_for_each(|model_message| -> Result<(), SimulationError> {
                         self.models[model_index].events_ext(model_message, &mut self.services)
                     })
             })?;
         }
-        // Process internal events and gather associated messages
-        let until_next_event: f64 = if self.messages.is_empty() {
+        // Process internal events and gather associated msg_output
+        let until_next_event: f64 = if self.msg_output.is_empty() {
             self.models().iter().fold(f64::INFINITY, |min, model| {
                 f64::min(min, model.until_next_event())
             })
@@ -251,7 +251,7 @@ impl Simulation {
                             );
                             target_ids.iter().zip(target_ports.iter()).for_each(
                                 |(target_id, target_port)| {
-                                    next_messages.push(Message::new(
+                                    next_msg_output.push(Message::new(
                                         self.models[model_index].id().to_string(),
                                         outgoing_message.port_name.clone(),
                                         target_id.clone(),
@@ -267,19 +267,19 @@ impl Simulation {
             })
             .collect();
         errors?;
-        self.messages = next_messages;
-        Ok(self.get_messages().clone())
+        self.msg_output = next_msg_output;
+        Ok(self.get_msg_output().clone())
     }
 
     /// This method executes simulation `step` calls, until a global time
-    /// has been exceeded.  At which point, the messages from all the
+    /// has been exceeded.  At which point, the msg_output from all the
     /// simulation steps are returned.
     pub fn step_until(&mut self, until: f64) -> Result<Vec<Message>, SimulationError> {
         let mut message_records: Vec<Message> = Vec::new();
         loop {
             self.step()?;
             if self.services.global_time() < until {
-                message_records.extend(self.get_messages().clone());
+                message_records.extend(self.get_msg_output().clone());
             } else {
                 break;
             }
@@ -288,14 +288,14 @@ impl Simulation {
     }
 
     /// This method executes the specified number of simulation steps, `n`.
-    /// Upon execution of the n steps, the messages from all the steps are
+    /// Upon execution of the n steps, the msg_output from all the steps are
     /// returned.
     pub fn step_n(&mut self, n: usize) -> Result<Vec<Message>, SimulationError> {
         let mut message_records: Vec<Message> = Vec::new();
         (0..n)
             .map(|_| -> Result<Vec<Message>, SimulationError> {
                 self.step()?;
-                message_records.extend(self.messages.clone());
+                message_records.extend(self.msg_output.clone());
                 Ok(Vec::new())
             })
             .find(Result::is_err)

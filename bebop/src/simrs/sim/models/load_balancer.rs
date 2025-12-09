@@ -75,14 +75,14 @@ impl LoadBalancer {
         }
     }
 
-    fn pass_job(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn pass_job(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         self.state.phase = Phase::LoadBalancing;
         self.state.until_next_event = 0.0;
-        self.state.jobs.push(incoming_message.content.clone());
+        self.state.jobs.push(msg_input.content.clone());
         self.record(
             services.global_time(),
             String::from("Arrival"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
     }
 
@@ -125,10 +125,10 @@ impl LoadBalancer {
 impl DevsModel for LoadBalancer {
     fn events_ext(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
-        Ok(self.pass_job(incoming_message, services))
+        Ok(self.pass_job(msg_input, services))
     }
 
     fn events_int(

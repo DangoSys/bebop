@@ -54,10 +54,10 @@ impl SerializableModel for Model {}
 impl DevsModel for Model {
     fn events_ext(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
-        self.inner.events_ext(incoming_message, services)
+        self.inner.events_ext(msg_input, services)
     }
 
     fn events_int(

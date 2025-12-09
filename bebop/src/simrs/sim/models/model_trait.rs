@@ -37,7 +37,7 @@ pub trait SerializableModel {
 pub trait DevsModel: ModelClone + SerializableModel {
     fn events_ext(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError>;
     fn events_int(&mut self, services: &mut Services)

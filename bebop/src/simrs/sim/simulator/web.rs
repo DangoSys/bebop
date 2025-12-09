@@ -70,28 +70,28 @@ impl Simulation {
         serde_yaml::to_string(&self.simulation).unwrap()
     }
 
-    /// A JS/WASM interface for `Simulation.get_messages`, which converts the
-    /// messages to a JavaScript Array.
-    pub fn get_messages_js(&self) -> Array {
+    /// A JS/WASM interface for `Simulation.get_msg_output`, which converts the
+    /// msg_output to a JavaScript Array.
+    pub fn get_msg_output_js(&self) -> Array {
         // Workaround for https://github.com/rustwasm/wasm-bindgen/issues/111
         self.simulation
-            .get_messages()
+            .get_msg_output()
             .clone()
             .into_iter()
             .map(JsValue::from)
             .collect()
     }
 
-    /// A JS/WASM interface for `Simulation.get_messages`, which converts the
-    /// messages to a JSON string.
-    pub fn get_messages_json(&self) -> String {
-        serde_json::to_string(&self.simulation.get_messages()).unwrap()
+    /// A JS/WASM interface for `Simulation.get_msg_output`, which converts the
+    /// msg_output to a JSON string.
+    pub fn get_msg_output_json(&self) -> String {
+        serde_json::to_string(&self.simulation.get_msg_output()).unwrap()
     }
 
-    /// A JS/WASM interface for `Simulation.get_messages`, which converts the
-    /// messages to a YAML string.
-    pub fn get_messages_yaml(&self) -> String {
-        serde_yaml::to_string(&self.simulation.get_messages()).unwrap()
+    /// A JS/WASM interface for `Simulation.get_msg_output`, which converts the
+    /// msg_output to a YAML string.
+    pub fn get_msg_output_yaml(&self) -> String {
+        serde_yaml::to_string(&self.simulation.get_msg_output()).unwrap()
     }
 
     /// An interface to `Simulation.get_global_time`.
@@ -121,9 +121,9 @@ impl Simulation {
         self.simulation.reset();
     }
 
-    /// An interface to `Simulation.reset_messages`.
-    pub fn reset_messages(&mut self) {
-        self.simulation.reset_messages();
+    /// An interface to `Simulation.reset_msg_output`.
+    pub fn reset_msg_output(&mut self) {
+        self.simulation.reset_msg_output();
     }
 
     /// An interface to `Simulation.reset_global_time`
@@ -132,21 +132,21 @@ impl Simulation {
     }
 
     /// A JS/WASM interface for `Simulation.inject_input`, which uses a JSON
-    /// representation of the injected messages.
+    /// representation of the injected msg_output.
     pub fn inject_input_json(&mut self, message: &str) {
         self.simulation
             .inject_input(serde_json::from_str(message).unwrap());
     }
 
     /// A JS/WASM interface for `Simulation.inject_input`, which uses a YAML
-    /// representation of the injected messages.
+    /// representation of the injected msg_output.
     pub fn inject_input_yaml(&mut self, message: &str) {
         self.simulation
             .inject_input(serde_yaml::from_str(message).unwrap());
     }
 
     /// A JS/WASM interface for `Simulation.step`, which converts the
-    /// returned messages to a JavaScript Array.
+    /// returned msg_output to a JavaScript Array.
     pub fn step_js(&mut self) -> Array {
         self.simulation
             .step()
@@ -157,19 +157,19 @@ impl Simulation {
     }
 
     /// A JS/WASM interface for `Simulation.step`, which converts the
-    /// returned messages to a JSON string.
+    /// returned msg_output to a JSON string.
     pub fn step_json(&mut self) -> String {
         serde_json::to_string(&self.simulation.step().unwrap()).unwrap()
     }
 
     /// A JS/WASM interface for `Simulation.step`, which converts the
-    /// returned messages to a YAML string.
+    /// returned msg_output to a YAML string.
     pub fn step_yaml(&mut self) -> String {
         serde_yaml::to_string(&self.simulation.step().unwrap()).unwrap()
     }
 
     /// A JS/WASM interface for `Simulation.step_until`, which converts the
-    /// returned messages to a JavaScript Array.
+    /// returned msg_output to a JavaScript Array.
     pub fn step_until_js(&mut self, until: f64) -> Array {
         self.simulation
             .step_until(until)
@@ -180,19 +180,19 @@ impl Simulation {
     }
 
     /// A JS/WASM interface for `Simulation.step_until`, which converts the
-    /// returned messages to a JSON string.
+    /// returned msg_output to a JSON string.
     pub fn step_until_json(&mut self, until: f64) -> String {
         serde_json::to_string(&self.simulation.step_until(until).unwrap()).unwrap()
     }
 
     /// A JS/WASM interface for `Simulation.step_until`, which converts the
-    /// returned messages to a YAML string.
+    /// returned msg_output to a YAML string.
     pub fn step_until_yaml(&mut self, until: f64) -> String {
         serde_yaml::to_string(&self.simulation.step_until(until).unwrap()).unwrap()
     }
 
     /// A JS/WASM interface for `Simulation.step_n`, which converts the
-    /// returned messages to a JavaScript Array.
+    /// returned msg_output to a JavaScript Array.
     pub fn step_n_js(&mut self, n: usize) -> Array {
         self.simulation
             .step_n(n)
@@ -203,13 +203,13 @@ impl Simulation {
     }
 
     /// A JS/WASM interface for `Simulation.step_n`, which converts the
-    /// returned messages to a JSON string.
+    /// returned msg_output to a JSON string.
     pub fn step_n_json(&mut self, n: usize) -> String {
         serde_json::to_string(&self.simulation.step_n(n).unwrap()).unwrap()
     }
 
     /// A JS/WASM interface for `Simulation.step_n`, which converts the
-    /// returned messages to a YAML string.
+    /// returned msg_output to a YAML string.
     pub fn step_n_yaml(&mut self, n: usize) -> String {
         serde_yaml::to_string(&self.simulation.step_n(n).unwrap()).unwrap()
     }

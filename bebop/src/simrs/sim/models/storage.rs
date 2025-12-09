@@ -103,12 +103,12 @@ impl Storage {
         self.state.until_next_event = 0.0;
     }
 
-    fn hold_job(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
-        self.state.job = Some(incoming_message.content.clone());
+    fn hold_job(&mut self, msg_input: &ModelMessage, services: &mut Services) {
+        self.state.job = Some(msg_input.content.clone());
         self.record(
             services.global_time(),
             String::from("Arrival"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
     }
 
@@ -150,11 +150,11 @@ impl Storage {
 impl DevsModel for Storage {
     fn events_ext(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
-        match self.arrival_port(&incoming_message.port_name) {
-            ArrivalPort::Put => Ok(self.hold_job(incoming_message, services)),
+        match self.arrival_port(&msg_input.port_name) {
+            ArrivalPort::Put => Ok(self.hold_job(msg_input, services)),
             ArrivalPort::Get => Ok(self.get_job()),
             ArrivalPort::Unknown => Err(SimulationError::InvalidMessage),
         }

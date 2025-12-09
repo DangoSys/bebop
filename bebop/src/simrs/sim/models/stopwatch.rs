@@ -12,7 +12,7 @@ use sim_derive::SerializableModel;
 #[cfg(feature = "simx")]
 use simx::event_rules;
 
-/// The stopwatch calculates durations by matching messages on the start and
+/// The stopwatch calculates durations by matching msg_output on the start and
 /// stop ports.  For example, a "job 1" message arrives at the start port at
 /// time 0.1, and then a "job 1" message arrives at the stop port at time
 /// 1.3.  The duration for job 1 will be saved as 1.2.  The status reporting
@@ -134,15 +134,15 @@ impl Stopwatch {
         }
     }
 
-    fn matching_or_new_job(&mut self, incoming_message: &ModelMessage) -> &mut Job {
+    fn matching_or_new_job(&mut self, msg_input: &ModelMessage) -> &mut Job {
         if !self
             .state
             .jobs
             .iter()
-            .any(|job| job.name == incoming_message.content)
+            .any(|job| job.name == msg_input.content)
         {
             self.state.jobs.push(Job {
-                name: incoming_message.content.clone(),
+                name: msg_input.content.clone(),
                 start: None,
                 stop: None,
             });
@@ -150,7 +150,7 @@ impl Stopwatch {
         self.state
             .jobs
             .iter_mut()
-            .find(|job| job.name == incoming_message.content)
+            .find(|job| job.name == msg_input.content)
             .unwrap()
     }
 
@@ -190,22 +190,22 @@ impl Stopwatch {
             .0
     }
 
-    fn start_job(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn start_job(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         self.record(
             services.global_time(),
             String::from("Start"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
-        self.matching_or_new_job(incoming_message).start = Some(services.global_time());
+        self.matching_or_new_job(msg_input).start = Some(services.global_time());
     }
 
-    fn stop_job(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn stop_job(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         self.record(
             services.global_time(),
             String::from("Stop"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
-        self.matching_or_new_job(incoming_message).stop = Some(services.global_time());
+        self.matching_or_new_job(msg_input).stop = Some(services.global_time());
     }
 
     fn get_job(&mut self) {
@@ -270,12 +270,12 @@ impl Stopwatch {
 impl DevsModel for Stopwatch {
     fn events_ext(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
-        match self.arrival_port(&incoming_message.port_name) {
-            ArrivalPort::Start => Ok(self.start_job(incoming_message, services)),
-            ArrivalPort::Stop => Ok(self.stop_job(incoming_message, services)),
+        match self.arrival_port(&msg_input.port_name) {
+            ArrivalPort::Start => Ok(self.start_job(msg_input, services)),
+            ArrivalPort::Stop => Ok(self.stop_job(msg_input, services)),
             ArrivalPort::Metric => Ok(self.get_job()),
             ArrivalPort::Unknown => Err(SimulationError::InvalidMessage),
         }

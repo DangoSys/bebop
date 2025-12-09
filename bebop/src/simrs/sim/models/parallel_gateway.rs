@@ -97,19 +97,19 @@ impl ParallelGateway {
             .find(|(_, count)| **count == self.ports_in.flow_paths.len())
     }
 
-    fn increment_collection(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn increment_collection(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         *self
             .state
             .collections
-            .entry(incoming_message.content.clone())
+            .entry(msg_input.content.clone())
             .or_insert(0) += 1;
         self.record(
             services.global_time(),
             String::from("Arrival"),
             format![
                 "{} on {}",
-                incoming_message.content.clone(),
-                incoming_message.port_name.clone()
+                msg_input.content.clone(),
+                msg_input.port_name.clone()
             ],
         );
         self.state.until_next_event = 0.0;
@@ -128,17 +128,17 @@ impl ParallelGateway {
             .flow_paths
             .clone()
             .iter()
-            .fold(Vec::new(), |mut messages, flow_path| {
+            .fold(Vec::new(), |mut msg_output, flow_path| {
                 self.record(
                     services.global_time(),
                     String::from("Departure"),
                     format!["{} on {}", completed_collection.clone(), flow_path.clone()],
                 );
-                messages.push(ModelMessage {
+                msg_output.push(ModelMessage {
                     port_name: flow_path.clone(),
                     content: completed_collection.clone(),
                 });
-                messages
+                msg_output
             }))
     }
 
@@ -162,11 +162,11 @@ impl ParallelGateway {
 impl DevsModel for ParallelGateway {
     fn events_ext(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
-        match self.arrival_port(&incoming_message.port_name) {
-            ArrivalPort::FlowPath => Ok(self.increment_collection(incoming_message, services)),
+        match self.arrival_port(&msg_input.port_name) {
+            ArrivalPort::FlowPath => Ok(self.increment_collection(msg_input, services)),
             ArrivalPort::Unknown => Err(SimulationError::InvalidMessage),
         }
     }

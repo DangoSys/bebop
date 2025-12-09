@@ -7,7 +7,7 @@ use std::f64::INFINITY;
 
 /// Compute模块 - 处理计算任务，与Memory交互
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Compute {
+pub struct Balldomain {
   ports_in: PortsIn,
   ports_out: PortsOut,
   state: State,
@@ -39,16 +39,16 @@ enum Phase {
   Computing,
 }
 
-impl Compute {
+impl Balldomain {
   pub fn new() -> Self {
     Self {
       ports_in: PortsIn {
-        from_frontend: "from_frontend".to_string(),
-        mem_response: "mem_response".to_string(),
+        from_frontend: "frontend_balldomain".to_string(),
+        mem_response: "memdomain_balldomain".to_string(),
       },
       ports_out: PortsOut {
-        mem_request: "mem_request".to_string(),
-        result: "result".to_string(),
+        mem_request: "balldomain_memdomain".to_string(),
+        result: "balldomain_result".to_string(),
       },
       state: State {
         phase: Phase::Idle,
@@ -59,35 +59,35 @@ impl Compute {
   }
 }
 
-impl DevsModel for Compute {
+impl DevsModel for Balldomain {
   fn events_ext(
     &mut self,
-    incoming_message: &ModelMessage,
+    msg_input: &ModelMessage,
     services: &mut Services,
   ) -> Result<(), SimulationError> {
     let current_time = services.global_time();
     
-    if incoming_message.port_name == self.ports_in.from_frontend {
+    if msg_input.port_name == self.ports_in.from_frontend {
       // 收到Frontend的任务，请求Memory
       self.state.phase = Phase::WaitingMemory;
       self.state.until_next_event = 0.0;
       
       // 使用Services记录事件
       self.state.records.push(ModelRecord {
-        subject: "Compute".to_string(),
+        subject: "Balldomain".to_string(),
         time: current_time,
-        action: format!("收到任务: {}", incoming_message.content),
+        action: format!("收到任务: {}", msg_input.content),
       });
-    } else if incoming_message.port_name == self.ports_in.mem_response {
+    } else if msg_input.port_name == self.ports_in.mem_response {
       // 收到Memory响应，开始计算
       self.state.phase = Phase::Computing;
       self.state.until_next_event = 1.0; // 模拟计算耗时1个时间单位
       
       // 记录内存响应事件
       self.state.records.push(ModelRecord {
-        subject: "Compute".to_string(),
+        subject: "Balldomain".to_string(),
         time: current_time,
-        action: format!("收到内存数据: {}", incoming_message.content),
+        action: format!("收到内存数据: {}", msg_input.content),
       });
     }
     Ok(())
@@ -97,20 +97,20 @@ impl DevsModel for Compute {
     &mut self,
     services: &mut Services,
   ) -> Result<Vec<ModelMessage>, SimulationError> {
-    let mut messages = Vec::new();
+    let mut msg_output = Vec::new();
     let current_time = services.global_time();
     
     match self.state.phase {
       Phase::WaitingMemory => {
         // 发送内存请求
-        messages.push(ModelMessage {
+        msg_output.push(ModelMessage {
           port_name: self.ports_out.mem_request.clone(),
           content: "READ_DATA".to_string(),
         });
         
         // 记录发送内存请求
         self.state.records.push(ModelRecord {
-          subject: "Compute".to_string(),
+          subject: "Balldomain".to_string(),
           time: current_time,
           action: "发送内存请求".to_string(),
         });
@@ -120,14 +120,14 @@ impl DevsModel for Compute {
       Phase::Computing => {
         // 计算完成，输出结果
         let result = format!("RESULT_{}", (current_time * 100.0) as u64);
-        messages.push(ModelMessage {
+        msg_output.push(ModelMessage {
           port_name: self.ports_out.result.clone(),
           content: result.clone(),
         });
         
         // 记录计算完成
         self.state.records.push(ModelRecord {
-          subject: "Compute".to_string(),
+          subject: "Balldomain".to_string(),
           time: current_time,
           action: format!("计算完成: {}", result),
         });
@@ -138,7 +138,7 @@ impl DevsModel for Compute {
       _ => {}
     }
     
-    Ok(messages)
+    Ok(msg_output)
   }
 
   fn time_advance(&mut self, time_delta: f64) {
@@ -150,9 +150,9 @@ impl DevsModel for Compute {
   }
 }
 
-impl Reportable for Compute {
+impl Reportable for Balldomain {
   fn status(&self) -> String {
-    format!("Compute - Phase: {:?}", self.state.phase)
+    format!("Balldomain - Phase: {:?}", self.state.phase)
   }
 
   fn records(&self) -> &Vec<ModelRecord> {
@@ -160,10 +160,10 @@ impl Reportable for Compute {
   }
 }
 
-impl ReportableModel for Compute {}
+impl ReportableModel for Balldomain {}
 
-impl SerializableModel for Compute {
+impl SerializableModel for Balldomain {
   fn get_type(&self) -> &'static str {
-    "Compute"
+    "Balldomain"
   }
 }

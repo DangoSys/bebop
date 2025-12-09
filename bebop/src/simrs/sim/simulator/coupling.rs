@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
 /// Connectors are configured to connect models through their ports.  During
-/// simulation, models exchange messages (as per the Discrete Event System
+/// simulation, models exchange msg_output (as per the Discrete Event System
 /// Specification) via these connectors.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,7 +54,7 @@ impl Connector {
     }
 }
 
-/// Messages are the mechanism of information exchange for models in a
+/// msg_output are the mechanism of information exchange for models in a
 /// a simulation.  The message must contain origin information (source model
 /// ID and source model port), destination information (target model ID and
 /// target model port), and the text/content of the message.

@@ -90,35 +90,35 @@ impl Batcher {
         }
     }
 
-    fn add_to_batch(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn add_to_batch(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         self.state.phase = Phase::Batching;
-        self.state.jobs.push(incoming_message.content.clone());
+        self.state.jobs.push(msg_input.content.clone());
         self.record(
             services.global_time(),
             String::from("Arrival"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
     }
 
-    fn start_batch(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn start_batch(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         self.state.phase = Phase::Batching;
         self.state.until_next_event = self.max_batch_time;
-        self.state.jobs.push(incoming_message.content.clone());
+        self.state.jobs.push(msg_input.content.clone());
         self.record(
             services.global_time(),
             String::from("Arrival"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
     }
 
-    fn fill_batch(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn fill_batch(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         self.state.phase = Phase::Release;
         self.state.until_next_event = 0.0;
-        self.state.jobs.push(incoming_message.content.clone());
+        self.state.jobs.push(msg_input.content.clone());
         self.record(
             services.global_time(),
             String::from("Arrival"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
     }
 
@@ -191,17 +191,17 @@ impl Batcher {
 impl DevsModel for Batcher {
     fn events_ext(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
         match (
             &self.state.phase,
             self.state.jobs.len() + 1 < self.max_batch_size,
         ) {
-            (Phase::Batching, true) => Ok(self.add_to_batch(incoming_message, services)),
-            (Phase::Passive, true) => Ok(self.start_batch(incoming_message, services)),
+            (Phase::Batching, true) => Ok(self.add_to_batch(msg_input, services)),
+            (Phase::Passive, true) => Ok(self.start_batch(msg_input, services)),
             (Phase::Release, true) => Err(SimulationError::InvalidModelState),
-            (_, false) => Ok(self.fill_batch(incoming_message, services)),
+            (_, false) => Ok(self.fill_batch(msg_input, services)),
         }
     }
 

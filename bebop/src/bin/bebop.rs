@@ -4,7 +4,7 @@
 /// This program listens for custom instruction requests from Host
 /// and simulates accelerator behavior.
 
-use bebop::SimMode;
+use bebop::{SimMode, SimConfig};
 use bebop::simulator::Simulator;
 use std::env;
 
@@ -17,6 +17,13 @@ fn main() -> std::io::Result<()> {
         SimMode::Run
     };
 
-    let mut simulator = Simulator::new(sim_mode);
+    let enable_log = args.iter().any(|arg| arg == "--log" || arg == "-l");
+
+    let config = SimConfig {
+        mode: sim_mode,
+        enable_log,
+    };
+
+    let mut simulator = Simulator::new(config)?;
     simulator.run()
 }
