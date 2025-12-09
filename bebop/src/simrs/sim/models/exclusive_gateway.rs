@@ -92,17 +92,17 @@ impl ExclusiveGateway {
         }
     }
 
-    fn pass_job(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn pass_job(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         self.state.phase = Phase::Pass;
         self.state.until_next_event = 0.0;
-        self.state.jobs.push(incoming_message.content.clone());
+        self.state.jobs.push(msg_input.content.clone());
         self.record(
             services.global_time(),
             String::from("Arrival"),
             format![
                 "{} on {}",
-                incoming_message.content.clone(),
-                incoming_message.port_name
+                msg_input.content.clone(),
+                msg_input.port_name
             ],
         );
     }
@@ -154,10 +154,10 @@ impl ExclusiveGateway {
 impl DevsModel for ExclusiveGateway {
     fn events_ext(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
-        Ok(self.pass_job(incoming_message, services))
+        Ok(self.pass_job(msg_input, services))
     }
 
     fn events_int(

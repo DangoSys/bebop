@@ -107,42 +107,42 @@ impl Gate {
         }
     }
 
-    fn activate(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn activate(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         self.state.phase = Phase::Open;
         self.state.until_next_event = f64::INFINITY;
         self.record(
             services.global_time(),
             String::from("Activation"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
     }
 
-    fn deactivate(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn deactivate(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         self.state.phase = Phase::Closed;
         self.state.until_next_event = f64::INFINITY;
         self.record(
             services.global_time(),
             String::from("Deactivation"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
     }
 
-    fn pass_job(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn pass_job(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         self.state.phase = Phase::Pass;
         self.state.until_next_event = 0.0;
-        self.state.jobs.push(incoming_message.content.clone());
+        self.state.jobs.push(msg_input.content.clone());
         self.record(
             services.global_time(),
             String::from("Arrival"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
     }
 
-    fn drop_job(&mut self, incoming_message: &ModelMessage, services: &mut Services) {
+    fn drop_job(&mut self, msg_input: &ModelMessage, services: &mut Services) {
         self.record(
             services.global_time(),
             String::from("Arrival"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
     }
 
@@ -179,17 +179,17 @@ impl Gate {
 impl DevsModel for Gate {
     fn events_ext(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
         match (
-            self.arrival_port(&incoming_message.port_name),
+            self.arrival_port(&msg_input.port_name),
             self.state.phase == Phase::Closed,
         ) {
-            (ArrivalPort::Activation, _) => Ok(self.activate(incoming_message, services)),
-            (ArrivalPort::Deactivation, _) => Ok(self.deactivate(incoming_message, services)),
-            (ArrivalPort::Job, false) => Ok(self.pass_job(incoming_message, services)),
-            (ArrivalPort::Job, true) => Ok(self.drop_job(incoming_message, services)),
+            (ArrivalPort::Activation, _) => Ok(self.activate(msg_input, services)),
+            (ArrivalPort::Deactivation, _) => Ok(self.deactivate(msg_input, services)),
+            (ArrivalPort::Job, false) => Ok(self.pass_job(msg_input, services)),
+            (ArrivalPort::Job, true) => Ok(self.drop_job(msg_input, services)),
             (ArrivalPort::Unknown, _) => Err(SimulationError::InvalidMessage),
         }
     }

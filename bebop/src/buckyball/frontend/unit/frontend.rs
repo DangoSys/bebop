@@ -1,7 +1,8 @@
 use sim::models::{Model, Coupled, ExternalInputCoupling, ExternalOutputCoupling, InternalCoupling};
-use super::{decoder::Decoder, rob::Rob};
+use crate::buckyball::frontend::unit::decoder::events::Decoder;
+use crate::buckyball::frontend::unit::rob::events::Rob;
 
-/// Frontend模块 - 层次化模型，包含Decoder和ROB
+/// Frontend module - hierarchical model, containing Decoder and ROB
 #[derive(Clone)]
 pub struct Frontend {
   coupled: Coupled,
@@ -9,7 +10,7 @@ pub struct Frontend {
 
 impl Frontend {
   pub fn new() -> Self {
-    // 创建内部子模块
+    // create internal submodules
     let decoder = Model::new(
       String::from("decoder"),
       Box::new(Decoder::new()),
@@ -20,42 +21,42 @@ impl Frontend {
       Box::new(Rob::new()),
     );
     
-    // 定义Frontend的外部端口
-    let ports_in = vec![String::from("instruction")];
-    let ports_out = vec![String::from("to_compute")];
+    // define external ports
+    let ports_in = vec![String::from("rocc_frontend")];
+    let ports_out = vec![String::from("frontend_balldomain")];
     
-    // 内部组件
+    // internal components
     let components = vec![decoder, rob];
     
-    // 外部输入映射: Frontend.instruction -> Decoder.instruction
+    // external input coupling: Frontend.rocc_frontend -> Decoder.frontend_decoder
     let external_input_couplings = vec![
       ExternalInputCoupling {
         target_id: String::from("decoder"),
-        source_port: String::from("instruction"),
-        target_port: String::from("instruction"),
+        source_port: String::from("rocc_frontend"),
+        target_port: String::from("frontend_decoder"),
       },
     ];
     
-    // 外部输出映射: ROB.to_compute -> Frontend.to_compute
+    // external output coupling: ROB.rob_balldomain -> Frontend.frontend_balldomain
     let external_output_couplings = vec![
       ExternalOutputCoupling {
         source_id: String::from("rob"),
-        source_port: String::from("to_compute"),
-        target_port: String::from("to_compute"),
+        source_port: String::from("rob_balldomain"),
+        target_port: String::from("frontend_balldomain"),
       },
     ];
     
-    // 内部连接: Decoder.decoded -> ROB.decoded
+    // internal coupling: Decoder.decoder_rob -> ROB.decoder_rob
     let internal_couplings = vec![
       InternalCoupling {
         source_id: String::from("decoder"),
         target_id: String::from("rob"),
-        source_port: String::from("decoded"),
-        target_port: String::from("decoded"),
+        source_port: String::from("decoder_rob"),
+        target_port: String::from("decoder_rob"),
       },
     ];
     
-    // 创建Coupled模型
+    // create Coupled model
     let coupled = Coupled::new(
       ports_in,
       ports_out,
@@ -69,7 +70,6 @@ impl Frontend {
   }
 }
 
-// 为Frontend实现必要的trait，委托给内部的Coupled
 use sim::models::model_trait::{DevsModel, Reportable, ReportableModel, SerializableModel};
 use sim::simulator::Services;
 use sim::models::{ModelRecord, ModelMessage};
@@ -78,10 +78,10 @@ use sim::utils::errors::SimulationError;
 impl DevsModel for Frontend {
   fn events_ext(
     &mut self,
-    incoming_message: &ModelMessage,
+    msg_input: &ModelMessage,
     services: &mut Services,
   ) -> Result<(), SimulationError> {
-    self.coupled.events_ext(incoming_message, services)
+    self.coupled.events_ext(msg_input, services)
   }
 
   fn events_int(

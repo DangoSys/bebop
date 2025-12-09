@@ -16,7 +16,8 @@ source $BUCKYBALL_PATH/env.sh
 
 3. Start the socket server
 ```
-./scripts/bebop_setup.sh
+cd bebop
+cargo build --release --bin bebop && ./target/release/bebop -s 
 ```
 
 4. Run the program

@@ -19,7 +19,7 @@ use simx::event_rules;
 /// random variable distribution with a single point can be used - in which
 /// case, the time between job generation is constant. This model will
 /// produce jobs through perpetuity, and the generator does not receive
-/// messages or otherwise change behavior throughout a simulation (except
+/// msg_output or otherwise change behavior throughout a simulation (except
 /// through the thinning function).
 #[derive(Debug, Clone, Serialize, Deserialize, SerializableModel)]
 #[serde(rename_all = "camelCase")]
@@ -160,7 +160,7 @@ impl Generator {
 impl DevsModel for Generator {
     fn events_ext(
         &mut self,
-        _incoming_message: &ModelMessage,
+        _msg_input: &ModelMessage,
         _services: &mut Services,
     ) -> Result<(), SimulationError> {
         Ok(())

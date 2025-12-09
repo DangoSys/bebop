@@ -3,3 +3,9 @@ pub enum SimMode {
   Step,
   Run,
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct SimConfig {
+  pub mode: SimMode,
+  pub enable_log: bool,
+}

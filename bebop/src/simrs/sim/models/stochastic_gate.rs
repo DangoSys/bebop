@@ -100,12 +100,12 @@ impl StochasticGate {
 
     fn receive_job(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
         self.state.until_next_event = 0.0;
         self.state.jobs.push(Job {
-            content: incoming_message.content.clone(),
+            content: msg_input.content.clone(),
             pass: match &self.rng {
                 Some(rng) => self.pass_distribution.random_variate(rng.clone())?,
                 None => self
@@ -116,7 +116,7 @@ impl StochasticGate {
         self.record(
             services.global_time(),
             String::from("Arrival"),
-            incoming_message.content.clone(),
+            msg_input.content.clone(),
         );
         Ok(())
     }
@@ -162,11 +162,11 @@ impl StochasticGate {
 impl DevsModel for StochasticGate {
     fn events_ext(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
-        match self.arrival_port(&incoming_message.port_name) {
-            ArrivalPort::Job => self.receive_job(incoming_message, services),
+        match self.arrival_port(&msg_input.port_name) {
+            ArrivalPort::Job => self.receive_job(msg_input, services),
             ArrivalPort::Unknown => Err(SimulationError::InvalidMessage),
         }
     }

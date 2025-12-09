@@ -68,7 +68,7 @@ pub struct InternalCoupling {
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct State {
-    parked_messages: Vec<ParkedMessage>,
+    parked_msg_output: Vec<ParkedMessage>,
     records: Vec<ModelRecord>,
 }
 
@@ -105,19 +105,19 @@ impl Coupled {
         }
     }
 
-    fn park_incoming_messages(
+    fn park_msg_inputs(
         &self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
     ) -> Option<Vec<ParkedMessage>> {
-        let parked_messages: Vec<ParkedMessage> = self
+        let parked_msg_output: Vec<ParkedMessage> = self
             .external_input_couplings
             .iter()
             .filter_map(|coupling| {
-                if coupling.source_port == incoming_message.port_name {
+                if coupling.source_port == msg_input.port_name {
                     Some(ParkedMessage {
                         component_id: coupling.target_id.to_string(),
                         port: coupling.target_port.to_string(),
-                        content: incoming_message.content.to_string(),
+                        content: msg_input.content.to_string(),
                     })
                 } else {
                     None
@@ -125,10 +125,10 @@ impl Coupled {
             })
             .collect();
 
-        if parked_messages.is_empty() {
+        if parked_msg_output.is_empty() {
             None
         } else {
-            Some(parked_messages)
+            Some(parked_msg_output)
         }
     }
 
@@ -167,10 +167,10 @@ impl Coupled {
 
     fn distribute_events_ext(
         &mut self,
-        parked_messages: &[ParkedMessage],
+        parked_msg_output: &[ParkedMessage],
         services: &mut Services,
     ) -> Result<(), SimulationError> {
-        parked_messages.iter().try_for_each(|parked_message| {
+        parked_msg_output.iter().try_for_each(|parked_message| {
             self.components
                 .iter_mut()
                 .find(|component| component.id() == parked_message.component_id)
@@ -196,7 +196,7 @@ impl Coupled {
             .len())
             .flat_map(|component_index| -> Vec<(usize, String, String)> {
                 self.state
-                    .parked_messages
+                    .parked_msg_output
                     .iter()
                     .filter_map(|parked_message| {
                         if parked_message.component_id == self.components[component_index].id() {
@@ -226,10 +226,10 @@ impl Coupled {
                 },
             )
             .collect::<Result<Vec<()>, SimulationError>>()?;
-        self.state.parked_messages = Vec::new();
+        self.state.parked_msg_output = Vec::new();
         // Find the events_int relevant models (until_next_event == 0.0)
-        // Run events_int for each model, and compile the internal and external messages
-        // Store the internal messages in the Coupled model struct, and output the external messages
+        // Run events_int for each model, and compile the internal and external msg_output
+        // Store the internal msg_output in the Coupled model struct, and output the external msg_output
         let int_transitioning_component_indexes: Vec<usize> = (0..self.components.len())
             .filter(|component_index| self.components[*component_index].until_next_event() == 0.0)
             .collect();
@@ -241,21 +241,21 @@ impl Coupled {
                         .events_int(services)?
                         .iter()
                         .flat_map(|outgoing_message| -> Vec<ModelMessage> {
-                            // For internal messages (those transmitted on internal couplings), store the messages
-                            // as Parked Messages, to be ingested by the target components on the next simulation step
+                            // For internal msg_output (those transmitted on internal couplings), store the msg_output
+                            // as Parked msg_output, to be ingested by the target components on the next simulation step
                             self.internal_targets(
                                 self.components[*component_index].id(),
                                 &outgoing_message.port_name,
                             )
                             .iter()
                             .for_each(|(target_id, target_port)| {
-                                self.state.parked_messages.push(ParkedMessage {
+                                self.state.parked_msg_output.push(ParkedMessage {
                                     component_id: target_id.to_string(),
                                     port: target_port.to_string(),
                                     content: outgoing_message.content.clone(),
                                 });
                             });
-                            // For external messages (those transmitted on external output couplings), prepare the
+                            // For external msg_output (those transmitted on external output couplings), prepare the
                             // output as standard events_int output
                             self.external_output_targets(
                                 self.components[*component_index].id(),
@@ -280,12 +280,12 @@ impl Coupled {
 impl DevsModel for Coupled {
     fn events_ext(
         &mut self,
-        incoming_message: &ModelMessage,
+        msg_input: &ModelMessage,
         services: &mut Services,
     ) -> Result<(), SimulationError> {
-        match self.park_incoming_messages(incoming_message) {
+        match self.park_msg_inputs(msg_input) {
             None => Ok(()),
-            Some(parked_messages) => self.distribute_events_ext(&parked_messages, services),
+            Some(parked_msg_output) => self.distribute_events_ext(&parked_msg_output, services),
         }
     }
 
@@ -304,7 +304,7 @@ impl DevsModel for Coupled {
 
     fn until_next_event(&self) -> f64 {
         // 如果有parked消息等待处理，立即返回0以触发events_int
-        if !self.state.parked_messages.is_empty() {
+        if !self.state.parked_msg_output.is_empty() {
             return 0.0;
         }
         
@@ -318,10 +318,10 @@ impl DevsModel for Coupled {
 
 impl Reportable for Coupled {
     fn status(&self) -> String {
-        if self.state.parked_messages.is_empty() {
-            format!["Processing {} messages", self.state.parked_messages.len()]
+        if self.state.parked_msg_output.is_empty() {
+            format!["Processing {} msg_output", self.state.parked_msg_output.len()]
         } else {
-            String::from("Processing no messages")
+            String::from("Processing no msg_output")
         }
     }
 
