@@ -7,7 +7,6 @@ use std::f64::INFINITY;
 
 use crate::buckyball::frontend::unit::rob::bundles::decoder_rob::DecodedInstruction;
 use crate::{log_backward, log_forward};
-use bebop_lib::ack_msg::AckMessage;
 use bebop_lib::msg::{create_message, receive_message};
 
 /// Reservation Station - 接收 ROB 指令并分发到不同 domain
@@ -18,7 +17,6 @@ pub struct Rs {
   // PortsOut 字段
   to_memdomain: String,
   to_balldomain: String,
-  ack_to_rob: String, // 发送 ACK/NACK 到 ROB
   // State 字段
   events: Vec<RsEvent>,
   until_next_event: f64,
@@ -29,8 +27,6 @@ pub struct Rs {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 enum RsEvent {
   Issue(DecodedInstruction), // 发射指令到对应 domain
-  SendAck,                   // 发送 ACK
-  SendNack(String),          // 发送 NACK，携带原因
 }
 
 impl Rs {
@@ -39,7 +35,6 @@ impl Rs {
       from_rob: "rob_rs".to_string(),
       to_memdomain: "rs_memdomain".to_string(),
       to_balldomain: "rs_balldomain".to_string(),
-      ack_to_rob: "rs_rob_ack".to_string(),
       events: Vec::new(),
       until_next_event: INFINITY,
       records: Vec::new(),
@@ -57,15 +52,8 @@ impl DevsModel for Rs {
       if self.busy {
         // 拒绝，发送 NACK
         log_backward!("RS: busy, reject funct={}", decoded_inst.funct);
-        self.events.push(RsEvent::SendNack("busy".to_string()));
         self.until_next_event = 0.1; // 立即响应
-      } else {
-        // 接受，发送 ACK 并处理
-        self.busy = true;
-        self.events.push(RsEvent::SendAck);
-        self.events.push(RsEvent::Issue(decoded_inst));
-        self.until_next_event = 0.5; // 0.5 cycle 后发射
-      }
+      }   
     }
     Ok(())
   }
@@ -74,17 +62,7 @@ impl DevsModel for Rs {
     let mut msg_output = Vec::new();
 
     for event in self.events.drain(..) {
-      match event {
-        RsEvent::SendAck => {
-          // 发送 ACK 到 ROB
-          msg_output.push(create_message(&AckMessage::ack(), &self.ack_to_rob)?);
-          log_backward!("RS: send ACK to ROB");
-        },
-        RsEvent::SendNack(reason) => {
-          // 发送 NACK 到 ROB（RS 不知道 retry_count，传 0）
-          msg_output.push(create_message(&AckMessage::nack(&reason, 0), &self.ack_to_rob)?);
-          log_backward!("RS: send NACK to ROB ({})", reason);
-        },
+      match event { 
         RsEvent::Issue(inst) => {
           // 根据 domain_id 分发指令
           let (port, domain_name) = match inst.domain_id {
