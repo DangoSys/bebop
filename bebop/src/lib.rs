@@ -1,6 +1,7 @@
 pub mod buckyball;
+pub mod model;
 pub mod simulator;
 
-// 重新导出常用类型
 pub use simulator::sim::mode::{SimConfig, SimMode};
+pub use model::Model;
 pub use simulator::utils::{log, log_config};
