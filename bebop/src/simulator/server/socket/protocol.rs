@@ -1,4 +1,4 @@
-use std::io::{Read, Write, Result};
+use std::io::{Read, Result, Write};
 use std::net::TcpStream;
 
 // Socket configuration
@@ -85,10 +85,7 @@ pub struct DmaWriteResp {
 pub fn read_struct<T: Sized>(stream: &mut TcpStream) -> Result<T> {
   unsafe {
     let mut data: T = std::mem::zeroed();
-    let bytes = std::slice::from_raw_parts_mut(
-      &mut data as *mut T as *mut u8,
-      std::mem::size_of::<T>(),
-    );
+    let bytes = std::slice::from_raw_parts_mut(&mut data as *mut T as *mut u8, std::mem::size_of::<T>());
     stream.read_exact(bytes)?;
     Ok(data)
   }
@@ -96,12 +93,8 @@ pub fn read_struct<T: Sized>(stream: &mut TcpStream) -> Result<T> {
 
 pub fn write_struct<T: Sized>(stream: &mut TcpStream, data: &T) -> Result<()> {
   unsafe {
-    let bytes = std::slice::from_raw_parts(
-      data as *const T as *const u8,
-      std::mem::size_of::<T>(),
-    );
+    let bytes = std::slice::from_raw_parts(data as *const T as *const u8, std::mem::size_of::<T>());
     stream.write_all(bytes)?;
     Ok(())
   }
 }
-

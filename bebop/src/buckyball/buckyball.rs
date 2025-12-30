@@ -1,7 +1,7 @@
-use sim::models::{Model, Coupled, ExternalInputCoupling, InternalCoupling};
+use sim::models::{Coupled, ExternalInputCoupling, InternalCoupling, Model};
 
-use super::frontend::unit::frontend::Frontend;
 use super::balldomain::balldomain::Balldomain;
+use super::frontend::unit::frontend::Frontend;
 use super::memdomain::memdomain::Memdomain;
 
 pub struct Buckyball;

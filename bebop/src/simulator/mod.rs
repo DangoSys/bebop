@@ -1,6 +1,6 @@
+pub mod server;
 pub mod sim;
 pub mod simulator;
-pub mod server;
 pub mod utils;
 
 // provide to bebop

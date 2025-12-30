@@ -1,15 +1,15 @@
-use sim::models::Model;
-use sim::simulator::{Simulation, Message};
-use super::sim::mode::{SimMode, SimConfig};
-use super::server::socket::{CmdHandler, DmaHandler, CmdReq};
+use super::server::socket::{CmdHandler, CmdReq, DmaHandler};
+use super::sim::mode::{SimConfig, SimMode};
 use super::utils::report::print_simulation_records;
 use crate::buckyball::buckyball::Buckyball;
 use crate::buckyball::frontend::bundles::rocc_frontend::RoccInstruction;
-use crate::log_config::{set_event_log, set_forward_log, set_backward_log};
+use crate::log_config::{set_backward_log, set_event_log, set_forward_log};
+use sim::models::Model;
+use sim::simulator::{Message, Simulation};
 use std::io::{self, Result, Write};
 use std::net::TcpListener;
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{self, Sender, Receiver};
 use std::thread;
 
 pub struct Simulator {
@@ -26,26 +26,24 @@ impl Simulator {
   pub fn new(config: SimConfig) -> Result<Self> {
     let listener = TcpListener::bind("127.0.0.1:9999")?;
     println!("Socket server listening on 127.0.0.1:9999");
-    
+
     println!("Waiting for Spike connection...");
     let (stream, addr) = listener.accept()?;
     println!("Connected: {}", addr);
-    
+
     let cmd_handler = Arc::new(Mutex::new(CmdHandler::new(stream.try_clone()?)));
     let dma_handler = Arc::new(Mutex::new(DmaHandler::new(stream.try_clone()?)));
-    
+
     let (cmd_tx, cmd_rx) = mpsc::channel();
     let (resp_tx, resp_rx) = mpsc::channel();
-    
+
     let buckyball = Buckyball::new();
-    let models = vec![
-      Model::new("buckyball".to_string(), Box::new(buckyball)),
-    ];
-    
+    let models = vec![Model::new("buckyball".to_string(), Box::new(buckyball))];
+
     let connectors = vec![];
-    
+
     let simulation = Simulation::post(models, connectors);
-    
+
     // 启动后台线程处理socket请求/响应
     let cmd_handler_clone = Arc::clone(&cmd_handler);
     thread::spawn(move || {
@@ -58,32 +56,32 @@ impl Simulator {
             let xs1 = req.xs1;
             let xs2 = req.xs2;
             println!("Received request: funct={}, xs1={:#x}, xs2={:#x}", funct, xs1, xs2);
-            
+
             // 发送到主线程
             if cmd_tx.send(req).is_err() {
               break;
             }
-            
+
             // 等待响应
             drop(handler);
             match resp_rx.recv() {
               Ok(result) => {
                 let mut handler = cmd_handler_clone.lock().unwrap();
                 let _ = handler.send_response(result);
-              }
+              },
               Err(_) => break,
             }
-          }
+          },
           Err(e) => {
             eprintln!("Request error: {:?}", e);
             break;
-          }
+          },
         }
       }
     });
-    
-    Ok(Self { 
-      simulation, 
+
+    Ok(Self {
+      simulation,
       config,
       _cmd_handler: cmd_handler,
       _dma_handler: dma_handler,
@@ -135,11 +133,10 @@ impl Simulator {
         let xs1 = req.xs1;
         let xs2 = req.xs2;
         println!("\n=== New request: funct={} ===", funct);
-        
+
         // 创建 RoccInstruction 并序列化为 JSON
         let rocc_inst = RoccInstruction::new(funct, xs1, xs2);
-        let content = serde_json::to_string(&rocc_inst)
-          .expect("Failed to serialize RoccInstruction");
+        let content = serde_json::to_string(&rocc_inst).expect("Failed to serialize RoccInstruction");
         let msg = Message::new(
           "external".to_string(),
           "external".to_string(),
@@ -149,25 +146,26 @@ impl Simulator {
           content,
         );
         self.simulation.inject_input(msg);
-        
+
         self.pending_request = Some(req);
       }
     }
-    
+
     // 执行一步仿真
     let time_before = self.simulation.get_global_time();
-    self.simulation.step().map_err(|e| {
-      io::Error::new(io::ErrorKind::Other, format!("{:?}", e))
-    })?;
+    self
+      .simulation
+      .step()
+      .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{:?}", e)))?;
     let time_after = self.simulation.get_global_time();
-    
+
     // 打印时间
     println!("Time: {:.1} -> {:.1}", time_before, time_after);
-    
+
     // 检查是否完成
     if self.simulation.get_global_time() == f64::INFINITY && self.pending_request.is_some() {
       println!("=== Request completed ===");
-      
+
       // 如果启用log，打印records
       if self.config.enable_log {
         print_simulation_records(&mut self.simulation);
@@ -176,7 +174,7 @@ impl Simulator {
       let _ = self.resp_tx.send(0);
       self.pending_request = None;
     }
-    
+
     Ok(())
   }
 }
