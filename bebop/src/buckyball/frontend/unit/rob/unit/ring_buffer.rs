@@ -4,9 +4,9 @@ use crate::buckyball::frontend::unit::rob::bundles::decoder_rob::DecodedInstruct
 #[derive(Debug, Clone)]
 pub struct RingBuffer {
   buffer: Vec<Option<DecodedInstruction>>,
-  head: usize,  // 读指针
-  tail: usize,  // 写指针
-  size: usize,  // 当前元素数量
+  head: usize, // 读指针
+  tail: usize, // 写指针
+  size: usize, // 当前元素数量
   capacity: usize,
 }
 
@@ -26,7 +26,7 @@ impl RingBuffer {
     if self.is_full() {
       return false;
     }
-    
+
     self.buffer[self.tail] = Some(inst);
     self.tail = (self.tail + 1) % self.capacity;
     self.size += 1;
@@ -38,7 +38,7 @@ impl RingBuffer {
     if self.is_empty() {
       return None;
     }
-    
+
     let inst = self.buffer[self.head].take();
     self.head = (self.head + 1) % self.capacity;
     self.size -= 1;
@@ -79,14 +79,14 @@ mod tests {
   fn test_ring_buffer() {
     let mut rb = RingBuffer::new(4);
     assert!(rb.is_empty());
-    
+
     let inst1 = DecodedInstruction::new(24, 0x100, 0x200, 0);
     let inst2 = DecodedInstruction::new(25, 0x300, 0x400, 1);
-    
+
     assert!(rb.push_in_rob(inst1.clone()));
     assert!(rb.push_in_rob(inst2.clone()));
     assert_eq!(rb.len(), 2);
-    
+
     let popped = rb.pop_out_rob().unwrap();
     assert_eq!(popped.funct, 24);
     assert_eq!(rb.len(), 1);
