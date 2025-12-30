@@ -92,7 +92,7 @@ impl Simulator {
   }
 
   pub fn run(&mut self) -> Result<()> {
-    if self.config.enable_log {
+    if self.config.quiet {
       set_event_log(true);
       set_forward_log(true);
       set_backward_log(true);
@@ -167,7 +167,7 @@ impl Simulator {
       println!("=== Request completed ===");
 
       // 如果启用log，打印records
-      if self.config.enable_log {
+      if self.config.quiet {
         print_simulation_records(&mut self.simulation);
       }
 

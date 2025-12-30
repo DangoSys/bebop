@@ -7,5 +7,5 @@ pub enum SimMode {
 #[derive(Debug, Clone, Copy)]
 pub struct SimConfig {
   pub mode: SimMode,
-  pub enable_log: bool,
+  pub quiet: bool,
 }

@@ -1,10 +1,6 @@
-use bebop::simulator::Simulator;
-/// Bebop - Accelerator Simulator
-///
-/// Main executable for running the Bebop accelerator simulator.
-/// This program listens for custom instruction requests from Host
-/// and simulates accelerator behavior.
-use bebop::{SimConfig, SimMode};
+use bebop::model::Model;
+use bebop::simulator::sim::mode::{SimConfig, SimMode};
+
 use std::env;
 
 fn main() -> std::io::Result<()> {
@@ -16,13 +12,14 @@ fn main() -> std::io::Result<()> {
     SimMode::Run
   };
 
-  let enable_log = args.iter().any(|arg| arg == "--log" || arg == "-l");
+  let quiet = args.iter().any(|arg| arg == "--log" || arg == "-l");
 
   let config = SimConfig {
     mode: sim_mode,
-    enable_log,
+    quiet: quiet,
   };
 
-  let mut simulator = Simulator::new(config)?;
+  // let mut simulator = Simulator::new(config)?;
+  let mut simulator = Model::new(config)?;
   simulator.run()
 }
