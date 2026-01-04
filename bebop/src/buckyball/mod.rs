@@ -1,4 +1,8 @@
-pub mod balldomain;
+mod balldomain;
 pub mod buckyball;
-pub mod frontend;
-pub mod memdomain;
+mod cycleModel;
+mod frontend;
+pub mod lib;
+mod memdomain;
+
+pub use buckyball::Buckyball;

@@ -5,46 +5,33 @@ use sim::utils::errors::SimulationError;
 use std::f64::INFINITY;
 
 #[derive(Clone)]
-pub struct Rob {
-  queue: Vec<usize>,
+pub struct CycleModel {
   until_next_event: f64,
-  input_port: String,
 }
 
-impl Rob {
+impl CycleModel {
   pub fn new() -> Self {
     Self {
-      queue: Vec::new(),
       until_next_event: INFINITY,
-      input_port: "decoder_rob".to_string(),
     }
   }
 }
 
-impl DevsModel for Rob {
+impl DevsModel for CycleModel {
   fn events_ext(&mut self, msg_input: &ModelMessage, _services: &mut Services) -> Result<(), SimulationError> {
-    if msg_input.port_name == self.input_port {
-      if let Ok(inst) = msg_input.content.parse::<usize>() {
-        println!("ROB: receive instruction {} (queue size: {})", inst, self.queue.len());
-        self.queue.push(inst);
-        self.until_next_event = 1.0;
-      }
-    }
+    self.until_next_event = 1.0;
     Ok(())
   }
 
   fn events_int(&mut self, _services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
-    if let Some(inst) = self.queue.pop() {
-      println!("ROB: pop instruction {} (queue size: {})", inst, self.queue.len());
-    }
+    self.until_next_event = INFINITY;
 
-    if self.queue.is_empty() {
-      self.until_next_event = INFINITY;
-    } else {
-      self.until_next_event = 1.0;
-    }
+    let resp = ModelMessage {
+      port_name: "output".to_string(),
+      content: "finish".to_string(),
+    };
 
-    Ok(Vec::new())
+    Ok(vec![resp])
   }
 
   fn time_advance(&mut self, time_delta: f64) {
@@ -56,9 +43,9 @@ impl DevsModel for Rob {
   }
 }
 
-impl Reportable for Rob {
+impl Reportable for CycleModel {
   fn status(&self) -> String {
-    format!("ROB queue size: {}", self.queue.len())
+    "CycleModel".to_string()
   }
 
   fn records(&self) -> &Vec<ModelRecord> {
@@ -67,11 +54,10 @@ impl Reportable for Rob {
   }
 }
 
-impl ReportableModel for Rob {}
+impl ReportableModel for CycleModel {}
 
-impl SerializableModel for Rob {
+impl SerializableModel for CycleModel {
   fn get_type(&self) -> &'static str {
-    "Rob"
+    "CycleModel"
   }
 }
-

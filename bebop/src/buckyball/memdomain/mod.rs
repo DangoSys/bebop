@@ -1,1 +1,3 @@
-pub mod memdomain;
+mod bank;
+
+pub use bank::{mvin, mvout};

@@ -1,11 +1,18 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SimMode {
+pub enum RunMode {
+  Func,
+  Cycle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepMode {
+  Continuous,
   Step,
-  Run,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct SimConfig {
-  pub mode: SimMode,
+  pub run_mode: RunMode,
   pub quiet: bool,
+  pub step_mode: StepMode,
 }
