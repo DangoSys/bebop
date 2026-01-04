@@ -1,25 +1,24 @@
 use super::server::socket::{CmdHandler, CmdReq, DmaHandler};
-use super::sim::mode::{SimConfig, SimMode};
-use super::utils::report::print_simulation_records;
+use super::sim::mode::{RunMode, SimConfig, StepMode};
 use crate::buckyball::buckyball::Buckyball;
-use crate::buckyball::frontend::bundles::rocc_frontend::RoccInstruction;
 use crate::log_config::{set_backward_log, set_event_log, set_forward_log};
-use sim::models::Model;
-use sim::simulator::{Message, Simulation};
 use std::io::{self, Result, Write};
 use std::net::TcpListener;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+/// 全局周期模式标志
+pub static CYCLE_MODE_ENABLED: AtomicBool = AtomicBool::new(false);
+
 pub struct Simulator {
-  simulation: Simulation,
   config: SimConfig,
   _cmd_handler: Arc<Mutex<CmdHandler>>,
   _dma_handler: Arc<Mutex<DmaHandler>>,
   cmd_rx: Receiver<CmdReq>,
   resp_tx: Sender<u64>,
-  pending_request: Option<CmdReq>,
+  buckyball: Buckyball,
 }
 
 impl Simulator {
@@ -38,13 +37,7 @@ impl Simulator {
     let (resp_tx, resp_rx) = mpsc::channel();
 
     let buckyball = Buckyball::new();
-    let models = vec![Model::new("buckyball".to_string(), Box::new(buckyball))];
 
-    let connectors = vec![];
-
-    let simulation = Simulation::post(models, connectors);
-
-    // 启动后台线程处理socket请求/响应
     let cmd_handler_clone = Arc::clone(&cmd_handler);
     thread::spawn(move || {
       loop {
@@ -57,12 +50,10 @@ impl Simulator {
             let xs2 = req.xs2;
             println!("Received request: funct={}, xs1={:#x}, xs2={:#x}", funct, xs1, xs2);
 
-            // 发送到主线程
             if cmd_tx.send(req).is_err() {
               break;
             }
 
-            // 等待响应
             drop(handler);
             match resp_rx.recv() {
               Ok(result) => {
@@ -81,13 +72,12 @@ impl Simulator {
     });
 
     Ok(Self {
-      simulation,
       config,
       _cmd_handler: cmd_handler,
       _dma_handler: dma_handler,
       cmd_rx,
       resp_tx,
-      pending_request: None,
+      buckyball,
     })
   }
 
@@ -97,16 +87,20 @@ impl Simulator {
       set_forward_log(true);
       set_backward_log(true);
     }
-    match self.config.mode {
-      SimMode::Step => self.run_step_mode(),
-      SimMode::Run => self.run_continuous(),
+    match self.config.run_mode {
+      RunMode::Func => CYCLE_MODE_ENABLED.store(false, Ordering::Relaxed),
+      RunMode::Cycle => CYCLE_MODE_ENABLED.store(true, Ordering::Relaxed),
+    }
+    match self.config.step_mode {
+      StepMode::Continuous => self.run_continuous(),
+      StepMode::Step => self.run_step_mode(),
     }
   }
 
   fn run_step_mode(&mut self) -> Result<()> {
-    println!("Step mode - Press Enter to continue, 'q' to quit\n");
+    println!("Step mode - Press Enter to continue, 'q' to quit");
+    println!("Press Enter to continue...\n");
     loop {
-      print!("Press Enter to continue...");
       io::stdout().flush()?;
       let mut input = String::new();
       io::stdin().read_line(&mut input)?;
@@ -126,53 +120,15 @@ impl Simulator {
   }
 
   fn step(&mut self) -> Result<()> {
-    // 检查是否有新的请求
-    if self.pending_request.is_none() {
-      if let Ok(req) = self.cmd_rx.try_recv() {
-        let funct = req.funct;
-        let xs1 = req.xs1;
-        let xs2 = req.xs2;
-        println!("\n=== New request: funct={} ===", funct);
-
-        // 创建 RoccInstruction 并序列化为 JSON
-        let rocc_inst = RoccInstruction::new(funct, xs1, xs2);
-        let content = serde_json::to_string(&rocc_inst).expect("Failed to serialize RoccInstruction");
-        let msg = Message::new(
-          "external".to_string(),
-          "external".to_string(),
-          "buckyball".to_string(),
-          "inject".to_string(),
-          self.simulation.get_global_time(),
-          content,
-        );
-        self.simulation.inject_input(msg);
-
-        self.pending_request = Some(req);
-      }
+    if let Ok(req) = self.cmd_rx.try_recv() {
+      self.buckyball.inst_execute(req.funct, req.xs1, req.xs2);
     }
 
-    // 执行一步仿真
-    let time_before = self.simulation.get_global_time();
-    self
-      .simulation
-      .step()
-      .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{:?}", e)))?;
-    let time_after = self.simulation.get_global_time();
-
-    // 打印时间
-    println!("Time: {:.1} -> {:.1}", time_before, time_after);
-
-    // 检查是否完成
-    if self.simulation.get_global_time() == f64::INFINITY && self.pending_request.is_some() {
-      println!("=== Request completed ===");
-
-      // 如果启用log，打印records
-      if self.config.quiet {
-        print_simulation_records(&mut self.simulation);
+    if CYCLE_MODE_ENABLED.load(Ordering::Relaxed) {
+      let responses = self.buckyball.cycle_advance()?;
+      if !responses.is_empty() {
+        println!("Received {} response(s): {:?}", responses.len(), responses);
       }
-
-      let _ = self.resp_tx.send(0);
-      self.pending_request = None;
     }
 
     Ok(())

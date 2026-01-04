@@ -5,4 +5,3 @@ pub fn mvin() {
 pub fn mvout() {
   println!("Bank: MVOUT - Move data out");
 }
-
