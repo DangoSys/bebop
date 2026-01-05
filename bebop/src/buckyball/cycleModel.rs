@@ -19,19 +19,21 @@ impl CycleModel {
 
 impl DevsModel for CycleModel {
   fn events_ext(&mut self, msg_input: &ModelMessage, _services: &mut Services) -> Result<(), SimulationError> {
+    println!("CycleModel: events_ext, scheduling event");
     self.until_next_event = 1.0;
     Ok(())
   }
 
   fn events_int(&mut self, _services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
     self.until_next_event = INFINITY;
+    println!("CycleModel: events_int, sending to model1");
 
-    let resp = ModelMessage {
+    let msg = ModelMessage {
       port_name: "output".to_string(),
-      content: "finish".to_string(),
+      content: "request_to_model1".to_string(),
     };
 
-    Ok(vec![resp])
+    Ok(vec![msg])
   }
 
   fn time_advance(&mut self, time_delta: f64) {

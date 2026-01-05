@@ -1,5 +1,9 @@
-mod model;
 mod decoder;
+mod model;
+mod rob;
+mod rs;
 
-pub use decoder::decode_instruction;
-pub use model::{Decoder, Rob};
+pub use decoder::global_decode;
+pub use model::{Decoder, Rob, Rs};
+pub use rob::rob_allocate;
+pub use rs::rs_dispatch;

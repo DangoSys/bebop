@@ -5,7 +5,7 @@ config = {
     "name": "rob",
     "description": "handle ROB allocation and commit",
     "subscribes": ["frontend.rob.allocate"],
-    "emits": ["frontend.rs.dispatch"],
+    "emits": ["frontend.rs.dispatch", "frontend.rob.retry", "frontend.rob.allocated"],
     "flows": ["mvin"],
 }
 
@@ -23,8 +23,21 @@ async def handler(data, context):
 
     # Check if ROB is full
     if len(rob_state["entries"]) >= rob_state["max_entries"]:
-        print(f"ROB is full, cannot allocate new entry")
-        return {"error": "ROB full"}
+        print(f"ROB is full, cannot allocate new entry (current entries: {len(rob_state['entries'])}/{rob_state['max_entries']})")
+        # Emit retry event to notify upstream node to resend
+        await context.emit({
+            "topic": "frontend.rob.retry",
+            "data": {
+                "funct": funct,
+                "xs1": xs1,
+                "xs2": xs2,
+                "domain_id": domain_id
+            }
+        })
+        return {
+            "message": "ROB allocation failed, retry requested",
+            "status": "retry"
+        }
 
     # Allocate a new ROB ID
     rob_id = rob_state["next_id"]
@@ -41,7 +54,6 @@ async def handler(data, context):
 
     print(f"ROB allocated entry: rob_id={rob_id}, funct={funct}, xs1={xs1:#x}, xs2={xs2:#x}")
 
-
     # Emit ready signal with the allocated rob_id
     await context.emit({
         "topic": "frontend.rs.dispatch",
@@ -51,6 +63,18 @@ async def handler(data, context):
             "xs1": xs1,
             "xs2": xs2,
             "domain_id": domain_id
+        }
+    })
+
+    # Notify decoder that allocation succeeded (for retry cases)
+    await context.emit({
+        "topic": "frontend.rob.allocated",
+        "data": {
+            "funct": funct,
+            "xs1": xs1,
+            "xs2": xs2,
+            "domain_id": domain_id,
+            "rob_id": rob_id
         }
     })
 
