@@ -121,14 +121,14 @@ impl Simulator {
 
   fn step(&mut self) -> Result<()> {
     if let Ok(req) = self.cmd_rx.try_recv() {
-      self.buckyball.inst_execute(req.funct, req.xs1, req.xs2);
+      println!("Received request");
+      self.buckyball.inst_execute((Some(req.funct), Some(req.xs1), Some(req.xs2)));
+    } else {
+      self.buckyball.inst_execute((None, None, None));
     }
 
     if CYCLE_MODE_ENABLED.load(Ordering::Relaxed) {
-      let responses = self.buckyball.cycle_advance()?;
-      if !responses.is_empty() {
-        println!("Received {} response(s): {:?}", responses.len(), responses);
-      }
+      self.buckyball.cycle_advance()?;
     }
 
     Ok(())

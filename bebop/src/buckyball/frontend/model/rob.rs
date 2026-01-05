@@ -2,49 +2,37 @@ use sim::models::model_trait::{DevsModel, Reportable, ReportableModel, Serializa
 use sim::models::{ModelMessage, ModelRecord};
 use sim::simulator::Services;
 use sim::utils::errors::SimulationError;
+use std::collections::HashMap;
 use std::f64::INFINITY;
 
 #[derive(Clone)]
 pub struct Rob {
-  queue: Vec<usize>,
   until_next_event: f64,
-  input_port: String,
+  num_entries: u32,
+  max_entries: u32,
+  entries: HashMap<u32, (u32, u64, u64, u8)>,
 }
 
 impl Rob {
   pub fn new() -> Self {
     Self {
-      queue: Vec::new(),
-      until_next_event: INFINITY,
-      input_port: "decoder_rob".to_string(),
+      until_next_event: 1.0,
+      num_entries: 0,
+      max_entries: 64,
+      entries: HashMap::new(),
     }
   }
 }
 
 impl DevsModel for Rob {
   fn events_ext(&mut self, msg_input: &ModelMessage, _services: &mut Services) -> Result<(), SimulationError> {
-    if msg_input.port_name == self.input_port {
-      if let Ok(inst) = msg_input.content.parse::<usize>() {
-        println!("ROB: receive instruction {} (queue size: {})", inst, self.queue.len());
-        self.queue.push(inst);
-        self.until_next_event = 1.0;
-      }
-    }
+    self.until_next_event = 0.5;
     Ok(())
   }
 
   fn events_int(&mut self, _services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
-    if let Some(inst) = self.queue.pop() {
-      println!("ROB: pop instruction {} (queue size: {})", inst, self.queue.len());
-    }
-
-    if self.queue.is_empty() {
-      self.until_next_event = INFINITY;
-    } else {
-      self.until_next_event = 1.0;
-    }
-
-    Ok(Vec::new())
+    self.until_next_event = 1.0;
+    Ok(vec![])
   }
 
   fn time_advance(&mut self, time_delta: f64) {
@@ -58,7 +46,7 @@ impl DevsModel for Rob {
 
 impl Reportable for Rob {
   fn status(&self) -> String {
-    format!("ROB queue size: {}", self.queue.len())
+    "Rob".to_string()
   }
 
   fn records(&self) -> &Vec<ModelRecord> {

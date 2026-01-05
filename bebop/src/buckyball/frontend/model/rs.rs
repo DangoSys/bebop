@@ -5,11 +5,11 @@ use sim::utils::errors::SimulationError;
 use std::f64::INFINITY;
 
 #[derive(Clone)]
-pub struct Decoder {
+pub struct Rs {
   until_next_event: f64,
 }
 
-impl Decoder {
+impl Rs {
   pub fn new() -> Self {
     Self {
       until_next_event: 1.0,
@@ -17,7 +17,7 @@ impl Decoder {
   }
 }
 
-impl DevsModel for Decoder {
+impl DevsModel for Rs {
   fn events_ext(&mut self, msg_input: &ModelMessage, _services: &mut Services) -> Result<(), SimulationError> {
     self.until_next_event = 0.5;
     Ok(())
@@ -37,9 +37,9 @@ impl DevsModel for Decoder {
   }
 }
 
-impl Reportable for Decoder {
+impl Reportable for Rs {
   fn status(&self) -> String {
-    "Decoder".to_string()
+    "Rs".to_string()
   }
 
   fn records(&self) -> &Vec<ModelRecord> {
@@ -48,10 +48,10 @@ impl Reportable for Decoder {
   }
 }
 
-impl ReportableModel for Decoder {}
+impl ReportableModel for Rs {}
 
-impl SerializableModel for Decoder {
+impl SerializableModel for Rs {
   fn get_type(&self) -> &'static str {
-    "Decoder"
+    "Rs"
   }
 }
