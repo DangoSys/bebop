@@ -1,6 +1,7 @@
 use super::server::socket::{CmdHandler, CmdReq, DmaHandler};
 use super::sim::mode::{RunMode, SimConfig, StepMode};
 use crate::buckyball::buckyball::Buckyball;
+use crate::buckyball::memdomain::tdma::DmaInterface;
 use crate::log_config::{set_backward_log, set_event_log, set_forward_log};
 use std::io::{self, Result, Write};
 use std::net::{TcpListener, TcpStream};
@@ -9,7 +10,24 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+struct SimulatorDma {
+  dma_handler: Arc<Mutex<DmaHandler>>,
+}
+
+impl DmaInterface for SimulatorDma {
+  fn dma_read(&self, addr: u64, size: u32) -> Result<u64> {
+    let mut handler = self.dma_handler.lock().unwrap();
+    handler.read(addr, size)
+  }
+
+  fn dma_write(&self, addr: u64, data: u64, size: u32) -> Result<()> {
+    let mut handler = self.dma_handler.lock().unwrap();
+    handler.write(addr, data, size)
+  }
+}
+
 pub static CYCLE_MODE_ENABLED: AtomicBool = AtomicBool::new(false);
+pub static FENCE_CSR: AtomicBool = AtomicBool::new(false);
 
 pub struct Simulator {
   config: SimConfig,
@@ -33,28 +51,26 @@ impl Simulator {
 
     let cmd_handler_clone = Arc::clone(&cmd_handler);
 
-    thread::spawn(move || {
-      loop {
-        let mut handler = cmd_handler_clone.lock().unwrap();
-        match handler.recv_request() {
-          Ok(req) => {
-            if cmd_tx.send(req).is_err() {
-              break;
-            }
-            drop(handler);
-            match resp_rx.recv() {
-              Ok(result) => {
-                let mut handler = cmd_handler_clone.lock().unwrap();
-                let _ = handler.send_response(result);
-              },
-              Err(_) => break,
-            }
-          },
-          Err(e) => {
-            eprintln!("Request error: {:?}", e);
+    thread::spawn(move || loop {
+      let mut handler = cmd_handler_clone.lock().unwrap();
+      match handler.recv_request() {
+        Ok(req) => {
+          if cmd_tx.send(req).is_err() {
             break;
-          },
-        }
+          }
+          drop(handler);
+          match resp_rx.recv() {
+            Ok(result) => {
+              let mut handler = cmd_handler_clone.lock().unwrap();
+              let _ = handler.send_response(result);
+            },
+            Err(_) => break,
+          }
+        },
+        Err(e) => {
+          eprintln!("Request error: {:?}", e);
+          break;
+        },
       }
     });
 
@@ -62,8 +78,8 @@ impl Simulator {
 
     Ok(Self {
       config,
-      cmd_handler: cmd_handler,
-      dma_handler: dma_handler,
+      cmd_handler,
+      dma_handler,
       cmd_rx,
       resp_tx,
       buckyball,
@@ -88,16 +104,42 @@ impl Simulator {
   }
 
   fn run_step_mode(&mut self) -> Result<()> {
-    println!("Step mode - Press Enter to continue, 'q' to quit");
+    println!("Step mode - Press Enter to continue, 'q' to quit, 'si<N>' to step N times");
     println!("Press Enter to continue...\n");
     loop {
       io::stdout().flush()?;
       let mut input = String::new();
       io::stdin().read_line(&mut input)?;
-      if input.trim() == "q" {
+      let trimmed = input.trim();
+      if trimmed.is_empty() {
+        // Direct Enter: step once
+        self.step()?;
+      } else if trimmed == "q" {
         break;
+      } else if trimmed.starts_with("si") {
+        let num_str = trimmed[2..].trim();
+        if num_str.is_empty() {
+          eprintln!("Error: 'si' requires a number, e.g., 'si 100'");
+          continue;
+        }
+        match num_str.parse::<u32>() {
+          Ok(n) => {
+            if n == 0 {
+              eprintln!("Error: step count must be greater than 0");
+              continue;
+            }
+            for _ in 0..n {
+              self.step()?;
+            }
+          },
+          Err(e) => {
+            eprintln!("Error: invalid number '{}': {}", num_str, e);
+            continue;
+          },
+        }
+      } else {
+        eprintln!("Unknown command: '{}'. Use Enter to step, 'q' to quit, or 'si 100' to step N times", trimmed);
       }
-      self.step()?;
     }
     Ok(())
   }
@@ -109,12 +151,16 @@ impl Simulator {
   }
 
   fn step(&mut self) -> Result<()> {
+    let dma = SimulatorDma {
+      dma_handler: Arc::clone(&self.dma_handler),
+    };
+
     if let Ok(req) = self.cmd_rx.try_recv() {
-      self.buckyball.forward_step(Some((req.funct, req.xs1, req.xs2)))?;
+      self.buckyball.forward_step(Some((req.funct, req.xs1, req.xs2)), &dma)?;
       self.buckyball.backward_step()?;
       self.inst_complete()?;
     } else {
-      self.buckyball.forward_step(None)?;
+      self.buckyball.forward_step(None, &dma)?;
       self.buckyball.backward_step()?;
     }
     self.global_clock += 1.0;
@@ -129,18 +175,10 @@ impl Simulator {
   }
 
   fn inst_complete(&self) -> Result<()> {
-    self.send_response(0u64);
+    if !FENCE_CSR.load(Ordering::Relaxed) {
+      self.send_response(0u64);
+    }
     Ok(())
-  }
-
-  fn dma_read(&self, addr: u64, size: u32) -> Result<u64> {
-    let mut handler = self.dma_handler.lock().unwrap();
-    handler.read(addr, size)
-  }
-
-  fn dma_write(&self, addr: u64, data: u64, size: u32) -> Result<()> {
-    let mut handler = self.dma_handler.lock().unwrap();
-    handler.write(addr, data, size)
   }
 }
 
@@ -152,4 +190,3 @@ fn tcp_listen(port: u16) -> Result<(TcpListener, TcpStream)> {
   println!("Connected: {}", addr);
   Ok((listener, stream))
 }
-
