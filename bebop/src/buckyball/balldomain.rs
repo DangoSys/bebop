@@ -1,0 +1,24 @@
+pub struct BallDomain {
+  }
+
+impl BallDomain {
+  pub fn new() -> Self {
+    Self {}
+  }
+
+
+  pub fn new_inst_ext(&mut self, received_inst: Option<(u32, u64, u64, u8, u32)>) -> bool {
+    if received_inst.is_some() {
+      let (funct, xs1, xs2, domain_id, rob_id) = received_inst.unwrap();
+      println!("BallDomain executed instruction: funct={:?}, xs1={:?}, xs2={:?}, domain_id={:?}, rob_id={:?}", funct, xs1, xs2, domain_id, rob_id);
+      return true;
+    }
+    return false;
+    true
+  }
+
+  pub fn balldomain_executed_int(&mut self) -> Option<(u32, u32, u64, u64, u8)> {
+    None
+  }
+}
+

@@ -70,18 +70,18 @@ enum EntryStatus {
 }
 
 pub struct RobEntry {
-  entry_id: u32,
   funct: u32,
   xs1: u64,
   xs2: u64,
   domain_id: u8,
   status: EntryStatus,
+  rob_id: u32,
 }
 
 pub struct Rob {
   rob_buffer: Vec<RobEntry>,
   allocated_id: u32,
-  dispatched_inst: Option<(u32, u32, u64, u64, u8)>,
+  dispatched_inst: Option<(u32, u64, u64, u8, u32)>,
 }
 
 impl Rob {
@@ -89,12 +89,12 @@ impl Rob {
     let mut rob_buffer = Vec::with_capacity(entry_num as usize);
     for _ in 0..entry_num {
       rob_buffer.push(RobEntry {
-        entry_id: 0,
         funct: 0,
         xs1: 0,
         xs2: 0,
         domain_id: 0,
         status: EntryStatus::Idle,
+        rob_id: 0,
       });
     }
     Self {
@@ -110,18 +110,19 @@ impl Rob {
     if inst_insert.is_some() {
       let (funct, xs1, xs2, domain_id) = inst_insert.unwrap();
       if let Some(entry) = find_idle_entry(&mut self.rob_buffer) {
-        let entry_id = allocate_entry(&mut self.allocated_id);
-        entry.entry_id = entry_id;
+        let rob_id = allocate_entry(&mut self.allocated_id);
+        entry.rob_id = rob_id;
         entry.funct = funct;
         entry.xs1 = xs1;
         entry.xs2 = xs2;
         entry.domain_id = domain_id;
         entry.status = EntryStatus::Allocated;
+        println!("ROB allocated entry: rob_id={:?}, funct={:?}, xs1={:?}, xs2={:?}, domain_id={:?}", rob_id, funct, xs1, xs2, domain_id);
         return true;
       }
       return false;
     }
-    true 
+    return true;
   } 
 
   /// this is an external step
@@ -134,7 +135,7 @@ impl Rob {
   }
 
   /// this is a internal step
-  pub fn rob_dispatch_int(&mut self) -> Option<(u32, u32, u64, u64, u8)> {
+  pub fn rob_dispatch_int(&mut self) -> Option<(u32, u64, u64, u8, u32)> {
     self.dispatched_inst = dispatch_entry(&mut self.rob_buffer);
     self.dispatched_inst
   }
@@ -142,26 +143,26 @@ impl Rob {
 
 /// allocate a new entry in the ROB, return the entry id
 fn allocate_entry(allocated_entry: &mut u32) -> u32 {
-  let entry_id = *allocated_entry;
+  let rob_id = *allocated_entry;
   *allocated_entry += 1;
-  entry_id
+  rob_id
 }   
 
 /// Finds the first entry from index 0 that is Allocated and marks it as Inflight
-fn dispatch_entry(rob_buffer: &mut Vec<RobEntry>) -> Option<(u32, u32, u64, u64, u8)> {
+fn dispatch_entry(rob_buffer: &mut Vec<RobEntry>) -> Option<(u32, u64, u64, u8, u32)> {
   for entry in rob_buffer.iter_mut() {
     if entry.status == EntryStatus::Allocated {
       entry.status = EntryStatus::Inflight; 
-      return Some((entry.entry_id, entry.funct, entry.xs1, entry.xs2, entry.domain_id));
+      return Some((entry.funct, entry.xs1, entry.xs2, entry.domain_id, entry.rob_id));
     }
   }
   None 
 }
 
 /// commit an entry from the ROB (set it back to Idle)
-fn commit_entry(rob_buffer: &mut Vec<RobEntry>, rob_entry_id: u32) {
+fn commit_entry(rob_buffer: &mut Vec<RobEntry>, rob_id: u32) {
   for entry in rob_buffer.iter_mut() {
-    if entry.entry_id == rob_entry_id {
+    if entry.rob_id == rob_id {
       entry.status = EntryStatus::Idle;
       break;
     }
