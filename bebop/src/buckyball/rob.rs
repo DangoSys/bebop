@@ -193,19 +193,19 @@ fn test_rob_new() {
 fn test_rob_allocate() {
   let mut rob = Rob::new(8);
   assert!(rob.rob_allocate_ext(Some((1, 10, 20, 0))));
-  let (rob_id, _, _, _, _) = rob.rob_dispatch_int().unwrap();
+  let ( _, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
   assert_eq!(rob_id, 0);
   assert!(rob.rob_allocate_ext(Some((2, 30, 40, 1))));
-  let (rob_id, _, _, _, _) = rob.rob_dispatch_int().unwrap();
+  let ( _, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
   assert_eq!(rob_id, 1);
   assert!(rob.rob_allocate_ext(Some((3, 50, 60, 2))));
-  let (rob_id, _, _, _, _) = rob.rob_dispatch_int().unwrap();
+  let ( _, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
   assert_eq!(rob_id, 2);
   assert!(rob.rob_allocate_ext(Some((4, 70, 80, 3))));
-  let (rob_id, _, _, _, _) = rob.rob_dispatch_int().unwrap();
+  let ( _, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
   assert_eq!(rob_id, 3);
   assert!(rob.rob_allocate_ext(Some((5, 90, 100, 4))));
-  let (rob_id, _, _, _, _) = rob.rob_dispatch_int().unwrap();
+  let ( _, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
   assert_eq!(rob_id, 4);
   assert_eq!(rob.rob_buffer.len(), 8);
 }
