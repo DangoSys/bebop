@@ -37,7 +37,7 @@ fn decode_funct(funct: u32) -> u8 {
 
 #[test]
 fn test_decode_funct() {
-  assert_eq!(decode_funct(0x1f), 0);
-  assert_eq!(decode_funct(0x18), 1);
-  assert_eq!(decode_funct(0x19), 2);
+  assert_eq!(decode_funct(31), 0);
+  assert_eq!(decode_funct(24), 1);
+  assert_eq!(decode_funct(26), 2);
 }
