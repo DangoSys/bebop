@@ -3,7 +3,7 @@ use super::sim::mode::{RunMode, SimConfig, StepMode};
 use crate::buckyball::buckyball::Buckyball;
 use crate::log_config::{set_backward_log, set_event_log, set_forward_log};
 use std::io::{self, Result, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -13,8 +13,8 @@ pub static CYCLE_MODE_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub struct Simulator {
   config: SimConfig,
-  _cmd_handler: Arc<Mutex<CmdHandler>>,
-  _dma_handler: Arc<Mutex<DmaHandler>>,
+  cmd_handler: Arc<Mutex<CmdHandler>>,
+  dma_handler: Arc<Mutex<DmaHandler>>,
   cmd_rx: Receiver<CmdReq>,
   resp_tx: Sender<u64>,
   buckyball: Buckyball,
@@ -23,12 +23,7 @@ pub struct Simulator {
 
 impl Simulator {
   pub fn new(config: SimConfig) -> Result<Self> {
-    let listener = TcpListener::bind("127.0.0.1:9999")?;
-    println!("Socket server listening on 127.0.0.1:9999");
-
-    println!("Waiting for Spike connection...");
-    let (stream, addr) = listener.accept()?;
-    println!("Connected: {}", addr);
+    let (_, stream) = tcp_listen(9999)?;
 
     let cmd_handler = Arc::new(Mutex::new(CmdHandler::new(stream.try_clone()?)));
     let dma_handler = Arc::new(Mutex::new(DmaHandler::new(stream.try_clone()?)));
@@ -36,24 +31,16 @@ impl Simulator {
     let (cmd_tx, cmd_rx) = mpsc::channel();
     let (resp_tx, resp_rx) = mpsc::channel();
 
-    let buckyball = Buckyball::new();
-
     let cmd_handler_clone = Arc::clone(&cmd_handler);
+
     thread::spawn(move || {
       loop {
-        // 接收请求
         let mut handler = cmd_handler_clone.lock().unwrap();
         match handler.recv_request() {
           Ok(req) => {
-            let funct = req.funct;
-            let xs1 = req.xs1;
-            let xs2 = req.xs2;
-            println!("Received request: funct={}, xs1={:#x}, xs2={:#x}", funct, xs1, xs2);
-
             if cmd_tx.send(req).is_err() {
               break;
             }
-
             drop(handler);
             match resp_rx.recv() {
               Ok(result) => {
@@ -71,10 +58,12 @@ impl Simulator {
       }
     });
 
+    let buckyball = Buckyball::new();
+
     Ok(Self {
       config,
-      _cmd_handler: cmd_handler,
-      _dma_handler: dma_handler,
+      cmd_handler: cmd_handler,
+      dma_handler: dma_handler,
       cmd_rx,
       resp_tx,
       buckyball,
@@ -114,7 +103,6 @@ impl Simulator {
   }
 
   fn run_continuous(&mut self) -> Result<()> {
-    println!("Continuous mode\n");
     loop {
       self.step()?;
     }
@@ -122,14 +110,46 @@ impl Simulator {
 
   fn step(&mut self) -> Result<()> {
     if let Ok(req) = self.cmd_rx.try_recv() {
-      self.buckyball.forward_step(Some((req.funct, req.xs1, req.xs2)));
+      self.buckyball.forward_step(Some((req.funct, req.xs1, req.xs2)))?;
       self.buckyball.backward_step()?;
+      self.inst_complete()?;
     } else {
-      self.buckyball.forward_step(None);
+      self.buckyball.forward_step(None)?;
       self.buckyball.backward_step()?;
     }
     self.global_clock += 1.0;
     println!("clock: {:.1} -> {:.1}", self.global_clock - 1.0, self.global_clock);
     Ok(())
   }
+
+  fn send_response(&self, result: u64) {
+    if self.resp_tx.send(result).is_err() {
+      eprintln!("Failed to send response");
+    }
+  }
+
+  fn inst_complete(&self) -> Result<()> {
+    self.send_response(0u64);
+    Ok(())
+  }
+
+  fn dma_read(&self, addr: u64, size: u32) -> Result<u64> {
+    let mut handler = self.dma_handler.lock().unwrap();
+    handler.read(addr, size)
+  }
+
+  fn dma_write(&self, addr: u64, data: u64, size: u32) -> Result<()> {
+    let mut handler = self.dma_handler.lock().unwrap();
+    handler.write(addr, data, size)
+  }
 }
+
+fn tcp_listen(port: u16) -> Result<(TcpListener, TcpStream)> {
+  let listener = TcpListener::bind(format!("127.0.0.1:{}", port))?;
+  println!("Socket server listening on 127.0.0.1:{}", port);
+  println!("Waiting for connection...");
+  let (stream, addr) = listener.accept()?;
+  println!("Connected: {}", addr);
+  Ok((listener, stream))
+}
+

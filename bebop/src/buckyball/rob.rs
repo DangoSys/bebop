@@ -118,13 +118,16 @@ impl Rob {
         entry.xs2 = xs2;
         entry.domain_id = domain_id;
         entry.status = EntryStatus::Allocated;
-        println!("ROB allocated entry: rob_id={:?}, funct={:?}, xs1={:?}, xs2={:?}, domain_id={:?}", rob_id, funct, xs1, xs2, domain_id);
+        println!(
+          "ROB allocated entry: rob_id={:?}, funct={:?}, xs1={:?}, xs2={:?}, domain_id={:?}",
+          rob_id, funct, xs1, xs2, domain_id
+        );
         return true;
       }
       return false;
     }
     return true;
-  } 
+  }
 
   /// this is an external step
   pub fn rob_commit_ext(&mut self, rob_id: Option<u32>) -> bool {
@@ -147,17 +150,17 @@ fn allocate_entry(allocated_entry: &mut u32) -> u32 {
   let rob_id = *allocated_entry;
   *allocated_entry += 1;
   rob_id
-}   
+}
 
 /// Finds the first entry from index 0 that is Allocated and marks it as Inflight
 fn dispatch_entry(rob_buffer: &mut Vec<RobEntry>) -> Option<(u32, u64, u64, u8, u32)> {
   for entry in rob_buffer.iter_mut() {
     if entry.status == EntryStatus::Allocated {
-      entry.status = EntryStatus::Inflight; 
+      entry.status = EntryStatus::Inflight;
       return Some((entry.funct, entry.xs1, entry.xs2, entry.domain_id, entry.rob_id));
     }
   }
-  None 
+  None
 }
 
 /// commit an entry from the ROB (set it back to Idle)
@@ -194,19 +197,19 @@ fn test_rob_new() {
 fn test_rob_allocate() {
   let mut rob = Rob::new(8);
   assert!(rob.rob_allocate_ext(Some((1, 10, 20, 0))));
-  let ( _, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
+  let (_, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
   assert_eq!(rob_id, 0);
   assert!(rob.rob_allocate_ext(Some((2, 30, 40, 1))));
-  let ( _, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
+  let (_, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
   assert_eq!(rob_id, 1);
   assert!(rob.rob_allocate_ext(Some((3, 50, 60, 2))));
-  let ( _, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
+  let (_, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
   assert_eq!(rob_id, 2);
   assert!(rob.rob_allocate_ext(Some((4, 70, 80, 3))));
-  let ( _, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
+  let (_, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
   assert_eq!(rob_id, 3);
   assert!(rob.rob_allocate_ext(Some((5, 90, 100, 4))));
-  let ( _, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
+  let (_, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
   assert_eq!(rob_id, 4);
   assert_eq!(rob.rob_buffer.len(), 8);
 }
@@ -224,7 +227,7 @@ fn test_rob_full() {
   assert!(!rob.rob_allocate_ext(Some((2, 30, 40, 1))));
   // buffer size should remain the same
   assert_eq!(rob.rob_buffer.len(), 4);
-  
+
   // commit one entry, should be able to allocate again
   rob.rob_commit_ext(Some(0));
   assert!(rob.rob_allocate_ext(Some((3, 50, 60, 2))));

@@ -7,10 +7,6 @@ edition = "2021"
 name = "bebop"
 path = "src/bin/bebop.rs"
 
-[[bin]]
-name = "test_sim"
-path = "src/test/sim.rs"
-
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
