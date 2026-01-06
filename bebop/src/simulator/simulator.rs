@@ -9,7 +9,6 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-/// 全局周期模式标志
 pub static CYCLE_MODE_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub struct Simulator {
@@ -19,6 +18,7 @@ pub struct Simulator {
   cmd_rx: Receiver<CmdReq>,
   resp_tx: Sender<u64>,
   buckyball: Buckyball,
+  global_clock: f64,
 }
 
 impl Simulator {
@@ -78,6 +78,7 @@ impl Simulator {
       cmd_rx,
       resp_tx,
       buckyball,
+      global_clock: 0.0,
     })
   }
 
@@ -121,16 +122,14 @@ impl Simulator {
 
   fn step(&mut self) -> Result<()> {
     if let Ok(req) = self.cmd_rx.try_recv() {
-      println!("Received request");
-      self.buckyball.inst_execute((Some(req.funct), Some(req.xs1), Some(req.xs2)));
+      self.buckyball.forward_step(Some((req.funct, req.xs1, req.xs2)));
+      self.buckyball.backward_step()?;
     } else {
-      self.buckyball.inst_execute((None, None, None));
+      self.buckyball.forward_step(None);
+      self.buckyball.backward_step()?;
     }
-
-    if CYCLE_MODE_ENABLED.load(Ordering::Relaxed) {
-      self.buckyball.cycle_advance()?;
-    }
-
+    self.global_clock += 1.0;
+    println!("clock: {:.1} -> {:.1}", self.global_clock - 1.0, self.global_clock);
     Ok(())
   }
 }
