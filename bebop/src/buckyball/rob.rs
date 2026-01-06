@@ -11,7 +11,7 @@
 /// - **Inflight**: 指令已被调度出去执行，正在执行单元中处理。一旦被标记为 Inflight，该条目就不会再被重复调度。
 ///
 /// ## 状态转换流程
-/// ```
+/// ```text
 /// Idle -> Allocated (rob_allocate_ext)
 ///            ↓
 ///       Inflight (rob_dispatch_int)
@@ -52,12 +52,13 @@
 /// ## 使用示例
 ///
 /// ```rust
+/// use bebop::buckyball::Rob;
 /// let mut rob = Rob::new(8);
 /// // 初始化时所有8个entry都是Idle状态
 /// // 分配指令
-/// rob.rob_allocate_ext(Some((1, 10, 20, 0)));  // 找到第一个Idle entry, entry_id = 0, status -> Allocated
+/// rob.rob_allocate_ext(Some((1, 10, 20, 0)));  // 找到第一个Idle entry, rob_id = 0, status -> Allocated
 /// // 调度指令
-/// let dispatched = rob.rob_dispatch_int();     // entry_id = 0, status -> Inflight
+/// let dispatched = rob.rob_dispatch_int();     // rob_id = 0, status -> Inflight
 /// // 执行完成后提交
 /// rob.rob_commit_ext(Some(0));                 // entry 0 状态 -> Idle，可以再次使用
 /// ```
