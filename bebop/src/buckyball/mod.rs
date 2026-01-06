@@ -1,8 +1,9 @@
-mod balldomain;
 pub mod buckyball;
-mod cycleModel;
-mod frontend;
-pub mod lib;
-mod memdomain;
+pub mod rs;
+pub mod rob;
+pub mod decoder;
 
 pub use buckyball::Buckyball;
+pub use rs::Rs;
+pub use rob::Rob;
+pub use decoder::Decoder;
