@@ -1,11 +1,13 @@
-pub mod buckyball;
 pub mod balldomain;
-pub mod rs;
-pub mod rob;
+pub mod buckyball;
 pub mod decoder;
+pub mod memdomain;
+pub mod rob;
+pub mod rs;
 
-pub use buckyball::Buckyball;
 pub use balldomain::BallDomain;
-pub use rs::Rs;
-pub use rob::Rob;
+pub use buckyball::Buckyball;
 pub use decoder::Decoder;
+pub use memdomain::MemDomain;
+pub use rob::Rob;
+pub use rs::Rs;

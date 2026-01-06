@@ -1,15 +1,16 @@
-use std::io;
-use crate::buckyball::decoder::Decoder;
-use crate::buckyball::rob::Rob;
 use crate::buckyball::balldomain::BallDomain;
+use crate::buckyball::decoder::Decoder;
+use crate::buckyball::memdomain::MemDomain;
+use crate::buckyball::rob::Rob;
 use crate::buckyball::rs::Rs;
+use std::io;
 
 pub struct Buckyball {
   decoder: Decoder,
   rob: Rob,
   rs: Rs,
-  memdomain: BallDomain,  
-  balldomain: BallDomain,  
+  memdomain: MemDomain,
+  balldomain: BallDomain,
 
   decoded_inst: Option<(u32, u64, u64, u8)>,
   rob_dispatched_inst: Option<(u32, u64, u64, u8, u32)>,
@@ -30,9 +31,9 @@ impl Buckyball {
       decoder: Decoder::new(),
       rob: Rob::new(16),
       rs: Rs::new(),
-      memdomain: BallDomain::new(),
+      memdomain: MemDomain::new(),
       balldomain: BallDomain::new(),
-      
+
       decoded_inst: None,
       rob_dispatched_inst: None,
       rs_issued_inst: None,
@@ -49,9 +50,8 @@ impl Buckyball {
 
   // 0.5 -> 1.0 cycle
   pub fn forward_step(&mut self, raw_inst: Option<(u32, u64, u64)>) -> io::Result<()> {
-    
     self.decoded_inst_stall = !self.decoder.inst_decode_ext(raw_inst);
-    
+
     self.rob_allocated_stall = !self.rob.rob_allocate_ext(self.decoded_inst);
 
     self.rs_issued_stall = !self.rs.inst_dispatch_ext(self.rob_dispatched_inst);
@@ -59,17 +59,16 @@ impl Buckyball {
     self.memdomain_executed_stall = !self.memdomain.new_inst_ext(self.memdomain_executed_inst);
 
     self.balldomain_executed_stall = !self.balldomain.new_inst_ext(self.balldomain_executed_inst);
-    
+
     Ok(())
   }
 
   // 0.0 -> 0.5 cycle
   pub fn backward_step(&mut self) -> io::Result<()> {
-
     if !self.decoded_inst_stall {
       self.decoded_inst = self.decoder.push_to_rob_int();
     }
-    
+
     if !self.rob_allocated_stall {
       self.rob_dispatched_inst = self.rob.rob_dispatch_int();
     }

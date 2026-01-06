@@ -1,13 +1,10 @@
-
 pub struct Decoder {
   decoded_inst: Option<(u32, u64, u64, u8)>,
 }
 
 impl Decoder {
   pub fn new() -> Self {
-    Self {
-      decoded_inst: None,
-    }
+    Self { decoded_inst: None }
   }
 
   pub fn inst_decode_ext(&mut self, raw_inst: Option<(u32, u64, u64)>) -> bool {
