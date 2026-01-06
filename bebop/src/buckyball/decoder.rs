@@ -1,3 +1,6 @@
+use crate::simulator::simulator::FENCE_CSR;
+use std::sync::atomic::Ordering;
+
 pub struct Decoder {
   decoded_inst: Option<(u32, u64, u64, u8)>,
 }
@@ -10,6 +13,11 @@ impl Decoder {
   pub fn inst_decode_ext(&mut self, raw_inst: Option<(u32, u64, u64)>) -> bool {
     if raw_inst.is_some() {
       let (funct, xs1, xs2) = raw_inst.unwrap();
+      // dont push to rob if it is a fence instruction
+      if funct == 31 {
+        FENCE_CSR.store(true, Ordering::Relaxed);
+        return true; 
+      }
       self.decoded_inst = Some((funct, xs1, xs2, decode_funct(funct)));
     } else {
       self.decoded_inst = None;

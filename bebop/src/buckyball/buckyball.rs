@@ -1,5 +1,6 @@
 use crate::buckyball::balldomain::BallDomain;
 use crate::buckyball::decoder::Decoder;
+use crate::buckyball::memdomain::tdma::DmaInterface;
 use crate::buckyball::memdomain::MemDomain;
 use crate::buckyball::rob::Rob;
 use crate::buckyball::rs::Rs;
@@ -49,14 +50,14 @@ impl Buckyball {
   }
 
   // 0.5 -> 1.0 cycle
-  pub fn forward_step(&mut self, raw_inst: Option<(u32, u64, u64)>) -> io::Result<()> {
+  pub fn forward_step<D: DmaInterface>(&mut self, raw_inst: Option<(u32, u64, u64)>, dma: &D) -> io::Result<()> {
     self.decoded_inst_stall = !self.decoder.inst_decode_ext(raw_inst);
 
     self.rob_allocated_stall = !self.rob.rob_allocate_ext(self.decoded_inst);
 
     self.rs_issued_stall = !self.rs.inst_dispatch_ext(self.rob_dispatched_inst);
 
-    self.memdomain_executed_stall = !self.memdomain.new_inst_ext(self.memdomain_executed_inst);
+    self.memdomain_executed_stall = !self.memdomain.new_inst_ext(self.memdomain_executed_inst, dma);
 
     self.balldomain_executed_stall = !self.balldomain.new_inst_ext(self.balldomain_executed_inst);
 

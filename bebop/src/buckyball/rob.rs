@@ -63,6 +63,9 @@
 /// rob.rob_commit_ext(Some(0));                 // entry 0 状态 -> Idle，可以再次使用
 /// ```
 
+use crate::simulator::simulator::FENCE_CSR;
+use std::sync::atomic::Ordering;
+
 #[derive(PartialEq, Debug)]
 enum EntryStatus {
   Allocated,
@@ -141,8 +144,19 @@ impl Rob {
   /// this is a internal step
   pub fn rob_dispatch_int(&mut self) -> Option<(u32, u64, u64, u8, u32)> {
     self.dispatched_inst = dispatch_entry(&mut self.rob_buffer);
+    
+    for entry in self.rob_buffer.iter() {
+      println!("ROB entry status: {:?}, funct: {:?}", entry.status, entry.funct);
+    }
+    println!("fence csr: {:?}", FENCE_CSR.load(Ordering::Relaxed));
+
+    if is_empty(&self.rob_buffer) {
+      FENCE_CSR.store(false, Ordering::Relaxed);
+    }
     self.dispatched_inst
   }
+
+
 }
 
 /// allocate a new entry in the ROB, return the entry id
@@ -181,6 +195,11 @@ fn find_idle_entry(rob_buffer: &mut Vec<RobEntry>) -> Option<&mut RobEntry> {
     }
   }
   None
+}
+
+/// check if ROB is empty (all entries are Idle)
+fn is_empty(rob_buffer: &Vec<RobEntry>) -> bool {
+  rob_buffer.iter().all(|entry| entry.status == EntryStatus::Idle)
 }
 
 #[test]
