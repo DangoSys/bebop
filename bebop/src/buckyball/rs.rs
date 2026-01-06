@@ -10,16 +10,17 @@ impl Rs {
     }
   }
   
-  pub fn rs_issue(&mut self, rob_entry: Option<(u32, u32, u64, u64, u8)>) {
+  pub fn rs_issue_ext(&mut self, rob_entry: Option<(u32, u32, u64, u64, u8)>) -> bool {
     if rob_entry.is_some() {
       let (rob_id, funct, xs1, xs2, domain_id) = rob_entry.unwrap();
       self.rs_entry = Some((rs_allocate_entry(), funct, xs1, xs2, domain_id, rob_id));
     } else {
       self.rs_entry = None;
     }
+    true
   }
 
-  pub fn rs_issue_bw(&mut self) -> Option<(u32, u32, u64, u64, u8, u32)> {
+  pub fn rs_issue_int(&mut self) -> Option<(u32, u32, u64, u64, u8, u32)> {
     self.rs_entry
   }
 }

@@ -10,16 +10,17 @@ impl Decoder {
     }
   }
 
-  pub fn inst_decode(&mut self, raw_inst: Option<(u32, u64, u64)>) {
+  pub fn inst_decode_ext(&mut self, raw_inst: Option<(u32, u64, u64)>) -> bool {
     if raw_inst.is_some() {
       let (funct, xs1, xs2) = raw_inst.unwrap();
       self.decoded_inst = Some((funct, xs1, xs2, decode_funct(funct)));
     } else {
       self.decoded_inst = None;
     }
+    true
   }
 
-  pub fn inst_decode_bw(&mut self) -> Option<(u32, u64, u64, u8)> {
+  pub fn push_to_rob_int(&mut self) -> Option<(u32, u64, u64, u8)> {
     self.decoded_inst
   }
 }
