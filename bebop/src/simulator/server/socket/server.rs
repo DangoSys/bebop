@@ -5,8 +5,8 @@ use super::protocol::*;
 pub type CmdHandler = Box<dyn FnMut(u32, u64, u64, &mut dyn DmaInterface) -> u64 + Send>;
 
 pub trait DmaInterface {
-  fn dma_read(&mut self, addr: u64, size: u32) -> Result<u64>;
-  fn dma_write(&mut self, addr: u64, data: u64, size: u32) -> Result<()>;
+  fn dma_read(&mut self, addr: u64, size: u32) -> Result<u128>;
+  fn dma_write(&mut self, addr: u64, data: u128, size: u32) -> Result<()>;
 }
 
 pub struct SocketServer {
@@ -80,7 +80,7 @@ struct ClientDma<'a> {
 }
 
 impl<'a> DmaInterface for ClientDma<'a> {
-  fn dma_read(&mut self, addr: u64, size: u32) -> Result<u64> {
+  fn dma_read(&mut self, addr: u64, size: u32) -> Result<u128> {
     let req = DmaReadReq {
       header: MsgHeader {
         msg_type: MsgType::DmaReadReq as u32,
@@ -98,11 +98,14 @@ impl<'a> DmaInterface for ClientDma<'a> {
       return Err(Error::new(ErrorKind::InvalidData, "Invalid DMA read response"));
     }
 
-    eprintln!("DMA read: addr=0x{:x} size={} data=0x{:x}", addr, size, resp.data);
-    Ok(resp.data)
+    let data = (resp.data_hi as u128) << 64 | (resp.data_lo as u128);
+    eprintln!("DMA read: addr=0x{:x} size={} data=0x{:x}", addr, size, data);
+    Ok(data)
   }
 
-  fn dma_write(&mut self, addr: u64, data: u64, size: u32) -> Result<()> {
+  fn dma_write(&mut self, addr: u64, data: u128, size: u32) -> Result<()> {
+    let data_lo = data as u64;
+    let data_hi = (data >> 64) as u64;
     let req = DmaWriteReq {
       header: MsgHeader {
         msg_type: MsgType::DmaWriteReq as u32,
@@ -111,7 +114,8 @@ impl<'a> DmaInterface for ClientDma<'a> {
       size,
       padding: 0,
       addr,
-      data,
+      data_lo,
+      data_hi,
     };
 
     write_struct(self.stream, &req)?;

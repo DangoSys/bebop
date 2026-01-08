@@ -1,89 +1,106 @@
 use crate::buckyball::balldomain::BallDomain;
-use crate::buckyball::decoder::Decoder;
-use crate::buckyball::memdomain::tdma::DmaInterface;
+use crate::buckyball::frontend::Frontend;
+use crate::buckyball::lib::operation::{ExternalOp, InternalOp};
+use crate::buckyball::memdomain::tdma_load::DmaInterface;
+use crate::buckyball::memdomain::tdma_store::DmaWriteInterface;
 use crate::buckyball::memdomain::MemDomain;
-use crate::buckyball::rob::Rob;
-use crate::buckyball::rs::Rs;
 use std::io;
 
 pub struct Buckyball {
-  decoder: Decoder,
-  rob: Rob,
-  rs: Rs,
+  frontend: Frontend,
   memdomain: MemDomain,
   balldomain: BallDomain,
 
-  decoded_inst: Option<(u32, u64, u64, u8)>,
-  rob_dispatched_inst: Option<(u32, u64, u64, u8, u32)>,
-  rs_issued_inst: Option<(u32, u64, u64, u8, u32)>,
-  memdomain_executed_inst: Option<(u32, u64, u64, u8, u32)>,
-  balldomain_executed_inst: Option<(u32, u64, u64, u8, u32)>,
+  inst_issued_to_mem: Option<(u32, u64, u64, u32)>,
+  inst_issued_to_ball: Option<(u32, u64, u64, u32)>,
 
-  decoded_inst_stall: bool,
-  rob_allocated_stall: bool,
-  rs_issued_stall: bool,
-  memdomain_executed_stall: bool,
-  balldomain_executed_stall: bool,
+  memdomain_load_bp: bool,
+  memdomain_store_bp: bool,
+  balldomain_bp: bool,
 }
 
 impl Buckyball {
   pub fn new() -> Self {
     Self {
-      decoder: Decoder::new(),
-      rob: Rob::new(16),
-      rs: Rs::new(),
+      frontend: Frontend::new(),
       memdomain: MemDomain::new(),
       balldomain: BallDomain::new(),
 
-      decoded_inst: None,
-      rob_dispatched_inst: None,
-      rs_issued_inst: None,
-      memdomain_executed_inst: None,
-      balldomain_executed_inst: None,
+      inst_issued_to_mem: None,
+      inst_issued_to_ball: None,
 
-      decoded_inst_stall: false,
-      rob_allocated_stall: false,
-      rs_issued_stall: false,
-      memdomain_executed_stall: false,
-      balldomain_executed_stall: false,
+      memdomain_load_bp: false,
+      memdomain_store_bp: false,
+      balldomain_bp: false,
     }
   }
 
-  // 0.5 -> 1.0 cycle
-  pub fn forward_step<D: DmaInterface>(&mut self, raw_inst: Option<(u32, u64, u64)>, dma: &D) -> io::Result<()> {
-    self.decoded_inst_stall = !self.decoder.inst_decode_ext(raw_inst);
+  // 0.5 -> 1.0 cycle Execute
+  pub fn forward_step<D: DmaInterface + DmaWriteInterface>(
+    &mut self,
+    raw_inst: Option<(u32, u64, u64)>,
+    _dma: &D,
+  ) -> io::Result<()> {
+// ------------------------------------------------------------
+// Execute External Ops Stage
+// ------------------------------------------------------------
+    let mut frontend_new_inst = self.frontend.new_inst();
+    let mut balldomain_new_inst = self.balldomain.new_inst();
 
-    self.rob_allocated_stall = !self.rob.rob_allocate_ext(self.decoded_inst);
+    if frontend_new_inst.can_input(true) {
+      frontend_new_inst.execute(&raw_inst);
+    }
 
-    self.rs_issued_stall = !self.rs.inst_dispatch_ext(self.rob_dispatched_inst);
+    // Handle load operation
+    if self.memdomain.load_op().can_input(true) {
+      self.memdomain.load_op().execute(&self.inst_issued_to_mem);
+    }
 
-    self.memdomain_executed_stall = !self.memdomain.new_inst_ext(self.memdomain_executed_inst, dma);
+    // Handle store operation
+    if self.memdomain.store_op().can_input(true) {
+      self.memdomain.store_op().execute(&self.inst_issued_to_mem);
+    }
 
-    self.balldomain_executed_stall = !self.balldomain.new_inst_ext(self.balldomain_executed_inst);
-
+    if balldomain_new_inst.can_input(true) {
+      balldomain_new_inst.execute(&self.inst_issued_to_ball);
+    }
     Ok(())
   }
 
   // 0.0 -> 0.5 cycle
-  pub fn backward_step(&mut self) -> io::Result<()> {
-    if !self.decoded_inst_stall {
-      self.decoded_inst = self.decoder.push_to_rob_int();
-    }
-
-    if !self.rob_allocated_stall {
-      self.rob_dispatched_inst = self.rob.rob_dispatch_int();
-    }
-
-    if !self.rs_issued_stall {
-      self.rs_issued_inst = self.rs.issue_to_specific_domain_int();
-      if let Some((_, _, _, domain_id, _)) = self.rs_issued_inst {
-        match domain_id {
-          1 if !self.memdomain_executed_stall => self.memdomain_executed_inst = self.rs_issued_inst,
-          2 if !self.balldomain_executed_stall => self.balldomain_executed_inst = self.rs_issued_inst,
-          _ => {},
+  pub fn backward_step<D: DmaInterface + DmaWriteInterface>(&mut self, dma: &D) -> io::Result<()> {
+// ------------------------------------------------------------
+// Update Stage
+// ------------------------------------------------------------
+    self.frontend.issue_inst().update();
+    self.memdomain.execute_load(dma).update();
+    self.memdomain.execute_store(dma).update();
+    self.balldomain.execute_inst().update();
+// ------------------------------------------------------------
+// Output Stage    
+// ------------------------------------------------------------
+    let mut frontend_issue = self.frontend.issue_inst();
+    if frontend_issue.has_output() {
+      println!("[Buckyball] Issued instruction: {:?}", frontend_issue.output().unwrap().0);
+      if let Some((funct, xs1, xs2, domain_id, rob_id)) = frontend_issue.output() {
+        if domain_id == 1 {
+          if funct == 24 && !self.memdomain.load_busy {
+            self.inst_issued_to_mem = Some((funct, xs1, xs2, rob_id));
+          } else if funct == 25 && !self.memdomain.store_busy {
+            self.inst_issued_to_mem = Some((funct, xs1, xs2, rob_id));
+          } 
+        } else if domain_id == 2 {
+          self.inst_issued_to_ball = Some((funct, xs1, xs2, rob_id));
+        } else {
+          return Err(io::Error::new(io::ErrorKind::Other, "Invalid domain id"));
         }
       }
     }
+// ------------------------------------------------------------
+// Set Backpressure Stage    
+// ------------------------------------------------------------
+    self.memdomain_load_bp = self.memdomain.load_busy;
+    self.memdomain_store_bp = self.memdomain.store_busy;
     Ok(())
   }
 }

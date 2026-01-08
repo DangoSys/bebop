@@ -82,23 +82,24 @@ bool SocketClient::send_dma_write_response(const dma_write_resp_t &resp) {
 }
 
 // DMA handlers
-uint64_t SocketClient::handle_dma_read(uint64_t addr, uint32_t size) {
+dma_data_128_t SocketClient::handle_dma_read(uint64_t addr, uint32_t size) {
   if (!dma_read_cb) {
     fprintf(stderr, "Socket: DMA read callback not set\n");
-    return 0;
+    dma_data_128_t zero = {0, 0};
+    return zero;
   }
-  uint64_t value = dma_read_cb(addr, size);
-  printf("Socket: DMA read addr=0x%lx size=%d value=0x%lx\n", addr, size,
-         value);
+  dma_data_128_t value = dma_read_cb(addr, size);
+  printf("Socket: DMA read addr=0x%lx size=%d value=0x%016lx%016lx\n", addr, size,
+         value.hi, value.lo);
   return value;
 }
 
-void SocketClient::handle_dma_write(uint64_t addr, uint64_t data,
+void SocketClient::handle_dma_write(uint64_t addr, dma_data_128_t data,
                                     uint32_t size) {
   if (!dma_write_cb) {
     fprintf(stderr, "Socket: DMA write callback not set\n");
     return;
   }
   dma_write_cb(addr, data, size);
-  printf("Socket: DMA write addr=0x%lx size=%d data=0x%lx\n", addr, size, data);
+  printf("Socket: DMA write addr=0x%lx size=%d data=0x%016lx%016lx\n", addr, size, data.hi, data.lo);
 }

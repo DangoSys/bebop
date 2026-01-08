@@ -1,7 +1,8 @@
 use super::server::socket::{CmdHandler, CmdReq, DmaHandler};
 use super::sim::mode::{RunMode, SimConfig, StepMode};
 use crate::buckyball::buckyball::Buckyball;
-use crate::buckyball::memdomain::tdma::DmaInterface;
+use crate::buckyball::memdomain::tdma_load::DmaInterface;
+use crate::buckyball::memdomain::tdma_store::DmaWriteInterface;
 use crate::log_config::{set_backward_log, set_event_log, set_forward_log};
 use std::io::{self, Result, Write};
 use std::net::{TcpListener, TcpStream};
@@ -15,12 +16,14 @@ struct SimulatorDma {
 }
 
 impl DmaInterface for SimulatorDma {
-  fn dma_read(&self, addr: u64, size: u32) -> Result<u64> {
+  fn dma_read(&self, addr: u64, size: u32) -> Result<u128> {
     let mut handler = self.dma_handler.lock().unwrap();
     handler.read(addr, size)
   }
+}
 
-  fn dma_write(&self, addr: u64, data: u64, size: u32) -> Result<()> {
+impl DmaWriteInterface for SimulatorDma {
+  fn dma_write(&self, addr: u64, data: u128, size: u32) -> Result<()> {
     let mut handler = self.dma_handler.lock().unwrap();
     handler.write(addr, data, size)
   }
@@ -138,7 +141,10 @@ impl Simulator {
           },
         }
       } else {
-        eprintln!("Unknown command: '{}'. Use Enter to step, 'q' to quit, or 'si 100' to step N times", trimmed);
+        eprintln!(
+          "Unknown command: '{}'. Use Enter to step, 'q' to quit, or 'si 100' to step N times",
+          trimmed
+        );
       }
     }
     Ok(())
@@ -157,11 +163,11 @@ impl Simulator {
 
     if let Ok(req) = self.cmd_rx.try_recv() {
       self.buckyball.forward_step(Some((req.funct, req.xs1, req.xs2)), &dma)?;
-      self.buckyball.backward_step()?;
-      self.inst_complete()?;
+      self.buckyball.backward_step(&dma)?;
+      self.inst_complete(req.funct)?;
     } else {
       self.buckyball.forward_step(None, &dma)?;
-      self.buckyball.backward_step()?;
+      self.buckyball.backward_step(&dma)?;
     }
     self.global_clock += 1.0;
     println!("clock: {:.1} -> {:.1}", self.global_clock - 1.0, self.global_clock);
@@ -174,7 +180,10 @@ impl Simulator {
     }
   }
 
-  fn inst_complete(&self) -> Result<()> {
+  fn inst_complete(&self, funct: u32) -> Result<()> {
+    if funct == 31 {
+      FENCE_CSR.store(true, Ordering::Relaxed);
+    }
     if !FENCE_CSR.load(Ordering::Relaxed) {
       self.send_response(0u64);
     }

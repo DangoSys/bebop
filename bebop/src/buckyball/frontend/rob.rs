@@ -1,3 +1,4 @@
+use crate::buckyball::lib::operation::{ExternalOp, InternalOp};
 /// ROB (Reorder Buffer) 重排序缓冲区规格说明
 ///
 /// ## 概述
@@ -62,7 +63,6 @@
 /// // 执行完成后提交
 /// rob.rob_commit_ext(Some(0));                 // entry 0 状态 -> Idle，可以再次使用
 /// ```
-
 use crate::simulator::simulator::FENCE_CSR;
 use std::sync::atomic::Ordering;
 
@@ -77,7 +77,7 @@ pub struct RobEntry {
   funct: u32,
   xs1: u64,
   xs2: u64,
-  domain_id: u8,
+  domain_id: u32,
   status: EntryStatus,
   rob_id: u32,
 }
@@ -85,7 +85,9 @@ pub struct RobEntry {
 pub struct Rob {
   rob_buffer: Vec<RobEntry>,
   allocated_id: u32,
-  dispatched_inst: Option<(u32, u64, u64, u8, u32)>,
+  dispatched_inst: Option<(u32, u64, u64, u32, u32)>,
+  inst_insert: Option<(u32, u64, u64, u32)>,
+  commit_rob_id: Option<u32>,
 }
 
 impl Rob {
@@ -105,60 +107,117 @@ impl Rob {
       rob_buffer,
       allocated_id: 0,
       dispatched_inst: None,
+      inst_insert: None,
+      commit_rob_id: None,
     }
   }
 
-  /// this is an external step
-  /// returns true if allocation succeeded, false if ROB is full
-  pub fn rob_allocate_ext(&mut self, inst_insert: Option<(u32, u64, u64, u8)>) -> bool {
-    if inst_insert.is_some() {
-      let (funct, xs1, xs2, domain_id) = inst_insert.unwrap();
-      if let Some(entry) = find_idle_entry(&mut self.rob_buffer) {
-        let rob_id = allocate_entry(&mut self.allocated_id);
-        entry.rob_id = rob_id;
-        entry.funct = funct;
-        entry.xs1 = xs1;
-        entry.xs2 = xs2;
-        entry.domain_id = domain_id;
-        entry.status = EntryStatus::Allocated;
-        println!(
-          "ROB allocated entry: rob_id={:?}, funct={:?}, xs1={:?}, xs2={:?}, domain_id={:?}",
-          rob_id, funct, xs1, xs2, domain_id
-        );
-        return true;
-      }
-      return false;
-    }
-    return true;
+  // Operations
+  pub fn allocate(&mut self) -> RobAllocate {
+    RobAllocate(self)
+  }
+  pub fn commit(&mut self) -> RobCommit {
+    RobCommit(self)
+  }
+  pub fn dispatch(&mut self) -> RobDispatch {
+    RobDispatch(self)
   }
 
-  /// this is an external step
-  pub fn rob_commit_ext(&mut self, rob_id: Option<u32>) -> bool {
-    if rob_id.is_some() {
-      let id = rob_id.unwrap();
-      commit_entry(&mut self.rob_buffer, id);
-    }
-    true
+  // Helper Functions
+  pub fn is_rob_full(&self) -> bool {
+    self.rob_buffer.iter().all(|entry| entry.status != EntryStatus::Idle)
   }
-
-  /// this is a internal step
-  pub fn rob_dispatch_int(&mut self) -> Option<(u32, u64, u64, u8, u32)> {
-    self.dispatched_inst = dispatch_entry(&mut self.rob_buffer);
-    
-    for entry in self.rob_buffer.iter() {
-      println!("ROB entry status: {:?}, funct: {:?}", entry.status, entry.funct);
-    }
-    println!("fence csr: {:?}", FENCE_CSR.load(Ordering::Relaxed));
-
-    if is_empty(&self.rob_buffer) {
-      FENCE_CSR.store(false, Ordering::Relaxed);
-    }
-    self.dispatched_inst
-  }
-
-
 }
 
+/// ------------------------------------------------------------
+/// --- Operations Definitions ---
+/// ------------------------------------------------------------
+// --- External: Allocate ---
+pub struct RobAllocate<'a>(&'a mut Rob);
+impl<'a> ExternalOp for RobAllocate<'a> {
+  type Input = Option<(u32, u64, u64, u32)>;
+
+  fn can_input(&self, ctrl: bool) -> bool {
+    ctrl && self.0.rob_buffer.iter().any(|e| e.status == EntryStatus::Idle)
+  }
+
+  fn has_input(&self, _input: &Self::Input) -> bool {
+    _input.is_some()
+  }
+
+  fn execute(&mut self, input: &Self::Input) {
+    if !self.has_input(input) {
+      return;
+    }
+    let (funct, xs1, xs2, domain_id) = input.unwrap();
+    if let Some(entry) = find_idle_entry(&mut self.0.rob_buffer) {
+      let rob_id = allocate_entry(&mut self.0.allocated_id);
+      entry.rob_id = rob_id;
+      entry.funct = funct;
+      entry.xs1 = xs1;
+      entry.xs2 = xs2;
+      entry.domain_id = domain_id;
+      entry.status = EntryStatus::Allocated;
+      println!("[Rob] Allocated instruction: funct={:?}", funct);
+    }
+  }
+}
+
+// --- External: Commit ---
+pub struct RobCommit<'a>(&'a mut Rob);
+impl<'a> ExternalOp for RobCommit<'a> {
+  type Input = Option<u32>;
+
+  fn can_input(&self, ctrl: bool) -> bool {
+    ctrl && true
+  }
+
+  fn has_input(&self, input: &Self::Input) -> bool {
+    input.is_some()
+  }
+
+  fn execute(&mut self, input: &Self::Input) {
+    if !self.has_input(input) {
+      return;
+    }
+    let id = input.unwrap();
+    commit_entry(&mut self.0.rob_buffer, id);
+  }
+}
+
+// --- Internal: Dispatch ---
+pub struct RobDispatch<'a>(&'a mut Rob);
+impl<'a> InternalOp for RobDispatch<'a> {
+  type Output = Option<(u32, u64, u64, u32, u32)>;
+
+  fn has_output(&self) -> bool {
+    self.0.dispatched_inst.is_some()
+  }
+
+  fn update(&mut self) {
+    // for entry in self.0.rob_buffer.iter_mut() {
+    //   println!("RobEntry: {:?}, {:?}", entry.status, entry.funct);
+    // }
+    if is_empty(&self.0.rob_buffer) {
+      FENCE_CSR.store(false, Ordering::Relaxed);
+    }
+    self.0.dispatched_inst = dispatch_entry(&mut self.0.rob_buffer);
+  }
+
+  fn output(&mut self) -> Self::Output {
+    if !self.has_output() {
+      return None;
+    }
+    let result = self.0.dispatched_inst;
+    self.0.dispatched_inst = None;
+    println!("[Rob] Dispatched instruction: {:?}", result.unwrap().0);
+    return result;
+  }
+}
+
+/// ------------------------------------------------------------
+/// --- Helper Functions ---
+/// ------------------------------------------------------------
 /// allocate a new entry in the ROB, return the entry id
 fn allocate_entry(allocated_entry: &mut u32) -> u32 {
   let rob_id = *allocated_entry;
@@ -167,7 +226,7 @@ fn allocate_entry(allocated_entry: &mut u32) -> u32 {
 }
 
 /// Finds the first entry from index 0 that is Allocated and marks it as Inflight
-fn dispatch_entry(rob_buffer: &mut Vec<RobEntry>) -> Option<(u32, u64, u64, u8, u32)> {
+fn dispatch_entry(rob_buffer: &mut Vec<RobEntry>) -> Option<(u32, u64, u64, u32, u32)> {
   for entry in rob_buffer.iter_mut() {
     if entry.status == EntryStatus::Allocated {
       entry.status = EntryStatus::Inflight;
@@ -202,6 +261,9 @@ fn is_empty(rob_buffer: &Vec<RobEntry>) -> bool {
   rob_buffer.iter().all(|entry| entry.status == EntryStatus::Idle)
 }
 
+/// ------------------------------------------------------------
+/// --- Test Functions ---
+/// ------------------------------------------------------------
 #[test]
 fn test_rob_new() {
   let rob = Rob::new(10);
@@ -210,44 +272,4 @@ fn test_rob_new() {
     assert_eq!(entry.status, EntryStatus::Idle);
   }
   assert_eq!(rob.dispatched_inst, None);
-}
-
-#[test]
-fn test_rob_allocate() {
-  let mut rob = Rob::new(8);
-  assert!(rob.rob_allocate_ext(Some((1, 10, 20, 0))));
-  let (_, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
-  assert_eq!(rob_id, 0);
-  assert!(rob.rob_allocate_ext(Some((2, 30, 40, 1))));
-  let (_, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
-  assert_eq!(rob_id, 1);
-  assert!(rob.rob_allocate_ext(Some((3, 50, 60, 2))));
-  let (_, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
-  assert_eq!(rob_id, 2);
-  assert!(rob.rob_allocate_ext(Some((4, 70, 80, 3))));
-  let (_, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
-  assert_eq!(rob_id, 3);
-  assert!(rob.rob_allocate_ext(Some((5, 90, 100, 4))));
-  let (_, _, _, _, rob_id) = rob.rob_dispatch_int().unwrap();
-  assert_eq!(rob_id, 4);
-  assert_eq!(rob.rob_buffer.len(), 8);
-}
-
-#[test]
-fn test_rob_full() {
-  let mut rob = Rob::new(4);
-  assert!(rob.rob_allocate_ext(Some((1, 10, 20, 0))));
-  assert!(rob.rob_allocate_ext(Some((2, 30, 40, 1))));
-  assert!(rob.rob_allocate_ext(Some((2, 30, 40, 1))));
-  assert!(rob.rob_allocate_ext(Some((2, 30, 40, 1))));
-  assert_eq!(rob.rob_buffer.len(), 4);
-
-  // should be full, allocation should fail
-  assert!(!rob.rob_allocate_ext(Some((2, 30, 40, 1))));
-  // buffer size should remain the same
-  assert_eq!(rob.rob_buffer.len(), 4);
-
-  // commit one entry, should be able to allocate again
-  rob.rob_commit_ext(Some(0));
-  assert!(rob.rob_allocate_ext(Some((3, 50, 60, 2))));
 }

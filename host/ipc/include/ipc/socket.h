@@ -50,16 +50,18 @@ struct dma_read_req_t {
 // DMA read response from client (DMA path)
 struct dma_read_resp_t {
   msg_header_t header; // header.msg_type = MSG_TYPE_DMA_READ_RESP
-  uint64_t data;       // Read data
+  uint64_t data_lo;    // low 64 bits
+  uint64_t data_hi;    // high 64 bits
 };
 
 // DMA write request from server (DMA path)
 struct dma_write_req_t {
   msg_header_t header; // header.msg_type = MSG_TYPE_DMA_WRITE_REQ
-  uint32_t size;       // Size in bytes (1, 2, 4, or 8)
+  uint32_t size;       // Size in bytes (16 for 128-bit)
   uint32_t padding;
-  uint64_t addr; // Memory address
-  uint64_t data; // Write data
+  uint64_t addr;    // Memory address
+  uint64_t data_lo; // low 64 bits
+  uint64_t data_hi; // high 64 bits
 };
 
 // DMA write response from client (DMA path)
@@ -68,9 +70,15 @@ struct dma_write_resp_t {
   uint64_t reserved;   // Reserved for future use
 };
 
-using dma_read_cb_t = std::function<uint64_t(uint64_t addr, uint32_t size)>;
+// 128-bit data structure for DMA callbacks
+struct dma_data_128_t {
+  uint64_t lo; // low 64 bits
+  uint64_t hi; // high 64 bits
+};
+
+using dma_read_cb_t = std::function<dma_data_128_t(uint64_t addr, uint32_t size)>;
 using dma_write_cb_t =
-    std::function<void(uint64_t addr, uint64_t data, uint32_t size)>;
+    std::function<void(uint64_t addr, dma_data_128_t data, uint32_t size)>;
 
 // Socket client class
 class SocketClient {
@@ -113,8 +121,8 @@ private:
   bool recv_header(msg_header_t &header);
 
   // DMA handlers
-  uint64_t handle_dma_read(uint64_t addr, uint32_t size);
-  void handle_dma_write(uint64_t addr, uint64_t data, uint32_t size);
+  dma_data_128_t handle_dma_read(uint64_t addr, uint32_t size);
+  void handle_dma_write(uint64_t addr, dma_data_128_t data, uint32_t size);
 };
 
 #endif // IPC_SOCKET_H_
