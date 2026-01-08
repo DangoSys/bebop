@@ -130,14 +130,15 @@ uint64_t SocketClient::send_and_wait(uint32_t funct, uint64_t xs1,
       }
 
       // Handle DMA read
-      uint64_t read_data =
+      dma_data_128_t read_data =
           handle_dma_read(dma_read_req.addr, dma_read_req.size);
 
       // Send DMA read response
       dma_read_resp_t dma_read_resp;
       dma_read_resp.header.msg_type = MSG_TYPE_DMA_READ_RESP;
       dma_read_resp.header.reserved = 0;
-      dma_read_resp.data = read_data;
+      dma_read_resp.data_lo = read_data.lo;
+      dma_read_resp.data_hi = read_data.hi;
 
       if (!send_dma_read_response(dma_read_resp)) {
         return 0;
@@ -151,8 +152,10 @@ uint64_t SocketClient::send_and_wait(uint32_t funct, uint64_t xs1,
       }
 
       // Handle DMA write
-      handle_dma_write(dma_write_req.addr, dma_write_req.data,
-                       dma_write_req.size);
+      dma_data_128_t write_data;
+      write_data.lo = dma_write_req.data_lo;
+      write_data.hi = dma_write_req.data_hi;
+      handle_dma_write(dma_write_req.addr, write_data, dma_write_req.size);
 
       // Send DMA write response
       dma_write_resp_t dma_write_resp;

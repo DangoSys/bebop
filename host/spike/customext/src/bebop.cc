@@ -47,39 +47,53 @@ reg_t bebop_t::CUSTOMFN(XCUSTOM_ACC)(rocc_insn_t insn, reg_t xs1, reg_t xs2) {
     bebop_state.reset();
   }
 
-  auto read_cb = [this](uint64_t addr, uint32_t size) -> uint64_t {
+  auto read_cb = [this](uint64_t addr, uint32_t size) -> dma_data_128_t {
+    dma_data_128_t value{};
     switch (size) {
     case 1:
-      return read_from_dram<uint8_t>(addr);
+      value.lo = read_from_dram<uint8_t>(addr);
+      break;
     case 2:
-      return read_from_dram<uint16_t>(addr);
+      value.lo = read_from_dram<uint16_t>(addr);
+      break;
     case 4:
-      return read_from_dram<uint32_t>(addr);
+      value.lo = read_from_dram<uint32_t>(addr);
+      break;
     case 8:
-      return read_from_dram<uint64_t>(addr);
+      value.lo = read_from_dram<uint64_t>(addr);
+      break;
+    case 16:
+      value.lo = read_from_dram<uint64_t>(addr);
+      value.hi = read_from_dram<uint64_t>(addr + 8);
+      break;
     default:
       fprintf(stderr, "bebop: Invalid DMA read size %u\n", size);
-      return 0;
+      abort();
     }
+    return value;
   };
 
-  auto write_cb = [this](uint64_t addr, uint64_t data, uint32_t size) {
+  auto write_cb = [this](uint64_t addr, dma_data_128_t data, uint32_t size) {
     switch (size) {
     case 1:
-      write_to_dram<uint8_t>(addr, static_cast<uint8_t>(data));
+      write_to_dram<uint8_t>(addr, static_cast<uint8_t>(data.lo));
       break;
     case 2:
-      write_to_dram<uint16_t>(addr, static_cast<uint16_t>(data));
+      write_to_dram<uint16_t>(addr, static_cast<uint16_t>(data.lo));
       break;
     case 4:
-      write_to_dram<uint32_t>(addr, static_cast<uint32_t>(data));
+      write_to_dram<uint32_t>(addr, static_cast<uint32_t>(data.lo));
       break;
     case 8:
-      write_to_dram<uint64_t>(addr, data);
+      write_to_dram<uint64_t>(addr, data.lo);
+      break;
+    case 16:
+      write_to_dram<uint64_t>(addr, data.lo);
+      write_to_dram<uint64_t>(addr + 8, data.hi);
       break;
     default:
       fprintf(stderr, "bebop: Invalid DMA write size %u\n", size);
-      break;
+      abort();
     }
   };
 

@@ -59,7 +59,8 @@ pub struct DmaReadReq {
 #[derive(Debug, Clone, Copy)]
 pub struct DmaReadResp {
   pub header: MsgHeader,
-  pub data: u64,
+  pub data_lo: u64, // low 64 bits
+  pub data_hi: u64, // high 64 bits
 }
 
 // DMA write request
@@ -70,7 +71,8 @@ pub struct DmaWriteReq {
   pub size: u32,
   pub padding: u32,
   pub addr: u64,
-  pub data: u64,
+  pub data_lo: u64, // low 64 bits
+  pub data_hi: u64, // high 64 bits
 }
 
 // DMA write response

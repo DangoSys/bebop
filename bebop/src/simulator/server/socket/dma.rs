@@ -35,13 +35,16 @@ impl DmaHandler {
   }
 
   /// Receive DMA read response from client
-  pub fn recv_read_response(&mut self) -> Result<u64> {
+  pub fn recv_read_response(&mut self) -> Result<u128> {
     let resp: DmaReadResp = read_struct(&mut self.stream)?;
-    Ok(resp.data)
+    let data = (resp.data_hi as u128) << 64 | (resp.data_lo as u128);
+    Ok(data)
   }
 
   /// Send DMA write request to client
-  pub fn send_write_request(&mut self, addr: u64, data: u64, size: u32) -> Result<()> {
+  pub fn send_write_request(&mut self, addr: u64, data: u128, size: u32) -> Result<()> {
+    let data_lo = data as u64;
+    let data_hi = (data >> 64) as u64;
     let req = DmaWriteReq {
       header: MsgHeader {
         msg_type: MsgType::DmaWriteReq as u32,
@@ -50,7 +53,8 @@ impl DmaHandler {
       size,
       padding: 0,
       addr,
-      data,
+      data_lo,
+      data_hi,
     };
     write_struct(&mut self.stream, &req)
   }
@@ -62,13 +66,13 @@ impl DmaHandler {
   }
 
   /// Perform DMA read (send request + receive response)
-  pub fn read(&mut self, addr: u64, size: u32) -> Result<u64> {
+  pub fn read(&mut self, addr: u64, size: u32) -> Result<u128> {
     self.send_read_request(addr, size)?;
     self.recv_read_response()
   }
 
   /// Perform DMA write (send request + receive response)
-  pub fn write(&mut self, addr: u64, data: u64, size: u32) -> Result<()> {
+  pub fn write(&mut self, addr: u64, data: u128, size: u32) -> Result<()> {
     self.send_write_request(addr, data, size)?;
     self.recv_write_response()
   }

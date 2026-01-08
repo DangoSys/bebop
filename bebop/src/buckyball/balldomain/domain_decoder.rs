@@ -1,5 +1,5 @@
 pub struct DomainDecoder {
-  decoded_inst: Option<(u32, u64, u64, u32, u8)>,
+  decoded_inst: Option<(u32, u64, u64, u32, u32)>,
 }
 
 impl DomainDecoder {
@@ -17,7 +17,7 @@ impl DomainDecoder {
     true
   }
 
-  pub fn exec_int(&mut self) -> Option<(u32, u64, u64, u32, u8)> {
+  pub fn exec_int(&mut self) -> Option<(u32, u64, u64, u32, u32)> {
     if self.decoded_inst.is_some() {
       return self.decoded_inst;
     }
@@ -25,7 +25,7 @@ impl DomainDecoder {
   }
 }
 
-fn decode_funct(funct: u32) -> u8 {
+fn decode_funct(funct: u32) -> u32 {
   let ball_id = match funct {
     27 => 0, // VectorBall
     28 => 1, // TransposeBall

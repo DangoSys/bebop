@@ -1,50 +1,119 @@
+use crate::buckyball::lib::operation::{ExternalOp, InternalOp};
+
 pub struct Bank {
   bank_id: u32,
   bank_width: u32,
   bank_depth: u32,
   bank_data: Vec<u128>,
+
+  read_resp: Option<u128>, // data
 }
 
-pub struct Banks {
-  banks: Vec<Bank>,
+impl Bank {
+  pub fn new(bank_id: u32, bank_width: u32, bank_depth: u32) -> Self {
+    Self {
+      bank_id,
+      bank_width,
+      bank_depth,
+      bank_data: vec![0u128; bank_depth as usize],
+      read_resp: None,
+    }
+  }
+
+  pub fn read_req(&mut self) -> BankReadReq {
+    BankReadReq(self)
+  }
+
+  pub fn write_req(&mut self) -> BankWriteReq {
+    BankWriteReq(self)
+  }
+
+  pub fn read_resp(&mut self) -> BankReadResp {
+    BankReadResp(self)
+  }
 }
 
-impl Banks {
-  pub fn new(bank_num: u32, bank_width: u32, bank_depth: u32) -> Self {
-    let mut banks = Vec::with_capacity(bank_num as usize);
-    for i in 0..bank_num {
-      banks.push(Bank {
-        bank_id: i as u32,
-        bank_width,
-        bank_depth,
-        bank_data: vec![0u128; bank_depth as usize],
-      });
-    }
-    Self { banks }
+/// ------------------------------------------------------------
+/// --- Operations Definitions ---
+/// ------------------------------------------------------------
+pub struct BankReadReq<'a>(&'a mut Bank);
+impl<'a> ExternalOp for BankReadReq<'a> {
+  type Input = Option<u32>; // addr
+
+  fn can_input(&self, ctrl: bool) -> bool {
+    ctrl && true
   }
 
-  pub fn exec_int(&mut self) -> Option<(u32, u64, u64)> {
-    None
+  fn has_input(&self, input: &Self::Input) -> bool {
+    input.is_some()
   }
 
-  // Read from bank at specified index
-  pub fn read(&self, vbank_id: u8, index: u32) -> Option<u128> {
-    let bank_idx = vbank_id as usize;
-    if bank_idx < self.banks.len() && (index as usize) < self.banks[bank_idx].bank_data.len() {
-      Some(self.banks[bank_idx].bank_data[index as usize])
-    } else {
-      None
+  fn execute(&mut self, input: &Self::Input) {
+    if !self.has_input(input) {
+      return;
     }
+    let addr = input.unwrap();
+    self.0.read_resp = read_data(&mut self.0, addr);
+  }
+}
+
+pub struct BankWriteReq<'a>(&'a mut Bank);
+impl<'a> ExternalOp for BankWriteReq<'a> {
+  type Input = Option<(u32, u128)>; // addr, data
+
+  fn can_input(&self, ctrl: bool) -> bool {
+    ctrl && true
   }
 
-  // Write to bank at specified index
-  pub fn write(&mut self, vbank_id: u8, index: u32, data: u128) -> bool {
-    let bank_idx = vbank_id as usize;
-    if bank_idx < self.banks.len() && (index as usize) < self.banks[bank_idx].bank_data.len() {
-      self.banks[bank_idx].bank_data[index as usize] = data;
-      true
-    } else {
-      false
-    }
+  fn has_input(&self, input: &Self::Input) -> bool {
+    input.is_some()
   }
+
+  fn execute(&mut self, input: &Self::Input) {
+    if !self.has_input(input) {
+      return;
+    }
+    let (addr, data) = input.unwrap();
+    write_data(&mut self.0, addr, data);
+  }
+}
+
+pub struct BankReadResp<'a>(&'a mut Bank);
+impl<'a> InternalOp for BankReadResp<'a> {
+  type Output = Option<u128>;
+
+  fn has_output(&self) -> bool {
+    self.0.read_resp.is_some()
+  }
+
+  fn update(&mut self) {}
+
+  fn output(&mut self) -> Self::Output {
+    self.0.read_resp.take()
+  }
+}
+
+/// ------------------------------------------------------------
+/// --- Helper Functions ---
+/// ------------------------------------------------------------
+fn read_data(bank: &mut Bank, addr: u32) -> Option<u128> {
+  assert!((addr as usize) < bank.bank_data.len());
+  Some(bank.bank_data[addr as usize])
+}
+
+fn write_data(bank: &mut Bank, addr: u32, data: u128) {
+  assert!((addr as usize) < bank.bank_data.len());
+  bank.bank_data[addr as usize] = data;
+}
+
+/// ------------------------------------------------------------
+/// --- Test Functions ---
+/// ------------------------------------------------------------
+#[test]
+fn test_bank_read_write() {
+  let mut bank = Bank::new(0, 128, 1024);
+  bank.write_req().execute(&Some((10, 0x1234)));
+  bank.read_req().execute(&Some(10));
+  let data = bank.read_resp().output();
+  assert_eq!(data, Some(0x1234));
 }
