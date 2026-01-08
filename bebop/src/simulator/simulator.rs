@@ -1,33 +1,17 @@
 use super::server::socket::{CmdHandler, CmdReq, DmaHandler};
 use super::sim::mode::{RunMode, SimConfig, StepMode};
-use crate::buckyball::buckyball::Buckyball;
-use crate::buckyball::memdomain::tdma_load::DmaInterface;
-use crate::buckyball::memdomain::tdma_store::DmaWriteInterface;
+use crate::buckyball::create_simulation;
+use crate::buckyball::inject::inject_message;
 use crate::log_config::{set_backward_log, set_event_log, set_forward_log};
+use serde_json;
+use sim::models::model_trait::DevsModel;
+use sim::simulator::{Message, Simulation};
 use std::io::{self, Result, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-struct SimulatorDma {
-  dma_handler: Arc<Mutex<DmaHandler>>,
-}
-
-impl DmaInterface for SimulatorDma {
-  fn dma_read(&self, addr: u64, size: u32) -> Result<u128> {
-    let mut handler = self.dma_handler.lock().unwrap();
-    handler.read(addr, size)
-  }
-}
-
-impl DmaWriteInterface for SimulatorDma {
-  fn dma_write(&self, addr: u64, data: u128, size: u32) -> Result<()> {
-    let mut handler = self.dma_handler.lock().unwrap();
-    handler.write(addr, data, size)
-  }
-}
 
 pub static CYCLE_MODE_ENABLED: AtomicBool = AtomicBool::new(false);
 pub static FENCE_CSR: AtomicBool = AtomicBool::new(false);
@@ -38,7 +22,7 @@ pub struct Simulator {
   dma_handler: Arc<Mutex<DmaHandler>>,
   cmd_rx: Receiver<CmdReq>,
   resp_tx: Sender<u64>,
-  buckyball: Buckyball,
+  simulation: Simulation,
   global_clock: f64,
 }
 
@@ -77,7 +61,7 @@ impl Simulator {
       }
     });
 
-    let buckyball = Buckyball::new();
+    let simulation = create_simulation();
 
     Ok(Self {
       config,
@@ -85,7 +69,7 @@ impl Simulator {
       dma_handler,
       cmd_rx,
       resp_tx,
-      buckyball,
+      simulation,
       global_clock: 0.0,
     })
   }
@@ -157,20 +141,14 @@ impl Simulator {
   }
 
   fn step(&mut self) -> Result<()> {
-    let dma = SimulatorDma {
-      dma_handler: Arc::clone(&self.dma_handler),
-    };
-
     if let Ok(req) = self.cmd_rx.try_recv() {
-      self.buckyball.forward_step(Some((req.funct, req.xs1, req.xs2)), &dma)?;
-      self.buckyball.backward_step(&dma)?;
+      let inst: Vec<u64> = vec![req.funct as u64, req.xs1, req.xs2];
+      let inst_json = serde_json::to_string(&inst).unwrap();
+      inject_message(&mut self.simulation, "decoder", None, None, None, &inst_json);
       self.inst_complete(req.funct)?;
-    } else {
-      self.buckyball.forward_step(None, &dma)?;
-      self.buckyball.backward_step(&dma)?;
     }
-    self.global_clock += 1.0;
-    println!("clock: {:.1} -> {:.1}", self.global_clock - 1.0, self.global_clock);
+    model_step(&mut self.simulation)?;
+    self.global_clock = self.simulation.get_global_time();
     Ok(())
   }
 
@@ -199,3 +177,26 @@ fn tcp_listen(port: u16) -> Result<(TcpListener, TcpStream)> {
   println!("Connected: {}", addr);
   Ok((listener, stream))
 }
+
+fn model_step(simulation: &mut Simulation) -> Result<()> {
+  loop {
+    // println!("global_time: {:.1}", simulation.get_global_time());
+    match simulation.step() {
+      Ok(_) => {
+        let until_next_event = simulation.models().iter().fold(f64::INFINITY, |min, model| {
+          f64::min(min, model.until_next_event())
+        });
+        // println!("until_next_event: {:.1}", until_next_event);
+        if until_next_event == f64::INFINITY {
+          break;
+        }
+      },
+      Err(e) => {
+        eprintln!("Simulation step error: {:?}", e);
+        return Err(io::Error::new(io::ErrorKind::Other, format!("Simulation error: {:?}", e)));
+      },
+    }
+  }
+  Ok(())
+}
+

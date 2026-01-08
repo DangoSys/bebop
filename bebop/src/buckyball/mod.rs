@@ -1,10 +1,10 @@
-pub mod balldomain;
-pub mod buckyball;
-pub mod frontend;
-pub mod lib;
-pub mod memdomain;
+pub mod bank;
+pub mod decoder;
+pub mod inject;
+pub mod main;
+pub mod rob;
+pub mod rs;
+pub mod tdma;
+pub mod vector_ball;
 
-pub use balldomain::BallDomain;
-pub use buckyball::Buckyball;
-pub use lib::operation::{ExternalOp, InternalOp};
-pub use memdomain::MemDomain;
+pub use main::create_simulation;
