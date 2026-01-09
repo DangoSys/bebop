@@ -22,7 +22,6 @@ impl DmaReadHandler {
 
   /// Send DMA read request to client
   pub fn send_read_request(&mut self, addr: u64, size: u32) -> Result<()> {
-    println!("[DmaReadHandler] Sending DMA read request: addr=0x{:x}, size={}", addr, size);
     let req = DmaReadReq {
       header: MsgHeader {
         msg_type: MsgType::DmaReadReq as u32,

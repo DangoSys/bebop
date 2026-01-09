@@ -51,35 +51,35 @@ reg_t bebop_t::CUSTOMFN(XCUSTOM_ACC)(rocc_insn_t insn, reg_t xs1, reg_t xs2) {
 
   auto read_cb = [this](uint64_t addr, uint32_t size) -> dma_data_128_t {
     dma_data_128_t value{};
-    printf("[BEBOP] DMA read callback: addr=0x%lx, size=%u\n", addr, size);
+    // printf("[BEBOP] DMA read callback: addr=0x%lx, size=%u\n", addr, size);
     switch (size) {
     case 1:
       value.lo = read_from_dram<uint8_t>(addr);
-      printf("[BEBOP] Read 1 byte: value.lo=0x%lx\n", value.lo);
+      // printf("[BEBOP] Read 1 byte: value.lo=0x%lx\n", value.lo);
       break;
     case 2:
       value.lo = read_from_dram<uint16_t>(addr);
-      printf("[BEBOP] Read 2 bytes: value.lo=0x%lx\n", value.lo);
+      // printf("[BEBOP] Read 2 bytes: value.lo=0x%lx\n", value.lo);
       break;
     case 4:
       value.lo = read_from_dram<uint32_t>(addr);
-      printf("[BEBOP] Read 4 bytes: value.lo=0x%lx\n", value.lo);
+      // printf("[BEBOP] Read 4 bytes: value.lo=0x%lx\n", value.lo);
       break;
     case 8:
       value.lo = read_from_dram<uint64_t>(addr);
-      printf("[BEBOP] Read 8 bytes: value.lo=0x%lx\n", value.lo);
+      // printf("[BEBOP] Read 8 bytes: value.lo=0x%lx\n", value.lo);
       break;
     case 16:
       value.lo = read_from_dram<uint64_t>(addr);
       value.hi = read_from_dram<uint64_t>(addr + 8);
-      printf("[BEBOP] Read 16 bytes: value.lo=0x%lx, value.hi=0x%lx\n", value.lo, value.hi);
+      // printf("[BEBOP] Read 16 bytes: value.lo=0x%lx, value.hi=0x%lx\n", value.lo, value.hi);
       // Print raw bytes
-      printf("[BEBOP] Raw bytes at addr 0x%lx:\n", addr);
-      for (int i = 0; i < 16; i++) {
-        uint8_t b = read_from_dram<uint8_t>(addr + i);
-        printf("%02x ", b);
-        if ((i + 1) % 8 == 0) printf("\n");
-      }
+      // printf("[BEBOP] Raw bytes at addr 0x%lx:\n", addr);
+      // for (int i = 0; i < 16; i++) {
+      //   uint8_t b = read_from_dram<uint8_t>(addr + i);
+      //   printf("%02x ", b);
+      //   if ((i + 1) % 8 == 0) printf("\n");
+      // }
       break;
     default:
       fprintf(stderr, "bebop: Invalid DMA read size %u\n", size);

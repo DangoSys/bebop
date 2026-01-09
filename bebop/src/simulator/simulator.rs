@@ -14,9 +14,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 pub static CYCLE_MODE_ENABLED: AtomicBool = AtomicBool::new(false);
-// pub static FENCE_CSR: AtomicBool = AtomicBool::new(false);
 
 pub struct Simulator {
   config: SimConfig,
@@ -208,18 +208,16 @@ impl Simulator {
     loop {
       self.step()?;
     }
+    Ok(())
   }
 
   fn step(&mut self) -> Result<()> {
     if let Ok(req) = self.cmd_rx.try_recv() {
       let inst_json = serde_json::to_string(&vec![req.funct as u64, req.xs1, req.xs2]).unwrap();
       inject_message(&mut self.simulation, "decoder", None, None, None, &inst_json);
-      // self.inst_complete(req.funct as u64)?;
-      println!("[Simulator] received cmd request: {}", inst_json);
     }
     model_step(&mut self.simulation)?;
     self.global_clock = self.simulation.get_global_time();
-    // println!("global_clock: {:.1}", self.global_clock);
     Ok(())
   }
 
@@ -229,17 +227,6 @@ impl Simulator {
     }
   } 
 
-  // fn inst_complete(&self, funct: u64) -> Result<()> {
-  //   println!("FENCE_CSR: {}", FENCE_CSR.load(Ordering::Relaxed));
-  //   if funct == 31 {
-  //     FENCE_CSR.store(true, Ordering::Relaxed);
-  //     println!("FENCE_CSR set to true");
-  //   }
-  //   if !FENCE_CSR.load(Ordering::Relaxed) {
-  //     self.send_response(0u64);
-  //   }
-  //   Ok(())
-  // }
 }
 
 fn tcp_listen(port: u16) -> Result<(TcpListener, TcpStream)> {
@@ -268,9 +255,7 @@ fn model_step(simulation: &mut Simulation) -> Result<()> {
         );
       }
     }
-    
-    // println!("global_time: {:.1}", simulation.get_global_time());
-    let time0 = simulation.get_global_time();
+        let time0 = simulation.get_global_time();
     match simulation.step() {
       Ok(_) => {
         let until_next_event = simulation
@@ -278,14 +263,16 @@ fn model_step(simulation: &mut Simulation) -> Result<()> {
           .iter()
           .fold(f64::INFINITY, |min, model| f64::min(min, model.until_next_event()));
         // println!("until_next_event: {:.1}", until_next_event);
-        // if until_next_event == f64::INFINITY {
-        // println!("until_next_event: {:.1}", until_next_event);
+        if until_next_event == f64::INFINITY {
+          // no_task_now = true;
+          // println!("no task now");
+          thread::sleep(Duration::from_millis(4));
+          break;
+        }
         if until_next_event > 1.0 {
           break;
         }
         let time1 = simulation.get_global_time();
-        // println!("time0: {:.1}", time0);
-        // println!("time1: {:.1}", time1);
         if time1 > time0 {
           break;
         }

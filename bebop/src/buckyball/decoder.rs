@@ -44,13 +44,6 @@ impl DevsModel for Decoder {
     let xs2 = inst_values[2];
     self.inst = Some((funct, xs1, xs2));
 
-    // println!(
-    //   "[Decoder] events_ext: received instruction at t={:.1}: funct={}, xs1=0x{:x}, xs2=0x{:x}",
-    //   services.global_time(),
-    //   funct,
-    //   xs1,
-    //   xs2
-    // );
     // fence inst dont push to rob
     if funct == 31 {
       FENCE_CSR.store(true, Ordering::Relaxed);
@@ -62,21 +55,14 @@ impl DevsModel for Decoder {
   }
 
   fn events_int(&mut self, services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
-    // if let Some((funct, xs1, xs2)) = self.inst.take() {
     let (funct, xs1, xs2) = self.inst.unwrap();
       let rob_ready = ROB_READY_TO_RECEIVE.load(Ordering::Relaxed);
 
       if !rob_ready {
-        // println!(
-        //   "[Decoder] events_int: rob not ready, holding instruction at t={:.1}",
-        //   services.global_time()
-        // );
         self.inst = Some((funct, xs1, xs2));
         self.until_next_event = 1.0;
         return Ok(Vec::new());
       }
-
-println!("[Decoder] fence CSR is: {}", FENCE_CSR.load(Ordering::Relaxed));
 
       if FENCE_CSR.load(Ordering::Relaxed) {
         self.until_next_event = 1.0;
@@ -84,14 +70,9 @@ println!("[Decoder] fence CSR is: {}", FENCE_CSR.load(Ordering::Relaxed));
       }
 
       self.until_next_event = INFINITY;
-      // send_cmd_response(0u64);
       
       let domain_id = decode_funct(funct);
 
-      // println!(
-      //   "[Decoder] events_int: rob ready, sending instruction at t={:.1}",
-      //   services.global_time()
-      // );
       let mut messages = Vec::new();
       let msg_rob = ModelMessage {
         content: serde_json::to_string(&vec![funct, xs1, xs2, domain_id]).unwrap(),
@@ -102,11 +83,6 @@ println!("[Decoder] fence CSR is: {}", FENCE_CSR.load(Ordering::Relaxed));
       send_cmd_response(0u64);
 
       Ok(messages)
-    // } 
-    
-    // else {
-      // Ok(Vec::new())
-    // }
   }
 
   fn time_advance(&mut self, time_delta: f64) {
@@ -161,7 +137,6 @@ pub fn set_resp_tx(resp_tx: Sender<u64>) {
 }
 
 pub fn send_cmd_response(result: u64) {
-  println!("[Decoder] sending cmd response: {}", result);
   let resp_tx_opt = RESP_TX.lock().unwrap();
   if let Some(resp_tx) = resp_tx_opt.as_ref() {
     if resp_tx.send(result).is_err() {
