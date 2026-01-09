@@ -13,7 +13,7 @@ bool SocketClient::recv_dma_read_request(dma_read_req_t &req) {
   ssize_t received = recv(dma_read_sock_fd, &req, sizeof(req), 0);
 
   if (received < 0) {
-    fprintf(stderr, "Socket: Failed to receive DMA read request: %s\n", strerror(errno));
+    fprintf(stderr, "Socket: Failed to receive DMA read request\n");
     close();
     return false;
   } else if (received == 0) {
@@ -57,7 +57,7 @@ bool SocketClient::recv_dma_write_request(dma_write_req_t &req) {
   ssize_t received = recv(dma_write_sock_fd, &req, sizeof(req), 0);
 
   if (received < 0) {
-    fprintf(stderr, "Socket: Failed to receive DMA write request: %s\n", strerror(errno));
+    fprintf(stderr, "Socket: Failed to receive DMA write request\n");
     close();
     return false;
   } else if (received == 0) {

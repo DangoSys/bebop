@@ -35,17 +35,8 @@ impl VectorBall {
 
 impl DevsModel for VectorBall {
   fn events_ext(&mut self, incoming_message: &ModelMessage, services: &mut Services) -> Result<(), SimulationError> {
-    if self.busy {
-      println!("[VectorBall] ERROR: Already busy, cannot accept new instruction");
-      return Err(SimulationError::InvalidModelState);
-    }
+    
 
-    println!(
-      "[VectorBall] events_ext: received instruction at t={:.1}, latency={:.1}: {}",
-      services.global_time(),
-      self.latency,
-      incoming_message.content
-    );
     self.busy = true;
     self.current_inst = Some(incoming_message.content.clone());
     self.until_next_event = self.latency;
@@ -64,11 +55,6 @@ impl DevsModel for VectorBall {
       self.busy = false;
       self.until_next_event = INFINITY;
 
-      println!(
-        "[VectorBall] events_int: completed instruction at t={:.1}: {}",
-        services.global_time(),
-        inst
-      );
       self.records.push(ModelRecord {
         time: services.global_time(),
         action: "complete".to_string(),

@@ -170,18 +170,12 @@ impl DevsModel for Tdma {
     if !MVIN_INST_CAN_ISSUE.load(Ordering::Relaxed) && self.current_bank_write_iter < self.all_bank_write_iter {
       // Calculate address for current iteration before reading
       let current_addr = self.mvin_base_dram_addr + self.current_bank_write_iter * 16 * self.mvin_stride;
-      println!("[TDMA] MVIN: Calling dma_read_dram at addr=0x{:x}, iter={}/{}, vbank_id={}",
-        current_addr, self.current_bank_write_iter, self.all_bank_write_iter, self.mvin_vbank_id);
       let (data_lo, data_hi) = dma_read_dram(current_addr);
-      println!("[TDMA] MVIN: Got DMA data: data_lo=0x{:x}, data_hi=0x{:x}", data_lo, data_hi);
-      println!("[TDMA] MVIN: Sending to bank - vbank_id={}, bank_addr={}, data_lo=0x{:x}, data_hi=0x{:x}",
-        self.mvin_vbank_id, self.current_bank_write_iter, data_lo, data_hi);
       messages.push(ModelMessage {
         content: serde_json::to_string(&vec![self.mvin_vbank_id, self.current_bank_write_iter, data_lo, data_hi]).unwrap(),
         port_name: self.write_bank_req_port.clone(),
       });
       self.until_next_event = 1.0;
-      // self.until_next_event = INFINITY;
       has_work = true;
     }
 
@@ -253,7 +247,6 @@ fn decode_inst(inst: &str) -> (u64, u64, u64, u64, u64) {
   let stride = ((xs2 >> 24) & 0x3ff) as u64;
   let depth = ((xs2 >> 8) & 0xffff) as u64;
   let vbank_id = (xs2 & 0xff) as u64;
-  println!("[TDMA] decode_inst: depth={}, vbank_id={}, rob_id={}", depth, vbank_id, rob_id);
   (base_dram_addr, stride, depth, vbank_id, rob_id)
 }
 

@@ -18,7 +18,6 @@ impl SocketServer {
   pub fn new() -> Result<Self> {
     let addr = format!("{}:{}", SOCKET_HOST, SOCKET_PORT);
     let listener = TcpListener::bind(&addr)?;
-    println!("Socket server listening on {}", addr);
     Ok(Self {
       listener,
       cmd_handler: None,
@@ -34,7 +33,6 @@ impl SocketServer {
 
   pub fn accept_and_serve(&mut self) -> Result<()> {
     let (stream, addr) = self.listener.accept()?;
-    println!("Client connected from {}", addr);
     
     if let Err(e) = self.serve_client(stream) {
       eprintln!("Error serving client: {}", e);
@@ -50,8 +48,6 @@ impl SocketServer {
       if cmd_req.header.msg_type != MsgType::CmdReq as u32 {
         return Err(Error::new(ErrorKind::InvalidData, "Invalid message type"));
       }
-
-      eprintln!("Received CMD request: funct={}", cmd_req.funct);
 
       let mut dma_iface = ClientDma { stream: &mut stream };
       
@@ -70,7 +66,6 @@ impl SocketServer {
       };
 
       write_struct(&mut stream, &cmd_resp)?;
-      eprintln!("Sent CMD response: result={}", result);
     }
   }
 }
@@ -99,7 +94,6 @@ impl<'a> DmaInterface for ClientDma<'a> {
     }
 
     let data = (resp.data_hi as u128) << 64 | (resp.data_lo as u128);
-    eprintln!("DMA read: addr=0x{:x} size={} data=0x{:x}", addr, size, data);
     Ok(data)
   }
 
@@ -125,7 +119,6 @@ impl<'a> DmaInterface for ClientDma<'a> {
       return Err(Error::new(ErrorKind::InvalidData, "Invalid DMA write response"));
     }
 
-    eprintln!("DMA write: addr=0x{:x} size={} data=0x{:x}", addr, size, data);
     Ok(())
   }
 }

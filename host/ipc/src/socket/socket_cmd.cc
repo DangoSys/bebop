@@ -33,7 +33,7 @@ bool SocketClient::recv_cmd_response(cmd_resp_t &resp) {
   ssize_t received = recv(cmd_sock_fd, &resp, sizeof(resp), 0);
 
   if (received < 0) {
-    fprintf(stderr, "Socket: Failed to receive CMD response: %s\n", strerror(errno));
+    fprintf(stderr, "Socket: Failed to receive CMD response\n");
     close();
     return false;
   } else if (received == 0) {
