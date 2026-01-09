@@ -19,9 +19,10 @@ set_target_properties(bebop_ipc PROPERTIES
 )
 
 set(_bebop_ipc_install_dir ${CMAKE_INSTALL_RPATH})
-if(NOT _bebop_ipc_install_dir)
-  set(_bebop_ipc_install_dir $ENV{RISCV}/lib)
-endif()
+message(STATUS "CMAKE_INSTALL_RPATH: ${CMAKE_INSTALL_RPATH}")
+# if(NOT _bebop_ipc_install_dir)
+#   set(_bebop_ipc_install_dir $ENV{RISCV}/lib)
+# endif()
 
 install(TARGETS bebop_ipc
   ARCHIVE DESTINATION ${_bebop_ipc_install_dir}

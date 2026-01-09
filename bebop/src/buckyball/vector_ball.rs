@@ -4,6 +4,9 @@ use sim::models::{ModelMessage, ModelRecord};
 use sim::simulator::Services;
 use sim::utils::errors::SimulationError;
 use std::f64::INFINITY;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+pub static VECBALL_INST_CAN_ISSUE: AtomicBool = AtomicBool::new(true);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VectorBall {

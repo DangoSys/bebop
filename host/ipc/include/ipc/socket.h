@@ -5,7 +5,9 @@
 #include <functional>
 
 // Socket configuration
-#define SOCKET_PORT 9999
+#define SOCKET_CMD_PORT 6000
+#define SOCKET_DMA_READ_PORT 6001
+#define SOCKET_DMA_WRITE_PORT 6002
 #define SOCKET_HOST "127.0.0.1"
 
 // Message types for socket communication
@@ -101,11 +103,21 @@ public:
   // Check if socket is connected
   bool is_connected() const { return socket_initialized; }
 
+  // Start DMA handler thread (processes DMA requests in background)
+  void start_dma_handler();
+
 private:
-  int sock_fd;
+  int cmd_sock_fd;         // Socket for CMD communication
+  int dma_read_sock_fd;    // Socket for DMA read communication
+  int dma_write_sock_fd;   // Socket for DMA write communication
   bool socket_initialized;
+  bool dma_handler_running;
   dma_read_cb_t dma_read_cb;
   dma_write_cb_t dma_write_cb;
+
+  // DMA handler thread functions
+  void dma_read_handler_thread();
+  void dma_write_handler_thread();
 
   // CMD path functions
   bool send_cmd_request(const cmd_req_t &req);

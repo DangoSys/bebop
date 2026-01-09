@@ -6,72 +6,88 @@ use sim::utils::errors::SimulationError;
 use std::f64::INFINITY;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct Inst {
+  funct: u64,
+  xs1: u64,
+  xs2: u64,
+  domain_id: u64,
+  rob_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rs {
-  port_in: String,
-  port_out: String,
+  receive_inst_from_rob_port: String,
+  issue_to_vecball_port: String,
+  issue_to_tdma_mvin_port: String,
+  issue_to_tdma_mvout_port: String,
   until_next_event: f64,
-  current_inst: Option<String>,
   records: Vec<ModelRecord>,
+  inst_buffer: Vec<Inst>,
 }
 
 impl Rs {
-  pub fn new(port_in: String, port_out: String) -> Self {
+  pub fn new(
+    receive_inst_from_rob_port: String,
+    issue_to_vecball_port: String,
+    issue_to_tdma_mvin_port: String,
+    issue_to_tdma_mvout_port: String,
+  ) -> Self {
     Self {
-      port_in,
-      port_out,
+      receive_inst_from_rob_port,
+      issue_to_vecball_port,
+      issue_to_tdma_mvin_port,
+      issue_to_tdma_mvout_port,
       until_next_event: INFINITY,
-      current_inst: None,
       records: Vec::new(),
+      inst_buffer: Vec::new(),
     }
   }
 }
 
 impl DevsModel for Rs {
   fn events_ext(&mut self, incoming_message: &ModelMessage, services: &mut Services) -> Result<(), SimulationError> {
-    if self.current_inst.is_some() {
-      println!("[Rs] ERROR: Already processing instruction, cannot accept new one");
-      return Err(SimulationError::InvalidModelState);
-    }
+    if incoming_message.port_name == self.receive_inst_from_rob_port {
+      let inst_values: Vec<u64> = serde_json::from_str(&incoming_message.content).unwrap();
+      let funct = inst_values[0];
+      let xs1 = inst_values[1];
+      let xs2 = inst_values[2];
+      let domain_id = inst_values[3];
+      let rob_id = inst_values[4];
 
-    println!(
-      "[Rs] events_ext: received instruction at t={:.1}: {}",
-      services.global_time(),
-      incoming_message.content
-    );
-    self.current_inst = Some(incoming_message.content.clone());
-    self.until_next_event = 1.0;
+      self.until_next_event = 1.0;
 
-    self.records.push(ModelRecord {
-      time: services.global_time(),
-      action: "dispatch".to_string(),
-      subject: incoming_message.content.clone(),
-    });
+      push_to_buffer(&mut self.inst_buffer, funct, xs1, xs2, domain_id, rob_id);
 
-    Ok(())
-  }
-
-  fn events_int(&mut self, services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
-    if let Some(inst) = self.current_inst.take() {
-      self.until_next_event = INFINITY;
-
-      println!(
-        "[Rs] events_int: issued instruction at t={:.1}: {}",
-        services.global_time(),
-        inst
-      );
       self.records.push(ModelRecord {
         time: services.global_time(),
-        action: "issued".to_string(),
-        subject: inst.clone(),
+        action: "receive".to_string(),
+        subject: incoming_message.content.clone(),
       });
-
-      Ok(vec![ModelMessage {
-        content: inst,
-        port_name: self.port_out.clone(),
-      }])
+      Ok(())
     } else {
-      Ok(Vec::new())
+      Ok(())
     }
+  }
+
+  fn events_int(&mut self, _services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
+    let mut messages = Vec::new();
+
+    for inst in self.inst_buffer.drain(..) {
+      let port_name = match inst.funct {
+        24 => self.issue_to_tdma_mvin_port.clone(),
+        25 => self.issue_to_tdma_mvout_port.clone(),
+        30 => self.issue_to_vecball_port.clone(),
+        _ => {
+          return Err(SimulationError::InvalidModelState);
+        },
+      };
+      let content = serde_json::to_string(&vec![inst.funct, inst.xs1, inst.xs2, inst.rob_id])
+        .map_err(|_| SimulationError::InvalidModelState)?;
+      messages.push(ModelMessage { content, port_name });
+    }
+
+    self.until_next_event = INFINITY;
+    Ok(messages)
   }
 
   fn time_advance(&mut self, time_delta: f64) {
@@ -85,11 +101,7 @@ impl DevsModel for Rs {
 
 impl Reportable for Rs {
   fn status(&self) -> String {
-    if self.current_inst.is_some() {
-      "busy".to_string()
-    } else {
-      "idle".to_string()
-    }
+    "normal".to_string()
   }
 
   fn records(&self) -> &Vec<ModelRecord> {
@@ -103,4 +115,17 @@ impl SerializableModel for Rs {
   fn get_type(&self) -> &'static str {
     "Rs"
   }
+}
+
+/// ------------------------------------------------------------
+/// --- Helper Functions ---
+/// ------------------------------------------------------------
+fn push_to_buffer(inst_buffer: &mut Vec<Inst>, funct: u64, xs1: u64, xs2: u64, domain_id: u64, rob_id: u64) {
+  inst_buffer.push(Inst {
+    funct,
+    xs1,
+    xs2,
+    domain_id,
+    rob_id,
+  });
 }
