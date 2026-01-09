@@ -37,6 +37,7 @@ pub struct Tdma {
   current_mvout_bank_addr: u64,
   current_mvout_dram_addr: u64,
   mvout_rob_id: u64,
+  mvout_read_pending: bool,  // Track if we're waiting for a read response
 
   // mvin
   current_bank_write_iter: u64,
@@ -77,6 +78,7 @@ impl Tdma {
       mvout_stride: 0,
       mvout_vbank_id: 0,
       mvout_rob_id: 0,
+      mvout_read_pending: false,  // Initialize to false
       current_bank_write_iter: 0,
       all_bank_write_iter: 0,
       mvin_base_dram_addr: 0,
@@ -116,6 +118,7 @@ impl DevsModel for Tdma {
       self.mvout_stride = stride;
       self.mvout_vbank_id = vbank_id;
       self.mvout_rob_id = rob_id;
+      self.mvout_read_pending = false;  // Reset pending flag for new MVOUT instruction
       MVOUT_INST_CAN_ISSUE.store(false, Ordering::Relaxed);
     } 
     
@@ -129,7 +132,8 @@ impl DevsModel for Tdma {
       dma_write_dram(write_addr, data);
 
       self.current_bank_read_iter += 1;
-      
+      self.mvout_read_pending = false;  // Clear pending flag when response arrives
+
       if self.current_bank_read_iter == self.all_bank_read_iter {
         MVOUT_INST_CAN_ISSUE.store(true, Ordering::Relaxed);
       }
@@ -152,12 +156,12 @@ impl DevsModel for Tdma {
     let mut has_work = false;
 
     // MVOUT: read from bank (bank -> DRAM)
-    if !MVOUT_INST_CAN_ISSUE.load(Ordering::Relaxed) && self.current_bank_read_iter < self.all_bank_read_iter {
+    if !MVOUT_INST_CAN_ISSUE.load(Ordering::Relaxed) && self.current_bank_read_iter < self.all_bank_read_iter && !self.mvout_read_pending {
       messages.push(ModelMessage {
         content: serde_json::to_string(&vec![self.mvout_vbank_id, self.current_bank_read_iter]).unwrap(),
         port_name: self.read_bank_req_port.clone(),
       });
-      // self.until_next_event = INFINITY;
+      self.mvout_read_pending = true;  // Mark that we're waiting for a response
       self.until_next_event = 1.0;
       has_work = true;
     }
@@ -166,10 +170,12 @@ impl DevsModel for Tdma {
     if !MVIN_INST_CAN_ISSUE.load(Ordering::Relaxed) && self.current_bank_write_iter < self.all_bank_write_iter {
       // Calculate address for current iteration before reading
       let current_addr = self.mvin_base_dram_addr + self.current_bank_write_iter * 16 * self.mvin_stride;
-      println!("[TDMA] events_int: Calling dma_read_dram at addr=0x{:x}, iter={}/{}",
-        current_addr, self.current_bank_write_iter, self.all_bank_write_iter);
+      println!("[TDMA] MVIN: Calling dma_read_dram at addr=0x{:x}, iter={}/{}, vbank_id={}",
+        current_addr, self.current_bank_write_iter, self.all_bank_write_iter, self.mvin_vbank_id);
       let (data_lo, data_hi) = dma_read_dram(current_addr);
-      println!("[TDMA] events_int: Got DMA data: data_lo=0x{:x}, data_hi=0x{:x}", data_lo, data_hi);
+      println!("[TDMA] MVIN: Got DMA data: data_lo=0x{:x}, data_hi=0x{:x}", data_lo, data_hi);
+      println!("[TDMA] MVIN: Sending to bank - vbank_id={}, bank_addr={}, data_lo=0x{:x}, data_hi=0x{:x}",
+        self.mvin_vbank_id, self.current_bank_write_iter, data_lo, data_hi);
       messages.push(ModelMessage {
         content: serde_json::to_string(&vec![self.mvin_vbank_id, self.current_bank_write_iter, data_lo, data_hi]).unwrap(),
         port_name: self.write_bank_req_port.clone(),

@@ -1,5 +1,6 @@
 #include "ipc/socket.h"
 #include <cstdio>
+#include <cerrno>
 #include <sys/socket.h>
 
 // CMD path: send command request
@@ -32,11 +33,15 @@ bool SocketClient::recv_cmd_response(cmd_resp_t &resp) {
   ssize_t received = recv(cmd_sock_fd, &resp, sizeof(resp), 0);
 
   if (received < 0) {
-    fprintf(stderr, "Socket: Failed to receive CMD response\n");
+    fprintf(stderr, "Socket: Failed to receive CMD response: %s\n", strerror(errno));
     close();
     return false;
   } else if (received == 0) {
-    fprintf(stderr, "Socket: Connection closed by remote\n");
+    fprintf(stderr, "Socket: CMD connection closed by remote\n");
+    close();
+    return false;
+  } else if (received < (ssize_t)sizeof(resp)) {
+    fprintf(stderr, "Socket: Incomplete CMD response (received %ld bytes, expected %lu bytes)\n", received, sizeof(resp));
     close();
     return false;
   }

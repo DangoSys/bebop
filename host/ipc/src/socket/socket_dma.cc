@@ -1,5 +1,6 @@
 #include "ipc/socket.h"
 #include <cstdio>
+#include <cerrno>
 #include <sys/socket.h>
 
 // DMA path: receive DMA read request
@@ -12,11 +13,15 @@ bool SocketClient::recv_dma_read_request(dma_read_req_t &req) {
   ssize_t received = recv(dma_read_sock_fd, &req, sizeof(req), 0);
 
   if (received < 0) {
-    fprintf(stderr, "Socket: Failed to receive DMA read request\n");
+    fprintf(stderr, "Socket: Failed to receive DMA read request: %s\n", strerror(errno));
     close();
     return false;
   } else if (received == 0) {
-    fprintf(stderr, "Socket: Connection closed by remote\n");
+    fprintf(stderr, "Socket: DMA read connection closed by remote\n");
+    close();
+    return false;
+  } else if (received < (ssize_t)sizeof(req)) {
+    fprintf(stderr, "Socket: Incomplete DMA read request (received %ld bytes, expected %lu bytes)\n", received, sizeof(req));
     close();
     return false;
   }
@@ -52,11 +57,15 @@ bool SocketClient::recv_dma_write_request(dma_write_req_t &req) {
   ssize_t received = recv(dma_write_sock_fd, &req, sizeof(req), 0);
 
   if (received < 0) {
-    fprintf(stderr, "Socket: Failed to receive DMA write request\n");
+    fprintf(stderr, "Socket: Failed to receive DMA write request: %s\n", strerror(errno));
     close();
     return false;
   } else if (received == 0) {
-    fprintf(stderr, "Socket: Connection closed by remote\n");
+    fprintf(stderr, "Socket: DMA write connection closed by remote\n");
+    close();
+    return false;
+  } else if (received < (ssize_t)sizeof(req)) {
+    fprintf(stderr, "Socket: Incomplete DMA write request (received %ld bytes, expected %lu bytes)\n", received, sizeof(req));
     close();
     return false;
   }
