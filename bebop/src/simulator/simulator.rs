@@ -219,7 +219,7 @@ impl Simulator {
     }
     model_step(&mut self.simulation)?;
     self.global_clock = self.simulation.get_global_time();
-    println!("global_clock: {:.1}", self.global_clock);
+    // println!("global_clock: {:.1}", self.global_clock);
     Ok(())
   }
 

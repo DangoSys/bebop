@@ -96,6 +96,8 @@ impl DevsModel for Bank {
       let (vbank_id, bank_addr, data_lo, data_hi) = serde_json::from_str::<(u64, u64, u64, u64)>(&incoming_message.content)
         .map_err(|_| SimulationError::InvalidModelState)?;
       let data = (data_hi as u128) << 64 | (data_lo as u128);
+      println!("[BANK] Write request: vbank_id={}, bank_addr={}, data_lo=0x{:x}, data_hi=0x{:x}, combined_data=0x{:032x}",
+        vbank_id, bank_addr, data_lo, data_hi, data);
       self.write_buffer.push((vbank_id, bank_addr, data));
       self.until_next_event = self.latency;
 
