@@ -5,8 +5,12 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <thread>
+#include <chrono>
+#include <cerrno>
+#include <errno.h>
 
-SocketClient::SocketClient() : sock_fd(-1), socket_initialized(false) {}
+SocketClient::SocketClient() : cmd_sock_fd(-1), dma_read_sock_fd(-1), dma_write_sock_fd(-1), socket_initialized(false), dma_handler_running(false) {}
 
 SocketClient::~SocketClient() { close(); }
 
@@ -15,42 +19,121 @@ bool SocketClient::init() {
     return true;
   }
 
-  sock_fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (sock_fd < 0) {
-    fprintf(stderr, "Socket: Failed to create socket\n");
+  printf("Socket: Initializing connections...\n");
+  fflush(stdout);
+  
+  // Connect to CMD socket
+  cmd_sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (cmd_sock_fd < 0) {
+    printf("Socket: Failed to create CMD socket\n");
+    fflush(stdout);
     return false;
   }
 
   struct sockaddr_in server_addr;
   memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(SOCKET_PORT);
+  server_addr.sin_port = htons(SOCKET_CMD_PORT);
 
   if (inet_pton(AF_INET, SOCKET_HOST, &server_addr.sin_addr) <= 0) {
-    fprintf(stderr, "Socket: Invalid address/Address not supported\n");
-    ::close(sock_fd);
-    sock_fd = -1;
+    printf("Socket: Invalid address/Address not supported\n");
+    fflush(stdout);
+    ::close(cmd_sock_fd);
+    cmd_sock_fd = -1;
+    return false;
+  }
+  
+  printf("Socket: Attempting to connect to CMD socket %s:%d...\n", SOCKET_HOST, SOCKET_CMD_PORT);
+  fflush(stdout);
+
+  if (connect(cmd_sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+    printf("Socket: CMD connection failed to %s:%d\n", SOCKET_HOST, SOCKET_CMD_PORT);
+    fflush(stdout);
+    ::close(cmd_sock_fd);
+    cmd_sock_fd = -1;
     return false;
   }
 
-  if (connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) <
-      0) {
-    fprintf(stderr, "Socket: Connection failed to %s:%d\n", SOCKET_HOST,
-            SOCKET_PORT);
-    ::close(sock_fd);
-    sock_fd = -1;
+  printf("Socket: Connected to CMD socket %s:%d\n", SOCKET_HOST, SOCKET_CMD_PORT);
+  fflush(stdout);
+
+  // Connect to DMA read socket
+  dma_read_sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (dma_read_sock_fd < 0) {
+    printf("Socket: Failed to create DMA read socket\n");
+    fflush(stdout);
+    ::close(cmd_sock_fd);
+    cmd_sock_fd = -1;
     return false;
   }
+
+  server_addr.sin_port = htons(SOCKET_DMA_READ_PORT);
+  printf("Socket: Attempting to connect to DMA read socket %s:%d...\n", SOCKET_HOST, SOCKET_DMA_READ_PORT);
+  fflush(stdout);
+  if (connect(dma_read_sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+    printf("Socket: DMA read connection failed to %s:%d: %s\n", SOCKET_HOST, SOCKET_DMA_READ_PORT, strerror(errno));
+    fflush(stdout);
+    ::close(cmd_sock_fd);
+    ::close(dma_read_sock_fd);
+    cmd_sock_fd = -1;
+    dma_read_sock_fd = -1;
+    return false;
+  }
+
+  printf("Socket: Connected to DMA read socket %s:%d\n", SOCKET_HOST, SOCKET_DMA_READ_PORT);
+  fflush(stdout);
+
+  // Connect to DMA write socket
+  dma_write_sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (dma_write_sock_fd < 0) {
+    printf("Socket: Failed to create DMA write socket\n");
+    fflush(stdout);
+    ::close(cmd_sock_fd);
+    ::close(dma_read_sock_fd);
+    cmd_sock_fd = -1;
+    dma_read_sock_fd = -1;
+    return false;
+  }
+
+  server_addr.sin_port = htons(SOCKET_DMA_WRITE_PORT);
+  printf("Socket: Attempting to connect to DMA write socket %s:%d...\n", SOCKET_HOST, SOCKET_DMA_WRITE_PORT);
+  fflush(stdout);
+  if (connect(dma_write_sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+    printf("Socket: DMA write connection failed to %s:%d: %s\n", SOCKET_HOST, SOCKET_DMA_WRITE_PORT, strerror(errno));
+    fflush(stdout);
+    ::close(cmd_sock_fd);
+    ::close(dma_read_sock_fd);
+    ::close(dma_write_sock_fd);
+    cmd_sock_fd = -1;
+    dma_read_sock_fd = -1;
+    dma_write_sock_fd = -1;
+    return false;
+  }
+
+  printf("Socket: Connected to DMA write socket %s:%d\n", SOCKET_HOST, SOCKET_DMA_WRITE_PORT);
+  fflush(stdout);
 
   socket_initialized = true;
-  printf("Socket: Connected to %s:%d\n", SOCKET_HOST, SOCKET_PORT);
+  
+  // Start DMA handler thread
+  start_dma_handler();
+  
   return true;
 }
 
 void SocketClient::close() {
-  if (sock_fd >= 0) {
-    ::close(sock_fd);
-    sock_fd = -1;
+  dma_handler_running = false;
+  if (cmd_sock_fd >= 0) {
+    ::close(cmd_sock_fd);
+    cmd_sock_fd = -1;
+  }
+  if (dma_read_sock_fd >= 0) {
+    ::close(dma_read_sock_fd);
+    dma_read_sock_fd = -1;
+  }
+  if (dma_write_sock_fd >= 0) {
+    ::close(dma_write_sock_fd);
+    dma_write_sock_fd = -1;
   }
   socket_initialized = false;
 }
@@ -61,14 +144,14 @@ void SocketClient::set_dma_callbacks(dma_read_cb_t read_cb,
   dma_write_cb = std::move(write_cb);
 }
 
-// Receive message header (peek first to get type)
+// Receive message header (peek first to get type) - only used for CMD socket
 bool SocketClient::recv_header(msg_header_t &header) {
-  if (sock_fd < 0) {
+  if (cmd_sock_fd < 0) {
     fprintf(stderr, "Socket: Not connected\n");
     return false;
   }
 
-  ssize_t received = recv(sock_fd, &header, sizeof(header), MSG_PEEK);
+  ssize_t received = recv(cmd_sock_fd, &header, sizeof(header), MSG_PEEK);
 
   if (received < 0) {
     fprintf(stderr, "Socket: Failed to peek header\n");
@@ -105,72 +188,70 @@ uint64_t SocketClient::send_and_wait(uint32_t funct, uint64_t xs1,
     return 0;
   }
 
-  // Loop to handle responses (CMD response or DMA requests)
-  while (true) {
-    // Peek message header to determine type
-    msg_header_t header;
-    if (!recv_header(header)) {
-      return 0;
+  // Now wait for CMD response (DMA requests are handled by separate thread)
+  cmd_resp_t cmd_resp;
+  if (!recv_cmd_response(cmd_resp)) {
+    return 0;
+  }
+  return cmd_resp.result;
+}
+
+void SocketClient::start_dma_handler() {
+  if (dma_handler_running) {
+    return;
+  }
+  dma_handler_running = true;
+  std::thread(&SocketClient::dma_read_handler_thread, this).detach();
+  std::thread(&SocketClient::dma_write_handler_thread, this).detach();
+}
+
+void SocketClient::dma_read_handler_thread() {
+  while (dma_handler_running && socket_initialized && dma_read_sock_fd >= 0) {
+    // Receive DMA read request
+    dma_read_req_t dma_read_req;
+    if (!recv_dma_read_request(dma_read_req)) {
+      break;
     }
 
-    // Handle based on message type
-    if (header.msg_type == MSG_TYPE_CMD_RESP) {
-      // Receive CMD response
-      cmd_resp_t cmd_resp;
-      if (!recv_cmd_response(cmd_resp)) {
-        return 0;
-      }
-      return cmd_resp.result;
+    // Handle DMA read
+    dma_data_128_t read_data =
+        handle_dma_read(dma_read_req.addr, dma_read_req.size);
 
-    } else if (header.msg_type == MSG_TYPE_DMA_READ_REQ) {
-      // Receive DMA read request
-      dma_read_req_t dma_read_req;
-      if (!recv_dma_read_request(dma_read_req)) {
-        return 0;
-      }
+    // Send DMA read response
+    dma_read_resp_t dma_read_resp;
+    dma_read_resp.header.msg_type = MSG_TYPE_DMA_READ_RESP;
+    dma_read_resp.header.reserved = 0;
+    dma_read_resp.data_lo = read_data.lo;
+    dma_read_resp.data_hi = read_data.hi;
 
-      // Handle DMA read
-      dma_data_128_t read_data =
-          handle_dma_read(dma_read_req.addr, dma_read_req.size);
+    if (!send_dma_read_response(dma_read_resp)) {
+      break;
+    }
+  }
+}
 
-      // Send DMA read response
-      dma_read_resp_t dma_read_resp;
-      dma_read_resp.header.msg_type = MSG_TYPE_DMA_READ_RESP;
-      dma_read_resp.header.reserved = 0;
-      dma_read_resp.data_lo = read_data.lo;
-      dma_read_resp.data_hi = read_data.hi;
+void SocketClient::dma_write_handler_thread() {
+  while (dma_handler_running && socket_initialized && dma_write_sock_fd >= 0) {
+    // Receive DMA write request
+    dma_write_req_t dma_write_req;
+    if (!recv_dma_write_request(dma_write_req)) {
+      break;
+    }
 
-      if (!send_dma_read_response(dma_read_resp)) {
-        return 0;
-      }
+    // Handle DMA write
+    dma_data_128_t write_data;
+    write_data.lo = dma_write_req.data_lo;
+    write_data.hi = dma_write_req.data_hi;
+    handle_dma_write(dma_write_req.addr, write_data, dma_write_req.size);
 
-    } else if (header.msg_type == MSG_TYPE_DMA_WRITE_REQ) {
-      // Receive DMA write request
-      dma_write_req_t dma_write_req;
-      if (!recv_dma_write_request(dma_write_req)) {
-        return 0;
-      }
+    // Send DMA write response
+    dma_write_resp_t dma_write_resp;
+    dma_write_resp.header.msg_type = MSG_TYPE_DMA_WRITE_RESP;
+    dma_write_resp.header.reserved = 0;
+    dma_write_resp.reserved = 0;
 
-      // Handle DMA write
-      dma_data_128_t write_data;
-      write_data.lo = dma_write_req.data_lo;
-      write_data.hi = dma_write_req.data_hi;
-      handle_dma_write(dma_write_req.addr, write_data, dma_write_req.size);
-
-      // Send DMA write response
-      dma_write_resp_t dma_write_resp;
-      dma_write_resp.header.msg_type = MSG_TYPE_DMA_WRITE_RESP;
-      dma_write_resp.header.reserved = 0;
-      dma_write_resp.reserved = 0;
-
-      if (!send_dma_write_response(dma_write_resp)) {
-        return 0;
-      }
-
-    } else {
-      fprintf(stderr, "Socket: Unknown message type %d\n", header.msg_type);
-      close();
-      return 0;
+    if (!send_dma_write_response(dma_write_resp)) {
+      break;
     }
   }
 }

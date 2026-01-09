@@ -4,14 +4,14 @@
 
 // CMD path: send command request
 bool SocketClient::send_cmd_request(const cmd_req_t &req) {
-  if (sock_fd < 0) {
+  if (cmd_sock_fd < 0) {
     fprintf(stderr, "Socket: Not connected, cannot send CMD request\n");
     return false;
   }
 
   fprintf(stderr, "Socket: Sending CMD request: sizeof(req)=%zu, funct=%u\n",
           sizeof(req), req.funct);
-  ssize_t sent = send(sock_fd, &req, sizeof(req), 0);
+  ssize_t sent = send(cmd_sock_fd, &req, sizeof(req), 0);
   if (sent < 0) {
     fprintf(stderr, "Socket: Failed to send CMD request\n");
     close();
@@ -24,12 +24,12 @@ bool SocketClient::send_cmd_request(const cmd_req_t &req) {
 
 // CMD path: receive command response
 bool SocketClient::recv_cmd_response(cmd_resp_t &resp) {
-  if (sock_fd < 0) {
+  if (cmd_sock_fd < 0) {
     fprintf(stderr, "Socket: Not connected, cannot receive CMD response\n");
     return false;
   }
 
-  ssize_t received = recv(sock_fd, &resp, sizeof(resp), 0);
+  ssize_t received = recv(cmd_sock_fd, &resp, sizeof(resp), 0);
 
   if (received < 0) {
     fprintf(stderr, "Socket: Failed to receive CMD response\n");

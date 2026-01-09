@@ -1,5 +1,5 @@
 use super::protocol::*;
-use std::io::Result;
+use std::io::{Read, Result};
 use std::net::TcpStream;
 
 #[derive(Debug)]
@@ -21,6 +21,7 @@ impl CmdHandler {
   }
 
   pub fn recv_request(&mut self) -> Result<CmdReq> {
+    // With separate sockets, we only receive CMD requests here
     read_struct(&mut self.stream)
   }
 

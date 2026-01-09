@@ -2,7 +2,9 @@ use std::io::{Read, Result, Write};
 use std::net::TcpStream;
 
 // Socket configuration
-pub const SOCKET_PORT: u16 = 9999;
+pub const SOCKET_CMD_PORT: u16 = 6000;
+pub const SOCKET_DMA_READ_PORT: u16 = 6001;
+pub const SOCKET_DMA_WRITE_PORT: u16 = 6002;
 pub const SOCKET_HOST: &str = "127.0.0.1";
 
 // Message types
@@ -91,6 +93,27 @@ pub fn read_struct<T: Sized>(stream: &mut TcpStream) -> Result<T> {
     stream.read_exact(bytes)?;
     Ok(data)
   }
+}
+
+pub fn peek_header(stream: &mut TcpStream) -> Result<MsgHeader> {
+  use std::io::{Seek, SeekFrom};
+  // We can't actually peek with TcpStream, so we need to read and put back
+  // But TcpStream doesn't support seek, so we can't put back
+  // Instead, read the header and reconstruct the stream position
+  // Actually, we can't do this easily. Let's just read the header
+  read_struct::<MsgHeader>(stream)
+}
+
+pub fn skip_message_by_type(stream: &mut TcpStream, msg_type: u32) -> Result<()> {
+  let size = match msg_type {
+    3 => std::mem::size_of::<DmaReadResp>(), // DmaReadResp
+    5 => std::mem::size_of::<DmaWriteResp>(), // DmaWriteResp
+    _ => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Unknown msg_type: {}", msg_type))),
+  };
+  // We already read the header, so skip the rest (size - 8 bytes for header)
+  let mut buf = vec![0u8; size - 8];
+  stream.read_exact(&mut buf)?;
+  Ok(())
 }
 
 pub fn write_struct<T: Sized>(stream: &mut TcpStream, data: &T) -> Result<()> {

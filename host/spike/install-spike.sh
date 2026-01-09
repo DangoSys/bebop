@@ -21,6 +21,8 @@ mkdir -p "${SPIKE_BUILD}"
 )
 
 cd ${SCRIPT_DIR}
+rm -rf build
 mkdir -p build && cd build
 cmake ..
+make clean || true
 make install
