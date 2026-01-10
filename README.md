@@ -21,7 +21,11 @@ cargo build --release --bin bebop
 ```
 
 3. Run the simulation
+4. 
 ```
 cd bebop
 ./target/release/bebop
+
+# run in quiet with only workload logs
+cargo run --release --bin bebop -- -q
 ```
