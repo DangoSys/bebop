@@ -11,7 +11,8 @@ use crate::buckyball::tdma::{set_dma_read_handler, set_dma_write_handler};
 use serde_json;
 use sim::models::model_trait::DevsModel;
 use sim::simulator::Simulation;
-use std::io::{self, Result};
+use std::fs::File;
+use std::io::{self, BufWriter, Result, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,6 +28,7 @@ pub struct Simulator {
   global_clock: f64,
   host_process: Option<Child>,
   host_exit: Arc<AtomicBool>,
+  trace_writer: Option<BufWriter<File>>,
 }
 
 impl Simulator {
@@ -98,6 +100,15 @@ impl Simulator {
 
     let simulation = create_simulation();
 
+    // Initialize trace writer if trace file is specified
+    let trace_writer = if let Some(ref path) = config.trace_file {
+      let file = File::create(path)?;
+      log_info!("Trace file enabled: {}", path);
+      Some(BufWriter::new(file))
+    } else {
+      None
+    };
+
     Ok(Self {
       config,
       cmd_rx,
@@ -105,6 +116,7 @@ impl Simulator {
       global_clock: 0.0,
       host_process,
       host_exit,
+      trace_writer,
     })
   }
 
@@ -158,7 +170,7 @@ impl Simulator {
       let inst_json = serde_json::to_string(&vec![req.funct as u64, req.xs1, req.xs2]).unwrap();
       inject_message(&mut self.simulation, "decoder", None, None, None, &inst_json);
     }
-    model_step(&mut self.simulation)?;
+    model_step(&mut self.simulation, &mut self.trace_writer)?;
     self.global_clock = self.simulation.get_global_time();
     Ok(())
   }
@@ -239,40 +251,82 @@ fn launch_host_simulation() -> Result<(Option<Child>, Arc<AtomicBool>)> {
   Ok((host_process, host_exit))
 }
 
-fn model_step(simulation: &mut Simulation) -> Result<()> {
-  loop {
+fn model_step(simulation: &mut Simulation, trace_writer: &mut Option<BufWriter<File>>) -> Result<()> {
+  // First, drain all pending messages
+  let mut messages_to_process = simulation.get_messages();
+
+  while !messages_to_process.is_empty() {
+    // Log to console if enabled
     if is_log_enabled() {
-      let messages_to_process = simulation.get_messages();
-      if !messages_to_process.is_empty() {
-        for msg in messages_to_process {
-          println!(
-            "[MSG] t={:.1} {}:{} -> {}:{} | {}",
-            msg.time(),
-            msg.source_id(),
-            msg.source_port(),
-            msg.target_id(),
-            msg.target_port(),
-            msg.content()
-          );
-        }
+      for msg in messages_to_process.iter() {
+        println!(
+          "[MSG] t={:.1} {}:{} -> {}:{} | {}",
+          msg.time(),
+          msg.source_id(),
+          msg.source_port(),
+          msg.target_id(),
+          msg.target_port(),
+          msg.content()
+        );
       }
     }
+
+    // Write to trace file if enabled
+    if let Some(writer) = trace_writer {
+      for msg in messages_to_process.iter() {
+        let trace_entry = serde_json::json!({
+          "time": msg.time(),
+          "source": msg.source_id(),
+          "source_port": msg.source_port(),
+          "target": msg.target_id(),
+          "target_port": msg.target_port(),
+          "content": msg.content()
+        });
+        writeln!(writer, "{}", trace_entry)?;
+      }
+      writer.flush()?;
+    }
+
     let time0 = simulation.get_global_time();
     match simulation.step() {
       Ok(_) => {
-        let until_next_event = simulation
-          .models()
-          .iter()
-          .fold(f64::INFINITY, |min, model| f64::min(min, model.until_next_event()));
-        if until_next_event == f64::INFINITY {
-          // thread::sleep(Duration::from_millis(4));
-          thread::sleep(Duration::from_micros(300));
-          // thread::sleep(Duration::from_nanos(1));
+        let time1 = simulation.get_global_time();
+        if time1 > time0 {
           break;
         }
-        if until_next_event > 1.0 {
-          break;
-        }
+      },
+      Err(e) => {
+        eprintln!("Simulation step error: {:?}", e);
+        return Err(io::Error::new(
+          io::ErrorKind::Other,
+          format!("Simulation error: {:?}", e),
+        ));
+      },
+    }
+
+    messages_to_process = simulation.get_messages();
+  }
+
+  // Now process internal events until all models are idle or time advances significantly
+  loop {
+    let until_next_event = simulation
+      .models()
+      .iter()
+      .fold(f64::INFINITY, |min, model| f64::min(min, model.until_next_event()));
+
+    if until_next_event == f64::INFINITY {
+      // All models idle, wait for external events
+      thread::sleep(Duration::from_micros(300));
+      break;
+    }
+
+    if until_next_event > 1.0 {
+      break;
+    }
+
+    let time0 = simulation.get_global_time();
+    match simulation.step() {
+      Ok(_) => {
         let time1 = simulation.get_global_time();
         if time1 > time0 {
           break;
@@ -287,5 +341,6 @@ fn model_step(simulation: &mut Simulation) -> Result<()> {
       },
     }
   }
+
   Ok(())
 }

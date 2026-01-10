@@ -198,6 +198,7 @@ impl DevsModel for Tdma {
         port_name: self.commit_to_rob_port.clone(),
       });
       self.all_bank_read_iter = 0; // Reset to avoid re-sending
+      self.until_next_event = 1.0;
       has_work = true;
     }
 
@@ -211,6 +212,7 @@ impl DevsModel for Tdma {
         port_name: self.commit_to_rob_port.clone(),
       });
       self.all_bank_write_iter = 0; // Reset to avoid re-sending
+      self.until_next_event = 1.0;
       has_work = true;
     }
 

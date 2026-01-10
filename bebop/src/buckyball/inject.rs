@@ -20,7 +20,7 @@ pub fn inject_message(
   content: &str,
 ) {
   let msg = Message::new(
-    source_id.unwrap_or("default").to_string(),
+    source_id.unwrap_or("host").to_string(),
     source_port.unwrap_or("default").to_string(),
     target_model.to_string(),
     target_port.unwrap_or("default").to_string(),
