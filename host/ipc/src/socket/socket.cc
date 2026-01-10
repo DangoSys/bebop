@@ -19,7 +19,7 @@ bool SocketClient::init() {
     return true;
   }
 
-  printf("Socket: Initializing connections...\n");
+  // printf("Socket: Initializing connections...\n");
   fflush(stdout);
   
   // Connect to CMD socket
@@ -43,7 +43,7 @@ bool SocketClient::init() {
     return false;
   }
   
-  printf("Socket: Attempting to connect to CMD socket %s:%d...\n", SOCKET_HOST, SOCKET_CMD_PORT);
+  // printf("Socket: Attempting to connect to CMD socket %s:%d...\n", SOCKET_HOST, SOCKET_CMD_PORT);
   fflush(stdout);
 
   if (connect(cmd_sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
@@ -54,7 +54,7 @@ bool SocketClient::init() {
     return false;
   }
 
-  printf("Socket: Connected to CMD socket %s:%d\n", SOCKET_HOST, SOCKET_CMD_PORT);
+  // printf("Socket: Connected to CMD socket %s:%d\n", SOCKET_HOST, SOCKET_CMD_PORT);
   fflush(stdout);
 
   // Connect to DMA read socket
@@ -68,7 +68,7 @@ bool SocketClient::init() {
   }
 
   server_addr.sin_port = htons(SOCKET_DMA_READ_PORT);
-  printf("Socket: Attempting to connect to DMA read socket %s:%d...\n", SOCKET_HOST, SOCKET_DMA_READ_PORT);
+  // printf("Socket: Attempting to connect to DMA read socket %s:%d...\n", SOCKET_HOST, SOCKET_DMA_READ_PORT);
   fflush(stdout);
   if (connect(dma_read_sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
     printf("Socket: DMA read connection failed to %s:%d: %s\n", SOCKET_HOST, SOCKET_DMA_READ_PORT, strerror(errno));
@@ -80,7 +80,7 @@ bool SocketClient::init() {
     return false;
   }
 
-  printf("Socket: Connected to DMA read socket %s:%d\n", SOCKET_HOST, SOCKET_DMA_READ_PORT);
+  // printf("Socket: Connected to DMA read socket %s:%d\n", SOCKET_HOST, SOCKET_DMA_READ_PORT);
   fflush(stdout);
 
   // Connect to DMA write socket
@@ -96,7 +96,7 @@ bool SocketClient::init() {
   }
 
   server_addr.sin_port = htons(SOCKET_DMA_WRITE_PORT);
-  printf("Socket: Attempting to connect to DMA write socket %s:%d...\n", SOCKET_HOST, SOCKET_DMA_WRITE_PORT);
+  // printf("Socket: Attempting to connect to DMA write socket %s:%d...\n", SOCKET_HOST, SOCKET_DMA_WRITE_PORT);
   fflush(stdout);
   if (connect(dma_write_sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
     printf("Socket: DMA write connection failed to %s:%d: %s\n", SOCKET_HOST, SOCKET_DMA_WRITE_PORT, strerror(errno));
@@ -110,7 +110,7 @@ bool SocketClient::init() {
     return false;
   }
 
-  printf("Socket: Connected to DMA write socket %s:%d\n", SOCKET_HOST, SOCKET_DMA_WRITE_PORT);
+  // printf("Socket: Connected to DMA write socket %s:%d\n", SOCKET_HOST, SOCKET_DMA_WRITE_PORT);
   fflush(stdout);
 
   socket_initialized = true;

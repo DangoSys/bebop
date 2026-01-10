@@ -1,4 +1,4 @@
-use bebop::simulator::sim::mode::{RunMode, SimConfig, StepMode};
+use bebop::simulator::sim::mode::{SimConfig, StepMode};
 use bebop::simulator::Simulator;
 
 use std::env;
@@ -11,17 +11,10 @@ fn main() -> std::io::Result<()> {
   } else {
     StepMode::Continuous
   };
-  let quiet = args.iter().any(|arg| arg == "--log" || arg == "-l");
-  let run_mode = if args.iter().any(|arg| arg == "--cycle" || arg == "-c") {
-    RunMode::Cycle
-  } else {
-    RunMode::Func
-  };
-  let config = SimConfig {
-    run_mode,
-    quiet,
-    step_mode,
-  };
+
+  let quiet = args.iter().any(|arg| arg == "--quiet" || arg == "-q");
+
+  let config = SimConfig { quiet, step_mode };
 
   let mut simulator = Simulator::new(config)?;
   simulator.run()

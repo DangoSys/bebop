@@ -1,5 +1,5 @@
 use super::protocol::*;
-use std::io::{Read, Result};
+use std::io::Result;
 use std::net::TcpStream;
 
 #[derive(Debug)]

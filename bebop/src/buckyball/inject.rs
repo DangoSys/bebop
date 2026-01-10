@@ -1,5 +1,4 @@
 use sim::simulator::{Message, Simulation};
-use std::sync::atomic::Ordering;
 
 /// 向指定Model注入消息
 ///

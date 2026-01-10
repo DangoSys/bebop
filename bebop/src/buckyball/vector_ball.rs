@@ -4,7 +4,7 @@ use sim::models::{ModelMessage, ModelRecord};
 use sim::simulator::Services;
 use sim::utils::errors::SimulationError;
 use std::f64::INFINITY;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 pub static VECBALL_INST_CAN_ISSUE: AtomicBool = AtomicBool::new(true);
 
@@ -35,8 +35,6 @@ impl VectorBall {
 
 impl DevsModel for VectorBall {
   fn events_ext(&mut self, incoming_message: &ModelMessage, services: &mut Services) -> Result<(), SimulationError> {
-    
-
     self.busy = true;
     self.current_inst = Some(incoming_message.content.clone());
     self.until_next_event = self.latency;
