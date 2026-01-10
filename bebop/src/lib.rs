@@ -2,4 +2,4 @@ pub mod buckyball;
 pub mod simulator;
 
 pub use simulator::sim::mode::SimConfig;
-pub use simulator::utils::{log, log_config};
+pub use simulator::utils::log;

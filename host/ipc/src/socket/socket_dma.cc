@@ -98,8 +98,8 @@ dma_data_128_t SocketClient::handle_dma_read(uint64_t addr, uint32_t size) {
     return zero;
   }
   dma_data_128_t value = dma_read_cb(addr, size);
-  printf("Socket: DMA read addr=0x%lx size=%d value=0x%016lx%016lx\n", addr, size,
-         value.hi, value.lo);
+  // printf("Socket: DMA read addr=0x%lx size=%d value=0x%016lx%016lx\n", addr, size,
+        //  value.hi, value.lo);
   return value;
 }
 
@@ -110,5 +110,5 @@ void SocketClient::handle_dma_write(uint64_t addr, dma_data_128_t data,
     return;
   }
   dma_write_cb(addr, data, size);
-  printf("Socket: DMA write addr=0x%lx size=%d data=0x%016lx%016lx\n", addr, size, data.hi, data.lo);
+  // printf("Socket: DMA write addr=0x%lx size=%d data=0x%016lx%016lx\n", addr, size, data.hi, data.lo);
 }

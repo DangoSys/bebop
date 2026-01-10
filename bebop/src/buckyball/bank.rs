@@ -32,8 +32,6 @@ impl SRAM {
   }
 }
 
-
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bank {
   depth: u64,
@@ -90,11 +88,12 @@ impl DevsModel for Bank {
         action: "receive_read_req".to_string(),
         subject: incoming_message.content.clone(),
       });
-    } 
-    
+    }
+
     if incoming_message.port_name == self.write_bank_req_port {
-      let (vbank_id, bank_addr, data_lo, data_hi) = serde_json::from_str::<(u64, u64, u64, u64)>(&incoming_message.content)
-        .map_err(|_| SimulationError::InvalidModelState)?;
+      let (vbank_id, bank_addr, data_lo, data_hi) =
+        serde_json::from_str::<(u64, u64, u64, u64)>(&incoming_message.content)
+          .map_err(|_| SimulationError::InvalidModelState)?;
       let data = (data_hi as u128) << 64 | (data_lo as u128);
       self.write_buffer.push((vbank_id, bank_addr, data));
       self.until_next_event = self.latency;
@@ -117,18 +116,16 @@ impl DevsModel for Bank {
       let req = self.read_buffer.remove(0);
       if req.0 < self.banks.len() as u64 {
         let data = self.banks[req.0 as usize].read(req.1);
-        
+
         messages.push(ModelMessage {
-          content: serde_json::to_string(&vec![data])
-            .map_err(|_| SimulationError::InvalidModelState)?,
+          content: serde_json::to_string(&vec![data]).map_err(|_| SimulationError::InvalidModelState)?,
           port_name: self.read_bank_resp_port.clone(),
         });
 
         self.records.push(ModelRecord {
           time: services.global_time(),
           action: "read_complete".to_string(),
-          subject: serde_json::to_string(&vec![data])
-            .unwrap_or_default(),
+          subject: serde_json::to_string(&vec![data]).unwrap_or_default(),
         });
       }
     }
@@ -138,18 +135,16 @@ impl DevsModel for Bank {
       let (vbank_id, bank_addr, data) = self.write_buffer.remove(0);
       if vbank_id < self.banks.len() as u64 {
         self.banks[vbank_id as usize].write(bank_addr, data);
-        
+
         messages.push(ModelMessage {
-          content: serde_json::to_string(&vec!["success"])
-            .map_err(|_| SimulationError::InvalidModelState)?,
+          content: serde_json::to_string(&vec!["success"]).map_err(|_| SimulationError::InvalidModelState)?,
           port_name: self.write_bank_resp_port.clone(),
         });
 
         self.records.push(ModelRecord {
           time: services.global_time(),
           action: "write_complete".to_string(),
-          subject: serde_json::to_string(&vec!["success"])
-            .unwrap_or_default(),
+          subject: serde_json::to_string(&vec!["success"]).unwrap_or_default(),
         });
       }
     }

@@ -1,6 +1,5 @@
 use sim::models::Model;
 use sim::simulator::{Connector, Simulation};
-use sim::utils::errors::SimulationError;
 
 use super::bank::Bank;
 use super::decoder::Decoder;
@@ -13,10 +12,7 @@ pub fn create_simulation() -> Simulation {
   let models = vec![
     Model::new(
       String::from("decoder"),
-      Box::new(Decoder::new(
-        String::from("instruction"),
-        String::from("push_to_rob"),
-      )),
+      Box::new(Decoder::new(String::from("instruction"), String::from("push_to_rob"))),
     ),
     Model::new(
       String::from("rob"),
@@ -143,9 +139,9 @@ pub fn create_simulation() -> Simulation {
     ),
     Connector::new(
       String::from("tdma_rob_commit"),
-      String::from("tdma"),            // source_id: 从tdma发送
-      String::from("rob"),             // target_id: 发送到rob
-      String::from("commit_to_rob"),   // source_port: tdma的输出端口
+      String::from("tdma"),             // source_id: 从tdma发送
+      String::from("rob"),              // target_id: 发送到rob
+      String::from("commit_to_rob"),    // source_port: tdma的输出端口
       String::from("commit_from_tdma"), // target_port: rob的输入端口
     ),
   ];

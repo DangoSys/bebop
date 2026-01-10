@@ -7,10 +7,10 @@ use std::f64::INFINITY;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub static ROB_READY_TO_RECEIVE: AtomicBool = AtomicBool::new(true);
+use crate::buckyball::decoder::send_cmd_response;
+use crate::buckyball::decoder::FENCE_CSR;
 use crate::buckyball::tdma::{MVIN_INST_CAN_ISSUE, MVOUT_INST_CAN_ISSUE};
 use crate::buckyball::vector_ball::VECBALL_INST_CAN_ISSUE;
-use crate::buckyball::decoder::FENCE_CSR;
-use crate::buckyball::decoder::send_cmd_response;
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 enum EntryStatus {
@@ -41,7 +41,12 @@ pub struct Rob {
 }
 
 impl Rob {
-  pub fn new(capacity: u64, receive_inst_from_decoder_port: String, dispatch_to_rs_port: String, commit_from_tdma_port: String) -> Self {
+  pub fn new(
+    capacity: u64,
+    receive_inst_from_decoder_port: String,
+    dispatch_to_rs_port: String,
+    commit_from_tdma_port: String,
+  ) -> Self {
     ROB_READY_TO_RECEIVE.store(true, Ordering::Relaxed);
     Self {
       capacity,
@@ -90,7 +95,7 @@ impl DevsModel for Rob {
         FENCE_CSR.store(false, Ordering::Relaxed);
         send_cmd_response(0u64);
         self.until_next_event = INFINITY;
-      } 
+      }
     } else {
       self.until_next_event = 1.0;
     }
@@ -231,4 +236,3 @@ fn check_can_issue(funct: u64) -> bool {
     _ => false,
   }
 }
-

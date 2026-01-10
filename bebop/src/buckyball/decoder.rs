@@ -14,7 +14,6 @@ static CMD_HANDLER: Mutex<Option<Arc<Mutex<crate::simulator::server::socket::Cmd
 static RESP_TX: Mutex<Option<Sender<u64>>> = Mutex::new(None);
 pub static FENCE_CSR: AtomicBool = AtomicBool::new(false);
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Decoder {
   instruction_port: String,
@@ -56,33 +55,33 @@ impl DevsModel for Decoder {
 
   fn events_int(&mut self, services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
     let (funct, xs1, xs2) = self.inst.unwrap();
-      let rob_ready = ROB_READY_TO_RECEIVE.load(Ordering::Relaxed);
+    let rob_ready = ROB_READY_TO_RECEIVE.load(Ordering::Relaxed);
 
-      if !rob_ready {
-        self.inst = Some((funct, xs1, xs2));
-        self.until_next_event = 1.0;
-        return Ok(Vec::new());
-      }
+    if !rob_ready {
+      self.inst = Some((funct, xs1, xs2));
+      self.until_next_event = 1.0;
+      return Ok(Vec::new());
+    }
 
-      if FENCE_CSR.load(Ordering::Relaxed) {
-        self.until_next_event = 1.0;
-        return Ok(Vec::new());
-      }
+    if FENCE_CSR.load(Ordering::Relaxed) {
+      self.until_next_event = 1.0;
+      return Ok(Vec::new());
+    }
 
-      self.until_next_event = INFINITY;
-      
-      let domain_id = decode_funct(funct);
+    self.until_next_event = INFINITY;
 
-      let mut messages = Vec::new();
-      let msg_rob = ModelMessage {
-        content: serde_json::to_string(&vec![funct, xs1, xs2, domain_id]).unwrap(),
-        port_name: self.push_to_rob_port.clone(),
-      };
-      messages.push(msg_rob);
+    let domain_id = decode_funct(funct);
 
-      send_cmd_response(0u64);
+    let mut messages = Vec::new();
+    let msg_rob = ModelMessage {
+      content: serde_json::to_string(&vec![funct, xs1, xs2, domain_id]).unwrap(),
+      port_name: self.push_to_rob_port.clone(),
+    };
+    messages.push(msg_rob);
 
-      Ok(messages)
+    send_cmd_response(0u64);
+
+    Ok(messages)
   }
 
   fn time_advance(&mut self, time_delta: f64) {
@@ -144,7 +143,6 @@ pub fn send_cmd_response(result: u64) {
     }
   }
 }
-
 
 /// ------------------------------------------------------------
 /// --- Test Functions ---

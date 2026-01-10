@@ -96,7 +96,6 @@ pub fn read_struct<T: Sized>(stream: &mut TcpStream) -> Result<T> {
 }
 
 pub fn peek_header(stream: &mut TcpStream) -> Result<MsgHeader> {
-  use std::io::{Seek, SeekFrom};
   // We can't actually peek with TcpStream, so we need to read and put back
   // But TcpStream doesn't support seek, so we can't put back
   // Instead, read the header and reconstruct the stream position
@@ -106,9 +105,14 @@ pub fn peek_header(stream: &mut TcpStream) -> Result<MsgHeader> {
 
 pub fn skip_message_by_type(stream: &mut TcpStream, msg_type: u32) -> Result<()> {
   let size = match msg_type {
-    3 => std::mem::size_of::<DmaReadResp>(), // DmaReadResp
+    3 => std::mem::size_of::<DmaReadResp>(),  // DmaReadResp
     5 => std::mem::size_of::<DmaWriteResp>(), // DmaWriteResp
-    _ => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Unknown msg_type: {}", msg_type))),
+    _ => {
+      return Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        format!("Unknown msg_type: {}", msg_type),
+      ))
+    },
   };
   // We already read the header, so skip the rest (size - 8 bytes for header)
   let mut buf = vec![0u8; size - 8];

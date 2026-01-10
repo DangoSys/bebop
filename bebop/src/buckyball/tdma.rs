@@ -37,7 +37,7 @@ pub struct Tdma {
   current_mvout_bank_addr: u64,
   current_mvout_dram_addr: u64,
   mvout_rob_id: u64,
-  mvout_read_pending: bool,  // Track if we're waiting for a read response
+  mvout_read_pending: bool, // Track if we're waiting for a read response
 
   // mvin
   current_bank_write_iter: u64,
@@ -78,7 +78,7 @@ impl Tdma {
       mvout_stride: 0,
       mvout_vbank_id: 0,
       mvout_rob_id: 0,
-      mvout_read_pending: false,  // Initialize to false
+      mvout_read_pending: false, // Initialize to false
       current_bank_write_iter: 0,
       all_bank_write_iter: 0,
       mvin_base_dram_addr: 0,
@@ -118,10 +118,10 @@ impl DevsModel for Tdma {
       self.mvout_stride = stride;
       self.mvout_vbank_id = vbank_id;
       self.mvout_rob_id = rob_id;
-      self.mvout_read_pending = false;  // Reset pending flag for new MVOUT instruction
+      self.mvout_read_pending = false; // Reset pending flag for new MVOUT instruction
       MVOUT_INST_CAN_ISSUE.store(false, Ordering::Relaxed);
-    } 
-    
+    }
+
     if _incoming_message.port_name == self.read_bank_resp_port {
       let data_values: Vec<u128> = serde_json::from_str(&_incoming_message.content).unwrap();
       let data = data_values[0];
@@ -132,20 +132,20 @@ impl DevsModel for Tdma {
       dma_write_dram(write_addr, data);
 
       self.current_bank_read_iter += 1;
-      self.mvout_read_pending = false;  // Clear pending flag when response arrives
+      self.mvout_read_pending = false; // Clear pending flag when response arrives
 
       if self.current_bank_read_iter == self.all_bank_read_iter {
         MVOUT_INST_CAN_ISSUE.store(true, Ordering::Relaxed);
       }
-    } 
-    
+    }
+
     if _incoming_message.port_name == self.write_bank_resp_port {
       self.current_bank_write_iter += 1;
-      
+
       if self.current_bank_write_iter == self.all_bank_write_iter {
         MVIN_INST_CAN_ISSUE.store(true, Ordering::Relaxed);
       }
-    } 
+    }
 
     self.until_next_event = 1.0;
     Ok(())
@@ -156,12 +156,15 @@ impl DevsModel for Tdma {
     let mut has_work = false;
 
     // MVOUT: read from bank (bank -> DRAM)
-    if !MVOUT_INST_CAN_ISSUE.load(Ordering::Relaxed) && self.current_bank_read_iter < self.all_bank_read_iter && !self.mvout_read_pending {
+    if !MVOUT_INST_CAN_ISSUE.load(Ordering::Relaxed)
+      && self.current_bank_read_iter < self.all_bank_read_iter
+      && !self.mvout_read_pending
+    {
       messages.push(ModelMessage {
         content: serde_json::to_string(&vec![self.mvout_vbank_id, self.current_bank_read_iter]).unwrap(),
         port_name: self.read_bank_req_port.clone(),
       });
-      self.mvout_read_pending = true;  // Mark that we're waiting for a response
+      self.mvout_read_pending = true; // Mark that we're waiting for a response
       self.until_next_event = 1.0;
       has_work = true;
     }
@@ -172,7 +175,13 @@ impl DevsModel for Tdma {
       let current_addr = self.mvin_base_dram_addr + self.current_bank_write_iter * 16 * self.mvin_stride;
       let (data_lo, data_hi) = dma_read_dram(current_addr);
       messages.push(ModelMessage {
-        content: serde_json::to_string(&vec![self.mvin_vbank_id, self.current_bank_write_iter, data_lo, data_hi]).unwrap(),
+        content: serde_json::to_string(&vec![
+          self.mvin_vbank_id,
+          self.current_bank_write_iter,
+          data_lo,
+          data_hi,
+        ])
+        .unwrap(),
         port_name: self.write_bank_req_port.clone(),
       });
       self.until_next_event = 1.0;
@@ -180,7 +189,10 @@ impl DevsModel for Tdma {
     }
 
     // MVOUT commit: send rob_id to ROB when mvout completes
-    if MVOUT_INST_CAN_ISSUE.load(Ordering::Relaxed) && self.current_bank_read_iter == self.all_bank_read_iter && self.all_bank_read_iter > 0 {
+    if MVOUT_INST_CAN_ISSUE.load(Ordering::Relaxed)
+      && self.current_bank_read_iter == self.all_bank_read_iter
+      && self.all_bank_read_iter > 0
+    {
       messages.push(ModelMessage {
         content: serde_json::to_string(&self.mvout_rob_id).unwrap(),
         port_name: self.commit_to_rob_port.clone(),
@@ -190,7 +202,10 @@ impl DevsModel for Tdma {
     }
 
     // MVIN commit: send rob_id to ROB when mvin completes
-    if MVIN_INST_CAN_ISSUE.load(Ordering::Relaxed) && self.current_bank_write_iter == self.all_bank_write_iter && self.all_bank_write_iter > 0 {
+    if MVIN_INST_CAN_ISSUE.load(Ordering::Relaxed)
+      && self.current_bank_write_iter == self.all_bank_write_iter
+      && self.all_bank_write_iter > 0
+    {
       messages.push(ModelMessage {
         content: serde_json::to_string(&self.mvin_rob_id).unwrap(),
         port_name: self.commit_to_rob_port.clone(),
@@ -238,7 +253,6 @@ impl SerializableModel for Tdma {
 /// ------------------------------------------------------------
 fn decode_inst(inst: &str) -> (u64, u64, u64, u64, u64) {
   let inst_values: Vec<u64> = serde_json::from_str(inst).unwrap();
-  let funct = inst_values[0];
   let xs1 = inst_values[1];
   let xs2 = inst_values[2];
   let rob_id = inst_values[3];
