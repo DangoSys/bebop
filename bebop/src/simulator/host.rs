@@ -1,10 +1,13 @@
+use crate::log_info;
 use std::io::Result;
 use std::process::{Child, Command};
-use crate::log_info;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread;
 
 pub struct HostConfig {
   pub host: String,
-  pub test_binary: String,
+  pub arg: Vec<String>,
 }
 
 impl Default for HostConfig {
@@ -19,25 +22,63 @@ impl Default for HostConfig {
       .to_string();
 
     let test_binary_path = workspace_root
-      .join("bb-tests/build/workloads/src/CTest/toy/ctest_mvin_mvout_test_singlecore-baremetal")
+      .join("bb-tests/build/workloads/src/CTest/bebop/ctest_mvin_mvout_bebop_test_singlecore-baremetal")
       .to_string_lossy()
       .to_string();
 
     Self {
       host: host_path,
-      test_binary: test_binary_path,
+      arg: vec!["--extension=bebop".to_string(), test_binary_path],
     }
   }
 }
 
-pub fn launch_host(config: &HostConfig) -> Result<Child> {
+fn launch_host(config: &HostConfig) -> Result<Child> {
   log_info!("Launching host process...");
   log_info!("Host binary: {}", config.host);
-  log_info!("Test binary: {}", config.test_binary);
+  log_info!("Args: {:?}", config.arg);
 
-  Command::new(&config.host)
-    .arg("--extension=bebop")
-    // .arg("--log-commits")
-    .arg(&config.test_binary)
-    .spawn()
+  let mut cmd = Command::new(&config.host);
+  for arg in &config.arg {
+    cmd.arg(arg);
+  }
+  cmd.spawn()
+}
+
+pub fn launch_host_process(host_config: HostConfig) -> Result<(Option<Child>, Arc<AtomicBool>)> {
+  let host_exit = Arc::new(AtomicBool::new(false));
+
+  let mut host_process = match launch_host(&host_config) {
+    Ok(child) => {
+      // println!("host process started with PID: {}", child.id());
+      Some(child)
+    },
+    Err(e) => {
+      eprintln!("Warning: Failed to start host process: {}", e);
+      eprintln!("You may need to start host manually.");
+      None
+    },
+  };
+
+  // Start a thread to monitor host process
+  if let Some(child) = host_process.take() {
+    let exit_flag = Arc::clone(&host_exit);
+    host_process = Some(child);
+
+    // Take the child process out to move into thread
+    if let Some(mut child_process) = host_process.take() {
+      thread::spawn(move || match child_process.wait() {
+        Ok(status) => {
+          // println!("host process exited with status: {}", status);
+          exit_flag.store(true, Ordering::Relaxed);
+        },
+        Err(e) => {
+          eprintln!("Error waiting for host process: {}", e);
+          exit_flag.store(true, Ordering::Relaxed);
+        },
+      });
+    }
+  }
+
+  Ok((host_process, host_exit))
 }

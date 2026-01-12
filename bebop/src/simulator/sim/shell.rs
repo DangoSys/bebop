@@ -51,11 +51,11 @@ pub fn read_command() -> Result<Command> {
             Ok(_) => {
               eprintln!("Error: step count must be greater than 0");
               continue;
-            }
+            },
             Err(e) => {
               eprintln!("Error: invalid number '{}': {}", num_str, e);
               continue;
-            }
+            },
           };
         }
 
@@ -73,18 +73,18 @@ pub fn read_command() -> Result<Command> {
           "Unknown command: '{}'. Use Enter to step, 'q' to quit, 'c' to continue, or 'si 100' to step N times",
           trimmed
         );
-      }
+      },
       Err(ReadlineError::Interrupted) => {
         // Ctrl-C: quit
         return Ok(Command::Quit);
-      }
+      },
       Err(ReadlineError::Eof) => {
         // Ctrl-D: quit
         return Ok(Command::Quit);
-      }
+      },
       Err(err) => {
         return Err(io::Error::new(io::ErrorKind::Other, err));
-      }
+      },
     }
   }
 }

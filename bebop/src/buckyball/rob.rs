@@ -9,8 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub static ROB_READY_TO_RECEIVE: AtomicBool = AtomicBool::new(true);
 use crate::buckyball::decoder::send_cmd_response;
 use crate::buckyball::decoder::FENCE_CSR;
-use crate::buckyball::tdma::{MVIN_INST_CAN_ISSUE, MVOUT_INST_CAN_ISSUE};
-use crate::buckyball::vector_ball::VECBALL_INST_CAN_ISSUE;
+use crate::buckyball::tdma_loader::MVIN_INST_CAN_ISSUE;
+use crate::buckyball::tdma_storer::MVOUT_INST_CAN_ISSUE;
+use crate::buckyball::vecball::VECBALL_INST_CAN_ISSUE;
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 enum EntryStatus {
@@ -34,7 +35,7 @@ pub struct Rob {
   capacity: u64,
   receive_inst_from_decoder_port: String,
   dispatch_to_rs_port: String,
-  commit_from_tdma_port: String,
+  commit_port: String,
   rob_buffer: Vec<RobEntry>,
   until_next_event: f64,
   records: Vec<ModelRecord>,
@@ -45,14 +46,14 @@ impl Rob {
     capacity: u64,
     receive_inst_from_decoder_port: String,
     dispatch_to_rs_port: String,
-    commit_from_tdma_port: String,
+    commit_port: String,
   ) -> Self {
     ROB_READY_TO_RECEIVE.store(true, Ordering::Relaxed);
     Self {
       capacity,
       receive_inst_from_decoder_port,
       dispatch_to_rs_port,
-      commit_from_tdma_port,
+      commit_port,
       rob_buffer: init_rob(capacity),
       until_next_event: INFINITY,
       records: Vec::new(),
@@ -72,7 +73,7 @@ impl DevsModel for Rob {
       self.until_next_event = 1.0;
     }
 
-    if incoming_message.port_name == self.commit_from_tdma_port {
+    if incoming_message.port_name == self.commit_port {
       let rob_id: u64 = serde_json::from_str(&incoming_message.content).unwrap();
       commit_entry(&mut self.rob_buffer, rob_id);
       self.until_next_event = 1.0;

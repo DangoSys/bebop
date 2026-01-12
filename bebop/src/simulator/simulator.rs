@@ -1,19 +1,19 @@
-use super::host::{launch_host, HostConfig};
-use super::server::socket::{CmdHandler, CmdReq, DmaReadHandler, DmaWriteHandler};
+use super::host::{launch_host_process, HostConfig};
+use super::server::socket::{accept_connection_async, CmdHandler, CmdReq, DmaReadHandler, DmaWriteHandler};
 use super::sim::mode::{SimConfig, StepMode};
+use super::sim::model::model_step;
 use super::sim::shell;
-use super::utils::log::{is_log_enabled, set_log};
-use crate::log_info;
+use super::utils::log::set_log;
 use crate::buckyball::create_simulation;
 use crate::buckyball::decoder::{set_cmd_handler, set_resp_tx};
-use crate::buckyball::inject::inject_message;
-use crate::buckyball::tdma::{set_dma_read_handler, set_dma_write_handler};
+use crate::buckyball::tdma_loader::set_dma_read_handler;
+use crate::buckyball::tdma_storer::set_dma_write_handler;
+use crate::log_info;
+use crate::simulator::sim::inject::inject_message;
 use serde_json;
-use sim::models::model_trait::DevsModel;
 use sim::simulator::Simulation;
 use std::fs::File;
 use std::io::{self, BufWriter, Result, Write};
-use std::net::{TcpListener, TcpStream};
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
@@ -32,7 +32,7 @@ pub struct Simulator {
 }
 
 impl Simulator {
-  pub fn new(config: SimConfig) -> Result<Self> {
+  pub fn new(config: SimConfig, host_config: HostConfig) -> Result<Self> {
     // Create separate listeners for CMD, DMA read, and DMA write
     let (_cmd_listener, cmd_rx) = accept_connection_async(6000, "CMD")?;
     let (_dma_read_listener, dma_read_rx) = accept_connection_async(6001, "DMA read")?;
@@ -42,7 +42,7 @@ impl Simulator {
     thread::sleep(Duration::from_millis(100));
 
     // Launch and monitor host process
-    let (host_process, host_exit) = launch_host_simulation()?;
+    let (host_process, host_exit) = launch_host_process(host_config)?;
 
     let cmd_stream = cmd_rx
       .recv()
@@ -174,7 +174,6 @@ impl Simulator {
     self.global_clock = self.simulation.get_global_time();
     Ok(())
   }
-
 }
 
 impl Drop for Simulator {
@@ -186,161 +185,4 @@ impl Drop for Simulator {
       // println!("host process terminated.");
     }
   }
-}
-
-fn accept_connection_async(port: u16, name: &str) -> Result<(TcpListener, Receiver<TcpStream>)> {
-  let listener = TcpListener::bind(format!("127.0.0.1:{}", port))?;
-  // println!("Socket server listening on 127.0.0.1:{} ({})", port, name);
-
-  let listener_clone = listener.try_clone()?;
-  let (tx, rx) = mpsc::channel();
-  let name_owned = name.to_string();
-
-  thread::spawn(move || {
-    // println!("Waiting for {} connection on {}...", name_owned, port);
-    match listener_clone.accept() {
-      Ok((stream, addr)) => {
-        // println!("{} Connected: {}", name_owned, addr);
-        let _ = tx.send(stream);
-      },
-      Err(e) => {
-        eprintln!("{} accept error: {}", name_owned, e);
-      },
-    }
-  });
-
-  Ok((listener, rx))
-}
-
-fn launch_host_simulation() -> Result<(Option<Child>, Arc<AtomicBool>)> {
-  let host_config = HostConfig::default();
-  let host_exit = Arc::new(AtomicBool::new(false));
-
-  let mut host_process = match launch_host(&host_config) {
-    Ok(child) => {
-      // println!("host process started with PID: {}", child.id());
-      Some(child)
-    },
-    Err(e) => {
-      eprintln!("Warning: Failed to start host process: {}", e);
-      eprintln!("You may need to start host manually.");
-      None
-    },
-  };
-
-  // Start a thread to monitor host process
-  if let Some(child) = host_process.take() {
-    let exit_flag = Arc::clone(&host_exit);
-    host_process = Some(child);
-
-    // Take the child process out to move into thread
-    if let Some(mut child_process) = host_process.take() {
-      thread::spawn(move || match child_process.wait() {
-        Ok(status) => {
-          // println!("host process exited with status: {}", status);
-          exit_flag.store(true, Ordering::Relaxed);
-        },
-        Err(e) => {
-          eprintln!("Error waiting for host process: {}", e);
-          exit_flag.store(true, Ordering::Relaxed);
-        },
-      });
-    }
-  }
-
-  Ok((host_process, host_exit))
-}
-
-fn model_step(simulation: &mut Simulation, trace_writer: &mut Option<BufWriter<File>>) -> Result<()> {
-  // First, drain all pending messages
-  let mut messages_to_process = simulation.get_messages();
-
-  while !messages_to_process.is_empty() {
-    // Log to console if enabled
-    if is_log_enabled() {
-      for msg in messages_to_process.iter() {
-        println!(
-          "[MSG] t={:.1} {}:{} -> {}:{} | {}",
-          msg.time(),
-          msg.source_id(),
-          msg.source_port(),
-          msg.target_id(),
-          msg.target_port(),
-          msg.content()
-        );
-      }
-    }
-
-    // Write to trace file if enabled
-    if let Some(writer) = trace_writer {
-      for msg in messages_to_process.iter() {
-        let trace_entry = serde_json::json!({
-          "time": msg.time(),
-          "source": msg.source_id(),
-          "source_port": msg.source_port(),
-          "target": msg.target_id(),
-          "target_port": msg.target_port(),
-          "content": msg.content()
-        });
-        writeln!(writer, "{}", trace_entry)?;
-      }
-      writer.flush()?;
-    }
-
-    let time0 = simulation.get_global_time();
-    match simulation.step() {
-      Ok(_) => {
-        let time1 = simulation.get_global_time();
-        if time1 > time0 {
-          break;
-        }
-      },
-      Err(e) => {
-        eprintln!("Simulation step error: {:?}", e);
-        return Err(io::Error::new(
-          io::ErrorKind::Other,
-          format!("Simulation error: {:?}", e),
-        ));
-      },
-    }
-
-    messages_to_process = simulation.get_messages();
-  }
-
-  // Now process internal events until all models are idle or time advances significantly
-  loop {
-    let until_next_event = simulation
-      .models()
-      .iter()
-      .fold(f64::INFINITY, |min, model| f64::min(min, model.until_next_event()));
-
-    if until_next_event == f64::INFINITY {
-      // All models idle, wait for external events
-      thread::sleep(Duration::from_micros(300));
-      break;
-    }
-
-    if until_next_event > 1.0 {
-      break;
-    }
-
-    let time0 = simulation.get_global_time();
-    match simulation.step() {
-      Ok(_) => {
-        let time1 = simulation.get_global_time();
-        if time1 > time0 {
-          break;
-        }
-      },
-      Err(e) => {
-        eprintln!("Simulation step error: {:?}", e);
-        return Err(io::Error::new(
-          io::ErrorKind::Other,
-          format!("Simulation error: {:?}", e),
-        ));
-      },
-    }
-  }
-
-  Ok(())
 }
