@@ -4,6 +4,9 @@ use sim::models::{ModelMessage, ModelRecord};
 use sim::simulator::Services;
 use sim::utils::errors::SimulationError;
 use std::f64::INFINITY;
+use std::sync::Mutex;
+
+use crate::model_record;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SRAM {
@@ -17,19 +20,45 @@ impl SRAM {
     }
   }
 
-  fn read(&self, addr: u64) -> u128 {
-    if addr < self.data.len() as u64 {
-      self.data[addr as usize]
-    } else {
-      0
+  fn read_batch(&self, start_addr: u64, count: u64) -> Vec<u128> {
+    let mut result = Vec::new();
+    for i in 0..count {
+      let addr = start_addr + i;
+      if addr < self.data.len() as u64 {
+        result.push(self.data[addr as usize]);
+      } else {
+        result.push(0);
+      }
     }
+    result
   }
 
-  fn write(&mut self, addr: u64, data: u128) {
-    if addr < self.data.len() as u64 {
-      self.data[addr as usize] = data;
+  fn write_batch(&mut self, start_addr: u64, data: &[u128]) {
+    for (i, &val) in data.iter().enumerate() {
+      let addr = start_addr + i as u64;
+      if addr < self.data.len() as u64 {
+        self.data[addr as usize] = val;
+      }
     }
   }
+}
+
+// Read response (data is read immediately, but response is sent after latency)
+#[derive(Debug, Clone)]
+struct ReadResponse {
+  data: Vec<u128>,
+}
+
+// Global storage for bank data (accessed by function calls)
+static BANK_DATA: Mutex<Option<Vec<Vec<u128>>>> = Mutex::new(None);
+static READ_RESPONSE_QUEUE: Mutex<Vec<ReadResponse>> = Mutex::new(Vec::new());
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WriteRequest {
+  vbank_id: u64,
+  start_addr: u64,
+  data_vec: Vec<u128>,
+  complete_time: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,119 +66,102 @@ pub struct Bank {
   depth: u64,
   num_banks: u64,
   banks: Vec<SRAM>,
-  read_bank_req_port: String,
   write_bank_req_port: String,
   read_bank_resp_port: String,
-  write_bank_resp_port: String,
   latency: f64,
   until_next_event: f64,
   records: Vec<ModelRecord>,
-  read_buffer: Vec<(u64, u64)>,
-  write_buffer: Vec<(u64, u64, u128)>,
+  write_requests: Vec<WriteRequest>, // Only for write requests (multi-cycle)
 }
 
 impl Bank {
   pub fn new(
-    read_bank_req_port: String,
     write_bank_req_port: String,
     read_bank_resp_port: String,
-    write_bank_resp_port: String,
     latency: f64,
     num_banks: u64,
     depth: u64,
   ) -> Self {
+    READ_RESPONSE_QUEUE.lock().unwrap().clear();
+    let banks = (0..num_banks).map(|_| SRAM::new(depth)).collect::<Vec<_>>();
+    let bank_data: Vec<Vec<u128>> = banks.iter().map(|sram| sram.data.clone()).collect();
+
+    *BANK_DATA.lock().unwrap() = Some(bank_data);
+
     Self {
       depth,
       num_banks,
-      banks: (0..num_banks).map(|_| SRAM::new(depth)).collect(),
-      read_bank_req_port,
+      banks,
       write_bank_req_port,
       read_bank_resp_port,
-      write_bank_resp_port,
       latency,
       until_next_event: INFINITY,
       records: Vec::new(),
-      read_buffer: Vec::new(),
-      write_buffer: Vec::new(),
+      write_requests: Vec::new(),
+    }
+  }
+
+  pub fn sync_bank_data(&mut self) {
+    let mut bank_data = BANK_DATA.lock().unwrap();
+    if let Some(ref mut data) = *bank_data {
+      for (i, sram) in self.banks.iter().enumerate() {
+        if i < data.len() {
+          data[i] = sram.data.clone();
+        }
+      }
     }
   }
 }
 
 impl DevsModel for Bank {
   fn events_ext(&mut self, incoming_message: &ModelMessage, services: &mut Services) -> Result<(), SimulationError> {
-    if incoming_message.port_name == self.read_bank_req_port {
-      let (vbank_id, bank_addr) = serde_json::from_str::<(u64, u64)>(&incoming_message.content)
-        .map_err(|_| SimulationError::InvalidModelState)?;
-      self.read_buffer.push((vbank_id, bank_addr));
-      self.until_next_event = self.latency;
-
-      self.records.push(ModelRecord {
-        time: services.global_time(),
-        action: "receive_read_req".to_string(),
-        subject: incoming_message.content.clone(),
-      });
-    }
-
     if incoming_message.port_name == self.write_bank_req_port {
-      let (vbank_id, bank_addr, data_lo, data_hi) =
-        serde_json::from_str::<(u64, u64, u64, u64)>(&incoming_message.content)
-          .map_err(|_| SimulationError::InvalidModelState)?;
-      let data = (data_hi as u128) << 64 | (data_lo as u128);
-      self.write_buffer.push((vbank_id, bank_addr, data));
-      self.until_next_event = self.latency;
+      let value: (u64, u64, Vec<u64>) =
+        serde_json::from_str(&incoming_message.content).map_err(|_| SimulationError::InvalidModelState)?;
 
-      self.records.push(ModelRecord {
-        time: services.global_time(),
-        action: "receive_write_req".to_string(),
-        subject: incoming_message.content.clone(),
-      });
+      let vbank_id = value.0;
+      let start_addr = value.1;
+      let data_u64 = value.2;
+
+      let mut data_vec = Vec::new();
+      for i in (0..data_u64.len()).step_by(2) {
+        if i + 1 < data_u64.len() {
+          let lo = data_u64[i];
+          let hi = data_u64[i + 1];
+          data_vec.push((hi as u128) << 64 | (lo as u128));
+        }
+      }
+
+      if vbank_id < self.banks.len() as u64 {
+        self.banks[vbank_id as usize].write_batch(start_addr, &data_vec);
+        self.sync_bank_data();
+
+        model_record!(self, services, "write_bank", format!("id={}, count={}", vbank_id, data_vec.len()));
+      }
+
+      return Ok(());
     }
 
     Ok(())
   }
 
-  fn events_int(&mut self, services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
+  fn events_int(&mut self, _services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
     let mut messages = Vec::new();
 
-    // Process read requests
-    while !self.read_buffer.is_empty() {
-      let req = self.read_buffer.remove(0);
-      if req.0 < self.banks.len() as u64 {
-        let data = self.banks[req.0 as usize].read(req.1);
+    let mut ready_responses = Vec::new();
+    READ_RESPONSE_QUEUE.lock().unwrap().drain(..).for_each(|resp| {
+      ready_responses.push(resp.data);
+    });
 
-        messages.push(ModelMessage {
-          content: serde_json::to_string(&vec![data]).map_err(|_| SimulationError::InvalidModelState)?,
-          port_name: self.read_bank_resp_port.clone(),
-        });
-
-        self.records.push(ModelRecord {
-          time: services.global_time(),
-          action: "read_complete".to_string(),
-          subject: serde_json::to_string(&vec![data]).unwrap_or_default(),
-        });
-      }
-    }
-
-    // Process all write requests
-    while !self.write_buffer.is_empty() {
-      let (vbank_id, bank_addr, data) = self.write_buffer.remove(0);
-      if vbank_id < self.banks.len() as u64 {
-        self.banks[vbank_id as usize].write(bank_addr, data);
-
-        messages.push(ModelMessage {
-          content: serde_json::to_string(&vec!["success"]).map_err(|_| SimulationError::InvalidModelState)?,
-          port_name: self.write_bank_resp_port.clone(),
-        });
-
-        self.records.push(ModelRecord {
-          time: services.global_time(),
-          action: "write_complete".to_string(),
-          subject: serde_json::to_string(&vec!["success"]).unwrap_or_default(),
-        });
-      }
+    for data_vec in ready_responses {
+      messages.push(ModelMessage {
+        content: serde_json::to_string(&data_vec).map_err(|_| SimulationError::InvalidModelState)?,
+        port_name: self.read_bank_resp_port.clone(),
+      });
     }
 
     self.until_next_event = INFINITY;
+
     Ok(messages)
   }
 
@@ -158,13 +170,17 @@ impl DevsModel for Bank {
   }
 
   fn until_next_event(&self) -> f64 {
+    let queue_len = READ_RESPONSE_QUEUE.lock().unwrap().len();
+    if queue_len > 0 {
+      return 0.0;
+    }
     self.until_next_event
   }
 }
 
 impl Reportable for Bank {
   fn status(&self) -> String {
-    "normal".to_string()
+    format!("read_responses={}", READ_RESPONSE_QUEUE.lock().unwrap().len())
   }
 
   fn records(&self) -> &Vec<ModelRecord> {
@@ -178,4 +194,50 @@ impl SerializableModel for Bank {
   fn get_type(&self) -> &'static str {
     "Bank"
   }
+}
+
+
+/// ------------------------------------------------------------
+/// --- Helper Functions ---
+/// ------------------------------------------------------------
+pub fn request_read_bank(vbank_id: u64, start_addr: u64, count: u64) {
+  let bank_data_opt = BANK_DATA.lock().unwrap();
+  if let Some(ref bank_data) = *bank_data_opt {
+    if vbank_id < bank_data.len() as u64 {
+      let bank = &bank_data[vbank_id as usize];
+
+      let mut data_vec = Vec::new();
+      for i in 0..count {
+        let addr = start_addr + i;
+        if addr < bank.len() as u64 {
+          data_vec.push(bank[addr as usize]);
+        } else {
+          data_vec.push(0);
+        }
+      }
+
+      READ_RESPONSE_QUEUE.lock().unwrap().push(ReadResponse {
+        data: data_vec,
+      });
+    }
+  }
+}
+
+pub fn request_write_bank(vbank_id: u64, start_addr: u64, data_vec: Vec<u128>) -> bool {
+  let mut bank_data_opt = BANK_DATA.lock().unwrap();
+  if let Some(ref mut bank_data) = *bank_data_opt {
+    if vbank_id < bank_data.len() as u64 {
+      let bank = &mut bank_data[vbank_id as usize];
+
+      for (i, &val) in data_vec.iter().enumerate() {
+        let addr = start_addr + i as u64;
+        if addr < bank.len() as u64 {
+          bank[addr as usize] = val;
+        }
+      }
+
+      return true;
+    }
+  }
+  false
 }

@@ -5,6 +5,11 @@ use sim::simulator::Services;
 use sim::utils::errors::SimulationError;
 use std::f64::INFINITY;
 
+use super::tdma_loader::{receive_mvin_inst, MVIN_INST_CAN_ISSUE};
+use super::tdma_storer::{receive_mvout_inst, MVOUT_INST_CAN_ISSUE};
+use super::vecball::{receive_vecball_inst, VECBALL_INST_CAN_ISSUE};
+use std::sync::atomic::Ordering;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Inst {
   funct: u64,
@@ -17,26 +22,15 @@ struct Inst {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rs {
   receive_inst_from_rob_port: String,
-  issue_to_vecball_port: String,
-  issue_to_tdma_mvin_port: String,
-  issue_to_tdma_mvout_port: String,
   until_next_event: f64,
   records: Vec<ModelRecord>,
   inst_buffer: Vec<Inst>,
 }
 
 impl Rs {
-  pub fn new(
-    receive_inst_from_rob_port: String,
-    issue_to_vecball_port: String,
-    issue_to_tdma_mvin_port: String,
-    issue_to_tdma_mvout_port: String,
-  ) -> Self {
+  pub fn new(receive_inst_from_rob_port: String) -> Self {
     Self {
       receive_inst_from_rob_port,
-      issue_to_vecball_port,
-      issue_to_tdma_mvin_port,
-      issue_to_tdma_mvout_port,
       until_next_event: INFINITY,
       records: Vec::new(),
       inst_buffer: Vec::new(),
@@ -70,24 +64,31 @@ impl DevsModel for Rs {
   }
 
   fn events_int(&mut self, _services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
-    let mut messages = Vec::new();
-
     for inst in self.inst_buffer.drain(..) {
-      let port_name = match inst.funct {
-        24 => self.issue_to_tdma_mvin_port.clone(),
-        25 => self.issue_to_tdma_mvout_port.clone(),
-        30 => self.issue_to_vecball_port.clone(),
+      match inst.funct {
+        24 => {
+          if MVIN_INST_CAN_ISSUE.load(Ordering::Relaxed) {
+            receive_mvin_inst(inst.xs1, inst.xs2, inst.rob_id);
+          }
+        },
+        25 => {
+          if MVOUT_INST_CAN_ISSUE.load(Ordering::Relaxed) {
+            receive_mvout_inst(inst.xs1, inst.xs2, inst.rob_id);
+          }
+        },
+        30 => {
+          if VECBALL_INST_CAN_ISSUE.load(Ordering::Relaxed) {
+            receive_vecball_inst(inst.xs1, inst.xs2, inst.rob_id);
+          }
+        },
         _ => {
           return Err(SimulationError::InvalidModelState);
         },
-      };
-      let content = serde_json::to_string(&vec![inst.funct, inst.xs1, inst.xs2, inst.rob_id])
-        .map_err(|_| SimulationError::InvalidModelState)?;
-      messages.push(ModelMessage { content, port_name });
+      }
     }
 
     self.until_next_event = INFINITY;
-    Ok(messages)
+    Ok(Vec::new())
   }
 
   fn time_advance(&mut self, time_delta: f64) {
