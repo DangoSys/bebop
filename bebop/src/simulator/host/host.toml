@@ -1,0 +1,9 @@
+[spike]
+host_path = "/home/mio/Code/buckyball/bebop/bebop/host/spike/riscv-isa-sim/install/bin/spike"
+test_binary_path = "/home/mio/Code/buckyball/bebop/bb-tests/output/workloads/src/CTest/gemmini/gemmini_transpose_singlecore-baremetal"
+host_args = ["--extension=bebop"]
+
+[gem5]
+host_path = "/home/mio/Code/buckyball/bebop/host/gem5/gem5/build/RISCV/gem5.opt"
+test_binary_path = "/home/mio/Code/buckyball/bb-tests/output/workloads/src/CTest/gemmini/gemmini_transpose-linux"
+host_args = [""]

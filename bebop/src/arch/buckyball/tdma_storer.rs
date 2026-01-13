@@ -134,6 +134,16 @@ impl DevsModel for TdmaStorer {
         }
       },
       TdmaStorerState::Wait => {
+        // Wait state: keep sending read request to mem_ctrl every cycle
+        request_read_bank_for_tdma(self.vbank_id, 0u64, self.depth, self.rob_id);
+
+        model_record!(
+          self,
+          services,
+          "read_bank",
+          format!("id={}, count={}", self.vbank_id, self.depth)
+        );
+
         // Wait state: until_next_event should always be 1.0
         // This state waits for external event (read_bank_resp_port)
         self.until_next_event = 1.0;

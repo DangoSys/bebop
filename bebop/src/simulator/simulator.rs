@@ -1,4 +1,4 @@
-use super::host::{launch_host_process, HostConfig};
+use super::host::host::{launch_host_process, HostConfig};
 use super::server::socket::{accept_connection_async, CmdHandler, CmdReq, DmaReadHandler, DmaWriteHandler};
 use super::sim::mode::{ArchType, SimConfig, StepMode};
 use super::sim::model::model_step;
