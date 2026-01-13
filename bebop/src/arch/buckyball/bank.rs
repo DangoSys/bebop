@@ -136,7 +136,12 @@ impl DevsModel for Bank {
         self.banks[vbank_id as usize].write_batch(start_addr, &data_vec);
         self.sync_bank_data();
 
-        model_record!(self, services, "write_bank", format!("id={}, count={}", vbank_id, data_vec.len()));
+        model_record!(
+          self,
+          services,
+          "write_bank",
+          format!("id={}, count={}", vbank_id, data_vec.len())
+        );
       }
 
       return Ok(());
@@ -196,7 +201,6 @@ impl SerializableModel for Bank {
   }
 }
 
-
 /// ------------------------------------------------------------
 /// --- Helper Functions ---
 /// ------------------------------------------------------------
@@ -216,9 +220,10 @@ pub fn request_read_bank(vbank_id: u64, start_addr: u64, count: u64) {
         }
       }
 
-      READ_RESPONSE_QUEUE.lock().unwrap().push(ReadResponse {
-        data: data_vec,
-      });
+      READ_RESPONSE_QUEUE
+        .lock()
+        .unwrap()
+        .push(ReadResponse { data: data_vec });
     }
   }
 }

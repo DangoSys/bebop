@@ -7,11 +7,12 @@ use std::f64::INFINITY;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub static ROB_READY_TO_RECEIVE: AtomicBool = AtomicBool::new(true);
-use crate::buckyball::decoder::send_cmd_response;
-use crate::buckyball::decoder::FENCE_CSR;
-use crate::buckyball::tdma_loader::MVIN_INST_CAN_ISSUE;
-use crate::buckyball::tdma_storer::MVOUT_INST_CAN_ISSUE;
-use crate::buckyball::vecball::VECBALL_INST_CAN_ISSUE;
+use crate::arch::buckyball::decoder::send_cmd_response;
+use crate::arch::buckyball::decoder::FENCE_CSR;
+use crate::arch::buckyball::mset::MSET_INST_CAN_ISSUE;
+use crate::arch::buckyball::tdma_loader::MVIN_INST_CAN_ISSUE;
+use crate::arch::buckyball::tdma_storer::MVOUT_INST_CAN_ISSUE;
+use crate::arch::buckyball::vecball::VECBALL_INST_CAN_ISSUE;
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 enum EntryStatus {
@@ -231,6 +232,7 @@ fn is_full(rob_buffer: &Vec<RobEntry>) -> bool {
 
 fn check_can_issue(funct: u64) -> bool {
   match funct {
+    23 => MSET_INST_CAN_ISSUE.load(Ordering::Relaxed),
     24 => MVIN_INST_CAN_ISSUE.load(Ordering::Relaxed),
     25 => MVOUT_INST_CAN_ISSUE.load(Ordering::Relaxed),
     30 => VECBALL_INST_CAN_ISSUE.load(Ordering::Relaxed),

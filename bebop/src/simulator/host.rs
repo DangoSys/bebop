@@ -1,4 +1,4 @@
-use crate::log_info;
+use log::info;
 use std::io::Result;
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,7 +22,8 @@ impl Default for HostConfig {
       .to_string();
 
     let test_binary_path = workspace_root
-      .join("bb-tests/build/workloads/src/CTest/bebop/ctest_mvin_mvout_bebop_test_singlecore-baremetal")
+      // .join("bb-tests/build/workloads/src/CTest/bebop/ctest_mvin_mvout_bebop_test_singlecore-baremetal")
+      .join("bb-tests/output/workloads/src/CTest/gemmini/gemmini_transpose_singlecore-baremetal")
       .to_string_lossy()
       .to_string();
 
@@ -34,9 +35,9 @@ impl Default for HostConfig {
 }
 
 fn launch_host(config: &HostConfig) -> Result<Child> {
-  log_info!("Launching host process...");
-  log_info!("Host binary: {}", config.host);
-  log_info!("Args: {:?}", config.arg);
+  info!("Launching host process...");
+  info!("Host binary: {}", config.host);
+  info!("Args: {:?}\n", config.arg);
 
   let mut cmd = Command::new(&config.host);
   for arg in &config.arg {

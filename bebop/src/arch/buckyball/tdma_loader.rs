@@ -7,6 +7,8 @@ use std::f64::INFINITY;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use super::bmt::get_pbank_ids;
+use super::scoreboard;
 use crate::model_record;
 use crate::simulator::server::socket::DmaReadHandler;
 
@@ -27,6 +29,7 @@ static MVIN_INST_DATA: Mutex<Option<MvinInstData>> = Mutex::new(None);
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 enum TdmaLoaderState {
   Idle,
+  Wait,     // Waiting for DRAM read response
   Active,   // DRAM -> Bank batch transfer in progress
   Complete, // Batch transfer complete
 }
@@ -72,7 +75,15 @@ impl TdmaLoader {
 }
 
 impl DevsModel for TdmaLoader {
-  fn events_ext(&mut self, _incoming_message: &ModelMessage, _services: &mut Services) -> Result<(), SimulationError> {
+  fn events_ext(&mut self, incoming_message: &ModelMessage, services: &mut Services) -> Result<(), SimulationError> {
+    // Receive write completion response (if any)
+    // For now, we assume write is accepted when request is sent
+    // This can be extended if write response port is added
+    if self.state == TdmaLoaderState::Wait {
+      // Write request has been accepted, move to Active
+      self.state = TdmaLoaderState::Active;
+      self.until_next_event = 0.0;
+    }
     Ok(())
   }
 
@@ -94,13 +105,28 @@ impl DevsModel for TdmaLoader {
             "receive_inst",
             format!("dram_addr={:#x}, depth={}", inst.base_dram_addr, inst.depth)
           );
-          self.until_next_event = self.transfer_latency * self.depth as f64;
-          self.state = TdmaLoaderState::Active;
+
+          // Reserve write request in scoreboard before sending (so read requests can detect dependency)
+          let pbank_id = if let Some(pbank_ids) = get_pbank_ids(inst.vbank_id) {
+            if pbank_ids.is_empty() {
+              inst.vbank_id
+            } else {
+              pbank_ids[0]
+            }
+          } else {
+            inst.vbank_id
+          };
+          scoreboard::reserve_write_request(inst.rob_id, pbank_id);
+
+          self.state = TdmaLoaderState::Wait;
+          self.until_next_event = 1.0;
         } else {
           self.until_next_event = INFINITY;
         }
       },
-      TdmaLoaderState::Active => {
+      TdmaLoaderState::Wait => {
+        // Wait state: keep sending write request to mem_ctrl
+        // Read DRAM data and send write request
         let mut data_u64 = Vec::new();
         for i in 0..self.depth {
           let dram_addr = self.base_dram_addr + i * 16 * self.stride;
@@ -109,7 +135,7 @@ impl DevsModel for TdmaLoader {
           data_u64.push(data_hi);
         }
 
-        let request = (self.vbank_id, 0u64, data_u64);
+        let request = (self.rob_id, self.vbank_id, 0u64, data_u64);
         messages.push(ModelMessage {
           content: serde_json::to_string(&request).map_err(|_| SimulationError::InvalidModelState)?,
           port_name: self.write_bank_req_port.clone(),
@@ -121,7 +147,14 @@ impl DevsModel for TdmaLoader {
           "write_bank",
           format!("id={}, count={}", self.vbank_id, self.depth)
         );
+
+        // Wait state: until_next_event should always be 1.0
+        // This state waits for external event (write completion)
         self.until_next_event = 1.0;
+      },
+      TdmaLoaderState::Active => {
+        // Write request has been accepted, now wait for transfer latency
+        self.until_next_event = self.transfer_latency * self.depth as f64;
         self.state = TdmaLoaderState::Complete;
       },
       TdmaLoaderState::Complete => {
@@ -148,6 +181,9 @@ impl DevsModel for TdmaLoader {
   fn until_next_event(&self) -> f64 {
     if self.state == TdmaLoaderState::Idle && MVIN_INST_DATA.lock().unwrap().is_some() {
       return 0.0;
+    }
+    if self.state == TdmaLoaderState::Wait {
+      return 1.0;
     }
     self.until_next_event
   }

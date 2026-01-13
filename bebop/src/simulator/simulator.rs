@@ -1,19 +1,21 @@
 use super::host::{launch_host_process, HostConfig};
 use super::server::socket::{accept_connection_async, CmdHandler, CmdReq, DmaReadHandler, DmaWriteHandler};
-use super::sim::mode::{SimConfig, StepMode};
+use super::sim::mode::{ArchType, SimConfig, StepMode};
 use super::sim::model::model_step;
 use super::sim::shell;
-use super::utils::log::set_log;
-use crate::buckyball::create_simulation;
-use crate::buckyball::decoder::{set_cmd_handler, set_resp_tx};
-use crate::buckyball::tdma_loader::set_dma_read_handler;
-use crate::buckyball::tdma_storer::set_dma_write_handler;
-use crate::log_info;
+use crate::arch::buckyball::create_simulation;
+use crate::arch::buckyball::decoder::{set_cmd_handler, set_resp_tx};
+use crate::arch::buckyball::tdma_loader::set_dma_read_handler;
+use crate::arch::buckyball::tdma_storer::set_dma_write_handler;
+use crate::arch::gemmini::create_gemmini_simulation;
+use crate::arch::gemmini::main::GemminiSimulation;
 use crate::simulator::sim::inject::inject_message;
+use crate::simulator::utils::log::set_log;
+use log::info;
 use serde_json;
 use sim::simulator::Simulation;
 use std::fs::File;
-use std::io::{self, BufWriter, Result, Write};
+use std::io::{self, BufWriter, Result};
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
@@ -21,10 +23,16 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+enum SimulationType {
+  Buckyball(Simulation),
+  Gemmini(GemminiSimulation),
+}
+
 pub struct Simulator {
   config: SimConfig,
   cmd_rx: Receiver<CmdReq>,
-  simulation: Simulation,
+  resp_tx: mpsc::Sender<u64>,
+  simulation: SimulationType,
   global_clock: f64,
   host_process: Option<Child>,
   host_exit: Arc<AtomicBool>,
@@ -98,12 +106,19 @@ impl Simulator {
       }
     });
 
-    let simulation = create_simulation();
+    let mut simulation = match config.arch_type {
+      ArchType::Buckyball => SimulationType::Buckyball(create_simulation()),
+      ArchType::Gemmini => {
+        let mut gemmini_sim = create_gemmini_simulation();
+        gemmini_sim.set_dma_handlers(Arc::clone(&dma_read_handler), Arc::clone(&dma_write_handler));
+        SimulationType::Gemmini(gemmini_sim)
+      },
+    };
 
     // Initialize trace writer if trace file is specified
     let trace_writer = if let Some(ref path) = config.trace_file {
       let file = File::create(path)?;
-      log_info!("Trace file enabled: {}", path);
+      info!("Trace file enabled: {}", path);
       Some(BufWriter::new(file))
     } else {
       None
@@ -112,6 +127,7 @@ impl Simulator {
     Ok(Self {
       config,
       cmd_rx,
+      resp_tx,
       simulation,
       global_clock: 0.0,
       host_process,
@@ -121,9 +137,7 @@ impl Simulator {
   }
 
   pub fn run(&mut self) -> Result<()> {
-    if self.config.quiet {
-      set_log(false);
-    }
+    set_log(!self.config.quiet);
     match self.config.step_mode {
       StepMode::Continuous => self.run_continuous(),
       StepMode::Step => self.run_step_mode(),
@@ -131,12 +145,12 @@ impl Simulator {
   }
 
   fn run_step_mode(&mut self) -> Result<()> {
-    log_info!("Step mode - Press Enter to step once");
-    log_info!("Press Enter to continue...\n");
+    info!("Step mode - Press Enter to step once");
+    info!("Press Enter to continue...\n");
 
     loop {
       if self.host_exit.load(Ordering::Relaxed) {
-        log_info!("Host process has exited, terminating bebop simulator...");
+        info!("\nHost process has exited, terminating bebop simulator...");
         return Ok(());
       }
 
@@ -157,7 +171,7 @@ impl Simulator {
   fn run_continuous(&mut self) -> Result<()> {
     loop {
       if self.host_exit.load(Ordering::Relaxed) {
-        log_info!("Host process has exited, terminating bebop simulator...");
+        info!("\nHost process has exited, terminating bebop simulator...");
         return Ok(());
       }
 
@@ -167,11 +181,31 @@ impl Simulator {
 
   fn step(&mut self) -> Result<()> {
     if let Ok(req) = self.cmd_rx.try_recv() {
-      let inst_json = serde_json::to_string(&vec![req.funct as u64, req.xs1, req.xs2]).unwrap();
-      inject_message(&mut self.simulation, "decoder", None, None, None, &inst_json);
+      match &mut self.simulation {
+        SimulationType::Buckyball(sim) => {
+          let inst_json = serde_json::to_string(&vec![req.funct as u64, req.xs1, req.xs2]).unwrap();
+          inject_message(sim, "decoder", None, None, None, &inst_json);
+        },
+        SimulationType::Gemmini(gemmini_sim) => {
+          // For Gemmini, directly execute the instruction
+          let result = gemmini_sim.execute(req.funct as u64, req.xs1, req.xs2);
+          // Send response back immediately for functional simulation
+          let _ = self.resp_tx.send(result);
+        },
+      }
     }
-    model_step(&mut self.simulation, &mut self.trace_writer)?;
-    self.global_clock = self.simulation.get_global_time();
+
+    match &mut self.simulation {
+      SimulationType::Buckyball(sim) => {
+        model_step(sim, &mut self.trace_writer)?;
+        self.global_clock = sim.get_global_time();
+      },
+      SimulationType::Gemmini(_) => {
+        // Gemmini is functional simulation, no cycle-accurate stepping needed
+        self.global_clock += 1.0;
+      },
+    }
+
     Ok(())
   }
 }

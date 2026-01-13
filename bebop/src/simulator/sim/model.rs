@@ -1,4 +1,4 @@
-use crate::simulator::utils::log::is_log_enabled;
+use log::LevelFilter;
 use serde_json;
 use sim::models::model_trait::DevsModel;
 use sim::simulator::Simulation;
@@ -10,7 +10,7 @@ pub fn model_step(simulation: &mut Simulation, trace_writer: &mut Option<BufWrit
   let mut messages_to_process = simulation.get_messages();
 
   while !messages_to_process.is_empty() {
-    if is_log_enabled() {
+    if log::max_level() >= LevelFilter::Info {
       for msg in messages_to_process.iter() {
         println!(
           "[MSG] t={:.1} {}:{} -> {}:{} | {}",
