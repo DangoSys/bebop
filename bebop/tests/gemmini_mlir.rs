@@ -1,5 +1,5 @@
-use bebop::simulator::host::HostConfig;
-use bebop::simulator::sim::mode::{ArchType, SimConfig, StepMode};
+use bebop::simulator::host::host::HostConfig;
+use bebop::simulator::sim::mode::{ArchType, HostType, SimConfig, StepMode};
 use bebop::simulator::utils::log::init_log;
 use bebop::simulator::Simulator;
 use std::path::PathBuf;
@@ -28,6 +28,8 @@ fn get_sim_config() -> SimConfig {
     step_mode: StepMode::Continuous,
     trace_file: None,
     arch_type: ArchType::Gemmini,
+    host_type: HostType::Spike,
+    host_config: None,
   }
 }
 

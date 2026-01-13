@@ -5,7 +5,7 @@ index a5802ad371..b3008bd565 100755
 @@ -198,6 +198,15 @@ main = Environment(tools=[
  main.Tool(SCons.Tool.FindTool(['gcc', 'clang'], main))
  main.Tool(SCons.Tool.FindTool(['g++', 'clang++'], main))
-
+ 
 +bebop_ipc_lib = environ.get('BEBOP_IPC_LIB')
 +bebop_ipc_include = environ.get('BEBOP_IPC_INCLUDE')
 +if bebop_ipc_lib:
@@ -16,16 +16,16 @@ index a5802ad371..b3008bd565 100755
 +    main.Append(CPPPATH=[bebop_ipc_include])
 +
  Export('main')
-
+ 
  from gem5_scons.util import get_termcap
 diff --git a/src/arch/riscv/faults.cc b/src/arch/riscv/faults.cc
 index dc312b5f67..4e58948316 100644
 --- a/src/arch/riscv/faults.cc
 +++ b/src/arch/riscv/faults.cc
 @@ -31,6 +31,7 @@
-
+ 
  #include "arch/riscv/faults.hh"
-
+ 
 +#include "arch/riscv/insts/custom.hh"
  #include "arch/riscv/insts/static_inst.hh"
  #include "arch/riscv/isa.hh"
@@ -57,10 +57,10 @@ index 9694cc1405..8449eb7c80 100644
  Source('static_inst.cc', tags=['riscv isa'])
 diff --git a/src/arch/riscv/insts/custom.cc b/src/arch/riscv/insts/custom.cc
 new file mode 100644
-index 0000000000..e06548d6ec
+index 0000000000..0f8bfd16d4
 --- /dev/null
 +++ b/src/arch/riscv/insts/custom.cc
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,148 @@
 +#include "arch/riscv/insts/custom.hh"
 +
 +#include "ipc/socket.h"
@@ -116,16 +116,82 @@ index 0000000000..e06548d6ec
 +                   tc->getReg(intRegClass[rocc.r.rs2]) :
 +                   static_cast<RegVal>(-1);
 +
-+  auto read_cb = [tc](uint64_t addr, uint32_t size) -> uint64_t {
++  // DMA read callback: reads from guest memory
++  auto read_cb = [tc](uint64_t addr, uint32_t size) -> dma_data_128_t {
 +    SETranslatingPortProxy proxy(tc);
-+    uint64_t value = 0;
-+    proxy.readBlob(addr, reinterpret_cast<uint8_t *>(&value), size);
++    dma_data_128_t value = {0, 0};
++
++    switch (size) {
++    case 1: {
++      uint8_t data = 0;
++      proxy.readBlob(addr, reinterpret_cast<uint8_t *>(&data), size);
++      value.lo = data;
++      break;
++    }
++    case 2: {
++      uint16_t data = 0;
++      proxy.readBlob(addr, reinterpret_cast<uint8_t *>(&data), size);
++      value.lo = data;
++      break;
++    }
++    case 4: {
++      uint32_t data = 0;
++      proxy.readBlob(addr, reinterpret_cast<uint8_t *>(&data), size);
++      value.lo = data;
++      break;
++    }
++    case 8: {
++      uint64_t data = 0;
++      proxy.readBlob(addr, reinterpret_cast<uint8_t *>(&data), size);
++      value.lo = data;
++      break;
++    }
++    case 16: {
++      proxy.readBlob(addr, reinterpret_cast<uint8_t *>(&value.lo), 8);
++      proxy.readBlob(addr + 8, reinterpret_cast<uint8_t *>(&value.hi), 8);
++      break;
++    }
++    default:
++      fprintf(stderr, "bebop: Invalid DMA read size %u\n", size);
++      abort();
++    }
++
 +    return value;
 +  };
 +
-+  auto write_cb = [tc](uint64_t addr, uint64_t data, uint32_t size) {
++  // DMA write callback: writes to guest memory
++  auto write_cb = [tc](uint64_t addr, dma_data_128_t data, uint32_t size) {
 +    SETranslatingPortProxy proxy(tc);
-+    proxy.writeBlob(addr, reinterpret_cast<const uint8_t *>(&data), size);
++
++    switch (size) {
++    case 1: {
++      uint8_t byte_data = static_cast<uint8_t>(data.lo);
++      proxy.writeBlob(addr, reinterpret_cast<const uint8_t *>(&byte_data), size);
++      break;
++    }
++    case 2: {
++      uint16_t half_data = static_cast<uint16_t>(data.lo);
++      proxy.writeBlob(addr, reinterpret_cast<const uint8_t *>(&half_data), size);
++      break;
++    }
++    case 4: {
++      uint32_t word_data = static_cast<uint32_t>(data.lo);
++      proxy.writeBlob(addr, reinterpret_cast<const uint8_t *>(&word_data), size);
++      break;
++    }
++    case 8: {
++      proxy.writeBlob(addr, reinterpret_cast<const uint8_t *>(&data.lo), size);
++      break;
++    }
++    case 16: {
++      proxy.writeBlob(addr, reinterpret_cast<const uint8_t *>(&data.lo), 8);
++      proxy.writeBlob(addr + 8, reinterpret_cast<const uint8_t *>(&data.hi), 8);
++      break;
++    }
++    default:
++      fprintf(stderr, "bebop: Invalid DMA write size %u\n", size);
++      abort();
++    }
 +  };
 +
 +  auto &client = getSocketClient();
@@ -143,7 +209,6 @@ index 0000000000..e06548d6ec
 +
 +} // namespace RiscvISA
 +} // namespace gem5
-+
 diff --git a/src/arch/riscv/insts/custom.hh b/src/arch/riscv/insts/custom.hh
 new file mode 100644
 index 0000000000..3e09b67199
@@ -177,7 +242,7 @@ index 6235b34aee..678c3db2ea 100644
 @@ -6360,6 +6360,22 @@ decode QUADRANT default Unknown::unknown() {
              }
          }
-
+ 
 +        // Custom instructions (bebop extension)
 +        // custom-0 (opcode 0x0b), custom-1 (opcode 0x2b), custom-2 (opcode 0x5b)
 +        format ROp {
@@ -198,14 +263,14 @@ index 6235b34aee..678c3db2ea 100644
      }
  }
 diff --git a/src/arch/riscv/isa/includes.isa b/src/arch/riscv/isa/includes.isa
-index b4be0e4ac6..d4f27fb845 100644
+index b4be0e4ac6..077953e8cc 100644
 --- a/src/arch/riscv/isa/includes.isa
 +++ b/src/arch/riscv/isa/includes.isa
-@@ -53,6 +53,7 @@ output header {{
+@@ -49,6 +49,7 @@ output header {{
+ #include "arch/riscv/insts/amo.hh"
+ #include "arch/riscv/insts/bs.hh"
+ #include "arch/riscv/insts/compressed.hh"
++#include "arch/riscv/insts/custom.hh"
+ #include "arch/riscv/insts/mem.hh"
  #include "arch/riscv/insts/pseudo.hh"
  #include "arch/riscv/insts/standard.hh"
- #include "arch/riscv/insts/static_inst.hh"
-+#include "arch/riscv/insts/custom.hh"
- #include "arch/riscv/insts/unknown.hh"
- #include "arch/riscv/insts/vector.hh"
- #include "arch/riscv/insts/zcmp.hh"
