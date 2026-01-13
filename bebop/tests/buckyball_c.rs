@@ -51,6 +51,7 @@ fn set_host_config(test_binary_name: &str) -> HostConfig {
 macro_rules! test_case {
   ($name:ident, $binary:literal) => {
     #[test]
+    #[cfg(feature = "bb-tests")]
     fn $name() {
       // 获取互斥锁，确保同一时间只有一个测试运行
       let _guard = TEST_MUTEX.lock().unwrap();
