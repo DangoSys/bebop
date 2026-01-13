@@ -9,6 +9,7 @@ use crate::arch::buckyball::tdma_loader::set_dma_read_handler;
 use crate::arch::buckyball::tdma_storer::set_dma_write_handler;
 use crate::arch::gemmini::create_gemmini_simulation;
 use crate::arch::gemmini::main::GemminiSimulation;
+use crate::simulator::config::config::AppConfig;
 use crate::simulator::sim::inject::inject_message;
 use crate::simulator::utils::log::set_log;
 use log::info;
@@ -40,6 +41,54 @@ pub struct Simulator {
 }
 
 impl Simulator {
+  /// 从AppConfig创建Simulator
+  pub fn from_app_config(app_config: &AppConfig) -> Result<Self> {
+    // 生成SimConfig
+    let step_mode = if app_config.simulation.step_mode {
+      StepMode::Step
+    } else {
+      StepMode::Continuous
+    };
+
+    let arch_type = match app_config.simulation.arch_type.to_lowercase().as_str() {
+      "gemmini" => ArchType::Gemmini,
+      "buckyball" => ArchType::Buckyball,
+      _ => {
+        return Err(io::Error::new(
+          io::ErrorKind::InvalidInput,
+          format!("unsupported arch type: {}", app_config.simulation.arch_type),
+        ));
+      },
+    };
+
+    let sim_config = SimConfig {
+      quiet: app_config.simulation.quiet,
+      step_mode,
+      trace_file: if app_config.simulation.trace_file.is_empty() {
+        None
+      } else {
+        Some(app_config.simulation.trace_file.clone())
+      },
+      arch_type,
+      host_type: match app_config.host.host_type.to_lowercase().as_str() {
+        "spike" => super::sim::mode::HostType::Spike,
+        "gem5" => super::sim::mode::HostType::Gem5,
+        _ => {
+          return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unsupported host type: {}", app_config.host.host_type),
+          ));
+        },
+      },
+      host_config: None,
+    };
+
+    // 生成HostConfig
+    let host_config = HostConfig::from_app_config(&app_config)?;
+
+    Self::new(sim_config, host_config)
+  }
+
   pub fn new(config: SimConfig, host_config: HostConfig) -> Result<Self> {
     // Create separate listeners for CMD, DMA read, and DMA write
     let (_cmd_listener, cmd_rx) = accept_connection_async(6000, "CMD")?;

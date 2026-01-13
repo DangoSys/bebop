@@ -74,8 +74,10 @@ macro_rules! test_case {
 // test failed
 // ---------------------------------
 
-
 // ---------------------------------
 // test passed
 // ---------------------------------
-test_case!(ctest_mvin_mvout_bebop_test, "ctest_mvin_mvout_bebop_test_singlecore-baremetal");
+test_case!(
+  ctest_mvin_mvout_bebop_test,
+  "ctest_mvin_mvout_bebop_test_singlecore-baremetal"
+);

@@ -1,0 +1,21 @@
+[host]
+host_type = "spike"
+
+[host.spike]
+host_path = "host/spike/riscv-isa-sim/install/bin/spike"
+test_binary_path = ""
+host_args = ["--extension=bebop"]
+
+[host.gem5]
+host_path = "host/gem5/gem5/build/RISCV/gem5.opt"
+test_binary_path = ""
+gem5_mode = "se"
+se_binary_path = ""
+fs_kernel_path = ""
+fs_image_path = ""
+
+[simulation]
+arch_type = "buckyball"
+quiet = true
+step_mode = true
+trace_file = ""

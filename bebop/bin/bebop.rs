@@ -1,8 +1,8 @@
-use bebop::simulator::host::host::HostConfig;
-use bebop::simulator::sim::mode::{ArchType, HostType, SimConfig, StepMode};
+use bebop::simulator::config::config::load_and_merge_configs;
 use bebop::simulator::utils::log::init_log;
 use bebop::simulator::Simulator;
 use clap::Parser;
+use std::path::PathBuf;
 
 /// Bebop - A RISC-V NPU simulator
 #[derive(Parser, Debug)]
@@ -22,17 +22,37 @@ struct Args {
   #[arg(long, value_name = "FILE")]
   trace_file: Option<String>,
 
-  /// Architecture type: buckyball or gemmini (default: buckyball)
-  #[arg(short, long, value_name = "ARCH", default_value = "buckyball")]
-  arch: String,
+  /// Architecture type: buckyball or gemmini
+  #[arg(short, long, value_name = "ARCH")]
+  arch: Option<String>,
 
-  /// Host type: spike or gem5 (default: spike)
-  #[arg(long, value_name = "HOST", default_value = "spike")]
-  host: String,
+  /// Host type: spike or gem5
+  #[arg(long, value_name = "HOST")]
+  host: Option<String>,
 
-  /// Host config file path (default: use default host.toml)
+  /// Test binary path
   #[arg(long, value_name = "FILE")]
-  host_config: Option<String>,
+  test_binary: Option<String>,
+
+  /// Custom config file path (default: use default.toml)
+  #[arg(long, value_name = "FILE")]
+  config_file: Option<String>,
+
+  /// gem5 SE mode: binary path
+  #[arg(long, value_name = "FILE")]
+  se_binary: Option<String>,
+
+  /// gem5 FS mode: kernel path
+  #[arg(long, value_name = "FILE")]
+  fs_kernel: Option<String>,
+
+  /// gem5 FS mode: disk image path
+  #[arg(long, value_name = "FILE")]
+  fs_image: Option<String>,
+
+  /// gem5 mode: se or fs
+  #[arg(long, value_name = "MODE")]
+  gem5_mode: Option<String>,
 }
 
 fn main() -> std::io::Result<()> {
@@ -40,40 +60,28 @@ fn main() -> std::io::Result<()> {
 
   let args = Args::parse();
 
-  let step_mode = if args.step {
-    StepMode::Step
-  } else {
-    StepMode::Continuous
-  };
+  // 获取bebop文件夹路径（CARGO_MANIFEST_DIR）
+  let bebop_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+  let bebop_root = bebop_root.join("..").to_path_buf();
 
-  let arch_type = match args.arch.to_lowercase().as_str() {
-    "gemmini" => ArchType::Gemmini,
-    "buckyball" => ArchType::Buckyball,
-    _ => {
-      return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("Unknown architecture: {}", args.arch)));
-    }
-  };
+  // 加载并合并配置
+  let app_config = load_and_merge_configs(
+    args.config_file.as_deref(),
+    &bebop_root,
+    args.quiet,
+    args.step,
+    args.trace_file.as_deref(),
+    args.arch.as_deref(),
+    args.host.as_deref(),
+    args.test_binary.as_deref(),
+    args.se_binary.as_deref(),
+    args.fs_kernel.as_deref(),
+    args.fs_image.as_deref(),
+    args.gem5_mode.as_deref(),
+  )?;
 
-  let host_type = match args.host.to_lowercase().as_str() {
-    "spike" => HostType::Spike,
-    "gem5" => HostType::Gem5,
-    _ => {
-      return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("Unknown host type: {}", args.host)));
-    }
-  };
-
-  let config = SimConfig {
-    quiet: args.quiet,
-    step_mode,
-    trace_file: args.trace_file,
-    arch_type,
-    host_type,
-    host_config: args.host_config,
-  };
-
-  let host_config = HostConfig::from_sim_config(&config);
-
-  let mut simulator = Simulator::new(config, host_config)?;
+  // 从AppConfig直接创建Simulator
+  let mut simulator = Simulator::from_app_config(&app_config)?;
 
   simulator.run()
 }
