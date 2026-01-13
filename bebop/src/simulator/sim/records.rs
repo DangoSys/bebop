@@ -1,7 +1,8 @@
 /// Macro to push a ModelRecord with common fields
 ///
 /// Usage:
-/// ```rust
+/// ```rust,ignore
+/// use bebop::model_record;
 /// model_record!(self, services, "action_name", "subject string");
 /// model_record!(self, services, "action_name", format!("formatted {}", value));
 /// ```
