@@ -2,8 +2,10 @@ use sim::models::Model;
 use sim::simulator::{Connector, Simulation};
 
 use super::bank::Bank;
+use super::bmt::init_bmt;
 use super::decoder::Decoder;
 use super::mem_ctrl::MemController;
+use super::mset::Mset;
 use super::rob::Rob;
 use super::rs::Rs;
 use super::tdma_loader::TdmaLoader;
@@ -11,6 +13,7 @@ use super::tdma_storer::TdmaStorer;
 use super::vecball::VectorBall;
 
 pub fn create_simulation() -> Simulation {
+  init_bmt(16, 32);
   let models = vec![
     Model::new(
       String::from("decoder"),
@@ -29,6 +32,7 @@ pub fn create_simulation() -> Simulation {
       String::from("rs"),
       Box::new(Rs::new(String::from("receive_inst_from_rob"))),
     ),
+    Model::new(String::from("mset"), Box::new(Mset::new(String::from("commit_to_rob")))),
     Model::new(
       String::from("vector_ball"),
       Box::new(VectorBall::new(
@@ -137,6 +141,13 @@ pub fn create_simulation() -> Simulation {
       String::from("bank_mem_read_resp"),
     ),
     // Commits to ROB
+    Connector::new(
+      String::from("mset_rob_commit"),
+      String::from("mset"),
+      String::from("rob"),
+      String::from("commit_to_rob"),
+      String::from("commit"),
+    ),
     Connector::new(
       String::from("tdma_loader_rob_commit"),
       String::from("tdma_loader"),

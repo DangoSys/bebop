@@ -4,9 +4,16 @@ pub enum StepMode {
   Step,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArchType {
+  Buckyball,
+  Gemmini,
+}
+
 #[derive(Debug, Clone)]
 pub struct SimConfig {
   pub quiet: bool,
   pub step_mode: StepMode,
   pub trace_file: Option<String>,
+  pub arch_type: ArchType,
 }

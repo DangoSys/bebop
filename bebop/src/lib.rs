@@ -1,5 +1,5 @@
-pub mod buckyball;
+pub mod arch;
 pub mod simulator;
 
-pub use simulator::sim::mode::SimConfig;
+pub use simulator::sim::mode::{ArchType, SimConfig};
 pub use simulator::utils::log;

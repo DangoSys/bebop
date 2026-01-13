@@ -30,6 +30,7 @@ static MVOUT_INST_DATA: Mutex<Option<MvoutInstData>> = Mutex::new(None);
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 enum TdmaStorerState {
   Idle,
+  Wait,     // Waiting for read bank response
   Active,   // Bank -> DRAM batch transfer in progress
   Complete, // Batch transfer complete
 }
@@ -77,6 +78,10 @@ impl TdmaStorer {
 impl DevsModel for TdmaStorer {
   fn events_ext(&mut self, incoming_message: &ModelMessage, services: &mut Services) -> Result<(), SimulationError> {
     if incoming_message.port_name == self.read_bank_resp_port {
+      if self.state != TdmaStorerState::Wait {
+        return Err(SimulationError::InvalidModelState);
+      }
+
       let data_vec: Vec<u128> =
         serde_json::from_str(&incoming_message.content).map_err(|_| SimulationError::InvalidModelState)?;
 
@@ -85,12 +90,7 @@ impl DevsModel for TdmaStorer {
         dma_write_dram(dram_addr, data);
       }
 
-      model_record!(
-        self,
-        services,
-        "write_dram",
-        format!("count={}", data_vec.len())
-      );
+      model_record!(self, services, "write_dram", format!("count={}", data_vec.len()));
 
       self.state = TdmaStorerState::Active;
       self.until_next_event = self.transfer_latency * self.depth as f64;
@@ -120,7 +120,7 @@ impl DevsModel for TdmaStorer {
             format!("dram_addr={:#x}, depth={}", inst.base_dram_addr, inst.depth)
           );
 
-          request_read_bank_for_tdma(self.vbank_id, 0u64, self.depth);
+          request_read_bank_for_tdma(self.vbank_id, 0u64, self.depth, self.rob_id);
 
           model_record!(
             self,
@@ -128,7 +128,15 @@ impl DevsModel for TdmaStorer {
             "read_bank",
             format!("id={}, count={}", self.vbank_id, self.depth)
           );
-        } 
+
+          self.state = TdmaStorerState::Wait;
+          self.until_next_event = 1.0;
+        }
+      },
+      TdmaStorerState::Wait => {
+        // Wait state: until_next_event should always be 1.0
+        // This state waits for external event (read_bank_resp_port)
+        self.until_next_event = 1.0;
       },
       TdmaStorerState::Active => {
         self.state = TdmaStorerState::Complete;
@@ -158,6 +166,9 @@ impl DevsModel for TdmaStorer {
   fn until_next_event(&self) -> f64 {
     if self.state == TdmaStorerState::Idle && MVOUT_INST_DATA.lock().unwrap().is_some() {
       return 0.0;
+    }
+    if self.state == TdmaStorerState::Wait {
+      return 1.0;
     }
     self.until_next_event
   }

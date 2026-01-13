@@ -175,8 +175,8 @@ impl DevsModel for VectorBall {
         }
       },
       VecBallState::WaitOp1 => {
-        // Send batch read request via function call (single cycle)
-        request_read_bank_for_vecball(self.op1_bank_id, 0u64, 16u64);
+        // Wait state: keep sending read request to mem_ctrl every cycle
+        request_read_bank_for_vecball(self.op1_bank_id, 0u64, 16u64, self.rob_id);
 
         self.records.push(ModelRecord {
           time: services.global_time(),
@@ -184,12 +184,13 @@ impl DevsModel for VectorBall {
           subject: format!("bank={}, addr=0, count=16", self.op1_bank_id),
         });
 
-        // Wait for read latency (multi-cycle response)
-        self.until_next_event = self.read_latency;
+        // Wait state: until_next_event should always be 1.0
+        // This state waits for external event (read response)
+        self.until_next_event = 1.0;
       },
       VecBallState::WaitOp2 => {
-        // Send batch read request via function call (single cycle)
-        request_read_bank_for_vecball(self.op2_bank_id, 0u64, 16u64);
+        // Wait state: keep sending read request to mem_ctrl every cycle
+        request_read_bank_for_vecball(self.op2_bank_id, 0u64, 16u64, self.rob_id);
 
         self.records.push(ModelRecord {
           time: services.global_time(),
@@ -197,8 +198,9 @@ impl DevsModel for VectorBall {
           subject: format!("bank={}, addr=0, count=16", self.op2_bank_id),
         });
 
-        // Wait for read latency (multi-cycle response)
-        self.until_next_event = self.read_latency;
+        // Wait state: until_next_event should always be 1.0
+        // This state waits for external event (read response)
+        self.until_next_event = 1.0;
       },
       VecBallState::Computing => {
         // Perform matrix multiplication (simplified: element-wise multiply-accumulate)
@@ -226,7 +228,7 @@ impl DevsModel for VectorBall {
           write_data.push(((val >> 64) & 0xFFFFFFFFFFFFFFFF) as u64); // high 64 bits
         }
 
-        let request = (self.wr_bank_id, 0u64, write_data);
+        let request = (self.rob_id, self.wr_bank_id, 0u64, write_data);
         messages.push(ModelMessage {
           content: serde_json::to_string(&request).map_err(|_| SimulationError::InvalidModelState)?,
           port_name: self.ball_mem_write_req_port.clone(),
@@ -279,6 +281,12 @@ impl DevsModel for VectorBall {
   }
 
   fn until_next_event(&self) -> f64 {
+    if self.state == VecBallState::Idle && VECBALL_INST_DATA.lock().unwrap().is_some() {
+      return 0.0;
+    }
+    if self.state == VecBallState::WaitOp1 || self.state == VecBallState::WaitOp2 {
+      return 1.0;
+    }
     self.until_next_event
   }
 }

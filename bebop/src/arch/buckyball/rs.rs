@@ -5,6 +5,7 @@ use sim::simulator::Services;
 use sim::utils::errors::SimulationError;
 use std::f64::INFINITY;
 
+use super::mset::{receive_mset_inst, MSET_INST_CAN_ISSUE};
 use super::tdma_loader::{receive_mvin_inst, MVIN_INST_CAN_ISSUE};
 use super::tdma_storer::{receive_mvout_inst, MVOUT_INST_CAN_ISSUE};
 use super::vecball::{receive_vecball_inst, VECBALL_INST_CAN_ISSUE};
@@ -66,6 +67,11 @@ impl DevsModel for Rs {
   fn events_int(&mut self, _services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
     for inst in self.inst_buffer.drain(..) {
       match inst.funct {
+        23 => {
+          if MSET_INST_CAN_ISSUE.load(Ordering::Relaxed) {
+            receive_mset_inst(inst.xs1, inst.xs2, inst.rob_id);
+          }
+        },
         24 => {
           if MVIN_INST_CAN_ISSUE.load(Ordering::Relaxed) {
             receive_mvin_inst(inst.xs1, inst.xs2, inst.rob_id);
