@@ -1,6 +1,6 @@
 use super::host::host::{launch_host_process, HostConfig};
 use super::server::socket::{accept_connection_async, CmdHandler, CmdReq, DmaReadHandler, DmaWriteHandler};
-use super::sim::mode::{ArchType, SimConfig, StepMode};
+use super::sim::mode::{ArchType, StepMode};
 use super::sim::model::model_step;
 use super::sim::shell;
 use crate::arch::buckyball::create_simulation;
@@ -30,7 +30,7 @@ enum SimulationType {
 }
 
 pub struct Simulator {
-  config: SimConfig,
+  app_config: AppConfig,
   cmd_rx: Receiver<CmdReq>,
   resp_tx: mpsc::Sender<u64>,
   simulation: SimulationType,
@@ -41,15 +41,12 @@ pub struct Simulator {
 }
 
 impl Simulator {
-  /// 从AppConfig创建Simulator
+  /// Create Simulator from AppConfig
   pub fn from_app_config(app_config: &AppConfig) -> Result<Self> {
-    // 生成SimConfig
-    let step_mode = if app_config.simulation.step_mode {
-      StepMode::Step
-    } else {
-      StepMode::Continuous
-    };
+    Self::new(app_config.clone())
+  }
 
+  pub fn new(app_config: AppConfig) -> Result<Self> {
     let arch_type = match app_config.simulation.arch_type.to_lowercase().as_str() {
       "gemmini" => ArchType::Gemmini,
       "buckyball" => ArchType::Buckyball,
@@ -61,35 +58,8 @@ impl Simulator {
       },
     };
 
-    let sim_config = SimConfig {
-      quiet: app_config.simulation.quiet,
-      step_mode,
-      trace_file: if app_config.simulation.trace_file.is_empty() {
-        None
-      } else {
-        Some(app_config.simulation.trace_file.clone())
-      },
-      arch_type,
-      host_type: match app_config.host.host_type.to_lowercase().as_str() {
-        "spike" => super::sim::mode::HostType::Spike,
-        "gem5" => super::sim::mode::HostType::Gem5,
-        _ => {
-          return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("unsupported host type: {}", app_config.host.host_type),
-          ));
-        },
-      },
-      host_config: None,
-    };
-
-    // 生成HostConfig
     let host_config = HostConfig::from_app_config(&app_config)?;
 
-    Self::new(sim_config, host_config)
-  }
-
-  pub fn new(config: SimConfig, host_config: HostConfig) -> Result<Self> {
     // Create separate listeners for CMD, DMA read, and DMA write
     let (_cmd_listener, cmd_rx) = accept_connection_async(6000, "CMD")?;
     let (_dma_read_listener, dma_read_rx) = accept_connection_async(6001, "DMA read")?;
@@ -155,7 +125,7 @@ impl Simulator {
       }
     });
 
-    let mut simulation = match config.arch_type {
+    let mut simulation = match arch_type {
       ArchType::Buckyball => SimulationType::Buckyball(create_simulation()),
       ArchType::Gemmini => {
         let mut gemmini_sim = create_gemmini_simulation();
@@ -165,16 +135,16 @@ impl Simulator {
     };
 
     // Initialize trace writer if trace file is specified
-    let trace_writer = if let Some(ref path) = config.trace_file {
-      let file = File::create(path)?;
-      info!("Trace file enabled: {}", path);
+    let trace_writer = if !app_config.simulation.trace_file.is_empty() {
+      let file = File::create(&app_config.simulation.trace_file)?;
+      info!("Trace file enabled: {}", app_config.simulation.trace_file);
       Some(BufWriter::new(file))
     } else {
       None
     };
 
     Ok(Self {
-      config,
+      app_config,
       cmd_rx,
       resp_tx,
       simulation,
@@ -186,8 +156,13 @@ impl Simulator {
   }
 
   pub fn run(&mut self) -> Result<()> {
-    set_log(!self.config.quiet);
-    match self.config.step_mode {
+    set_log(!self.app_config.simulation.quiet);
+    let step_mode = if self.app_config.simulation.step_mode {
+      StepMode::Step
+    } else {
+      StepMode::Continuous
+    };
+    match step_mode {
       StepMode::Continuous => self.run_continuous(),
       StepMode::Step => self.run_step_mode(),
     }
@@ -236,9 +211,7 @@ impl Simulator {
           inject_message(sim, "decoder", None, None, None, &inst_json);
         },
         SimulationType::Gemmini(gemmini_sim) => {
-          // For Gemmini, directly execute the instruction
           let result = gemmini_sim.execute(req.funct as u64, req.xs1, req.xs2);
-          // Send response back immediately for functional simulation
           let _ = self.resp_tx.send(result);
         },
       }
@@ -250,7 +223,6 @@ impl Simulator {
         self.global_clock = sim.get_global_time();
       },
       SimulationType::Gemmini(_) => {
-        // Gemmini is functional simulation, no cycle-accurate stepping needed
         self.global_clock += 1.0;
       },
     }
@@ -262,10 +234,8 @@ impl Simulator {
 impl Drop for Simulator {
   fn drop(&mut self) {
     if let Some(mut child) = self.host_process.take() {
-      // println!("Terminating host process...");
       let _ = child.kill();
       let _ = child.wait();
-      // println!("host process terminated.");
     }
   }
 }

@@ -3,25 +3,25 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// 主机类型配置部分
+/// Host type configuration section
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HostTypeConfig {
   pub host_path: String,
   pub test_binary_path: String,
   #[serde(default)]
   pub host_args: Vec<String>,
-  // gem5 特定配置
+  // gem5 specific configuration
   #[serde(default)]
-  pub gem5_mode: String, // "se" 或 "fs"
+  pub gem5_mode: String, // "se" or "fs"
   #[serde(default)]
-  pub se_binary_path: String, // SE模式下的test_binary_path
+  pub se_binary_path: String, // test_binary_path in SE mode
   #[serde(default)]
-  pub fs_kernel_path: String, // FS模式下的内核路径
+  pub fs_kernel_path: String, // kernel path in FS mode
   #[serde(default)]
-  pub fs_image_path: String, // FS模式下的磁盘镜像路径
+  pub fs_image_path: String, // disk image path in FS mode
 }
 
-/// 主机配置部分
+/// Host configuration section
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HostSection {
   pub host_type: String,
@@ -41,7 +41,7 @@ impl Default for HostSection {
   }
 }
 
-/// 模拟配置部分
+/// Simulation configuration section
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SimulationSection {
   #[serde(default = "default_arch_type")]
@@ -73,7 +73,7 @@ impl Default for SimulationSection {
   }
 }
 
-/// 统一的应用配置
+/// Unified application configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppConfig {
   #[serde(default)]
@@ -91,7 +91,7 @@ impl Default for AppConfig {
   }
 }
 
-/// 从default.toml加载默认配置
+/// Load default configuration from default.toml
 pub fn load_default_config() -> io::Result<AppConfig> {
   let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
   let config_path = manifest_dir
@@ -103,18 +103,26 @@ pub fn load_default_config() -> io::Result<AppConfig> {
   load_config_file(&config_path)
 }
 
-/// 从指定文件加载配置
+/// Load configuration from specified file
 pub fn load_config_file(path: &Path) -> io::Result<AppConfig> {
-  let content = fs::read_to_string(path)
-    .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("无法读取配置文件 {:?}: {}", path, e)))?;
+  let content = fs::read_to_string(path).map_err(|e| {
+    io::Error::new(
+      io::ErrorKind::NotFound,
+      format!("Failed to read config file {:?}: {}", path, e),
+    )
+  })?;
 
-  toml::from_str::<AppConfig>(&content)
-    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("解析TOML配置失败: {}", e)))
+  toml::from_str::<AppConfig>(&content).map_err(|e| {
+    io::Error::new(
+      io::ErrorKind::InvalidData,
+      format!("Failed to parse TOML config: {}", e),
+    )
+  })
 }
 
-/// 合并两个配置（后者覆盖前者）
+/// Merge two configurations (latter overrides former)
 pub fn merge_config(mut base: AppConfig, override_config: AppConfig) -> AppConfig {
-  // 合并host部分
+  // Merge host section
   if !override_config.host.host_type.is_empty() {
     base.host.host_type = override_config.host.host_type;
   }
@@ -125,7 +133,7 @@ pub fn merge_config(mut base: AppConfig, override_config: AppConfig) -> AppConfi
     base.host.gem5 = override_config.host.gem5;
   }
 
-  // 合并simulation部分
+  // Merge simulation section
   if !override_config.simulation.arch_type.is_empty() {
     base.simulation.arch_type = override_config.simulation.arch_type;
   }
@@ -142,7 +150,7 @@ pub fn merge_config(mut base: AppConfig, override_config: AppConfig) -> AppConfi
   base
 }
 
-/// 应用CLI参数覆写配置
+/// Apply CLI parameter overrides to configuration
 pub fn apply_cli_overrides(
   config: &mut AppConfig,
   quiet: bool,
@@ -172,7 +180,7 @@ pub fn apply_cli_overrides(
     config.host.host_type = host_str.to_string();
   }
   if let Some(test_binary_path) = test_binary {
-    // 对当前主机类型的配置应用test_binary_path
+    // Apply test_binary_path to the configuration of current host type
     match config.host.host_type.to_lowercase().as_str() {
       "spike" => {
         if let Some(ref mut spike) = config.host.spike {
@@ -188,34 +196,34 @@ pub fn apply_cli_overrides(
     }
   }
   if let Some(se_binary_path) = se_binary {
-    // 应用se_binary_path到gem5配置
+    // Apply se_binary_path to gem5 configuration
     if let Some(ref mut gem5) = config.host.gem5 {
       gem5.se_binary_path = se_binary_path.to_string();
     }
   }
   if let Some(fs_kernel_path) = fs_kernel {
-    // 应用fs_kernel_path到gem5配置
+    // Apply fs_kernel_path to gem5 configuration
     if let Some(ref mut gem5) = config.host.gem5 {
       gem5.fs_kernel_path = fs_kernel_path.to_string();
     }
   }
   if let Some(fs_image_path) = fs_image {
-    // 应用fs_image_path到gem5配置
+    // Apply fs_image_path to gem5 configuration
     if let Some(ref mut gem5) = config.host.gem5 {
       gem5.fs_image_path = fs_image_path.to_string();
     }
   }
   if let Some(mode) = gem5_mode {
-    // 应用gem5_mode到gem5配置
+    // Apply gem5_mode to gem5 configuration
     if let Some(ref mut gem5) = config.host.gem5 {
       gem5.gem5_mode = mode.to_string();
     }
   }
 }
 
-/// 验证配置
+/// Validate configuration
 pub fn validate_config(config: &AppConfig) -> io::Result<()> {
-  // 获取当前主机类型的配置
+  // Get configuration for current host type
   let host_config = match config.host.host_type.to_lowercase().as_str() {
     "spike" => config.host.spike.as_ref(),
     "gem5" => config.host.gem5.as_ref(),
@@ -234,17 +242,18 @@ pub fn validate_config(config: &AppConfig) -> io::Result<()> {
     )
   })?;
 
-  // 验证test_binary_path不为空
+  // Validate test_binary_path is not empty
   if config.host.host_type.to_lowercase().as_str() == "spike" {
     if host_config.test_binary_path.trim().is_empty() {
       return Err(io::Error::new(
         io::ErrorKind::InvalidData,
-        "test_binary_path cannot be empty, please specify it through the configuration file or CLI parameters".to_string(),
+        "test_binary_path cannot be empty, please specify it through the configuration file or CLI parameters"
+          .to_string(),
       ));
     }
   }
 
-  // 验证host_path不为空
+  // Validate host_path is not empty
   if host_config.host_path.trim().is_empty() {
     return Err(io::Error::new(
       io::ErrorKind::InvalidData,
@@ -252,13 +261,14 @@ pub fn validate_config(config: &AppConfig) -> io::Result<()> {
     ));
   }
 
-  // 验证test_binary_path不为空
+  // Validate test_binary_path is not empty
   if config.host.host_type.to_lowercase().as_str() == "gem5" {
     if host_config.gem5_mode.to_lowercase().as_str() == "se" {
       if host_config.se_binary_path.trim().is_empty() {
         return Err(io::Error::new(
           io::ErrorKind::InvalidData,
-          "se_binary_path cannot be empty, please specify it through the configuration file or CLI parameters".to_string(),
+          "se_binary_path cannot be empty, please specify it through the configuration file or CLI parameters"
+            .to_string(),
         ));
       }
     }
@@ -272,7 +282,7 @@ pub fn validate_config(config: &AppConfig) -> io::Result<()> {
     }
   }
 
-  // 验证arch_type有效
+  // Validate arch_type is valid
   match config.simulation.arch_type.to_lowercase().as_str() {
     "buckyball" | "gemmini" => {},
     other => {
@@ -286,15 +296,15 @@ pub fn validate_config(config: &AppConfig) -> io::Result<()> {
   Ok(())
 }
 
-/// 补全相对路径（相对于bebop文件夹，即CARGO_MANIFEST_DIR）
+/// Resolve relative paths (relative to bebop folder, i.e., CARGO_MANIFEST_DIR)
 pub fn resolve_paths(config: &mut AppConfig, bebop_root: &Path) -> io::Result<()> {
-  // 处理spike配置
+  // Process spike configuration
   if let Some(ref mut spike) = config.host.spike {
     spike.host_path = resolve_single_path(&spike.host_path, bebop_root)?;
     spike.test_binary_path = resolve_single_path(&spike.test_binary_path, bebop_root)?;
   }
 
-  // 处理gem5配置
+  // Process gem5 configuration
   if let Some(ref mut gem5) = config.host.gem5 {
     gem5.host_path = resolve_single_path(&gem5.host_path, bebop_root)?;
     gem5.test_binary_path = resolve_single_path(&gem5.test_binary_path, bebop_root)?;
@@ -303,7 +313,7 @@ pub fn resolve_paths(config: &mut AppConfig, bebop_root: &Path) -> io::Result<()
     gem5.fs_image_path = resolve_single_path(&gem5.fs_image_path, bebop_root)?;
   }
 
-  // 处理trace_file
+  // Process trace_file
   if !config.simulation.trace_file.is_empty() {
     config.simulation.trace_file = resolve_single_path(&config.simulation.trace_file, bebop_root)?;
   }
@@ -311,7 +321,7 @@ pub fn resolve_paths(config: &mut AppConfig, bebop_root: &Path) -> io::Result<()
   Ok(())
 }
 
-/// 补全单个路径
+/// Resolve a single path
 fn resolve_single_path(path_str: &str, bebop_root: &Path) -> io::Result<String> {
   if path_str.is_empty() {
     return Ok(path_str.to_string());
@@ -319,26 +329,26 @@ fn resolve_single_path(path_str: &str, bebop_root: &Path) -> io::Result<String> 
 
   let path = Path::new(path_str);
 
-  // 如果已经是绝对路径，直接返回
+  // If already absolute path, return directly
   if path.is_absolute() {
     return Ok(path_str.to_string());
   }
 
-  // 相对路径相对于bebop_root
+  // Relative path is relative to bebop_root
   let absolute_path = bebop_root.join(path);
 
   Ok(absolute_path.to_string_lossy().to_string())
 }
 
-/// 加载并合并配置
+/// Load and merge configurations
 ///
-/// 流程：
-/// 1. 加载默认配置
-/// 2. 如果提供了自定义配置文件，加载并合并
-/// 3. 应用CLI参数覆写
-/// 4. 补全相对路径
-/// 5. 验证配置
-pub fn load_and_merge_configs(
+/// Process:
+/// 1. Load default configuration
+/// 2. If custom config file is provided, load and merge it
+/// 3. Apply CLI parameter overrides
+/// 4. Resolve relative paths
+/// 5. Validate configuration
+pub fn load_configs(
   custom_config_path: Option<&str>,
   bebop_root: &Path,
   quiet: bool,
@@ -352,10 +362,10 @@ pub fn load_and_merge_configs(
   fs_image: Option<&str>,
   gem5_mode: Option<&str>,
 ) -> io::Result<AppConfig> {
-  // 加载默认配置
+  // Load default configuration
   let mut config = load_default_config()?;
 
-  // 如果提供了自定义配置文件，加载并合并
+  // If custom config file is provided, load and merge it
   if let Some(custom_path) = custom_config_path {
     let custom_path_buf = PathBuf::from(custom_path);
     let custom_path_abs = if custom_path_buf.is_absolute() {
@@ -368,7 +378,7 @@ pub fn load_and_merge_configs(
     config = merge_config(config, custom_config);
   }
 
-  // 应用CLI参数覆写
+  // Apply CLI parameter overrides
   apply_cli_overrides(
     &mut config,
     quiet,
@@ -383,10 +393,10 @@ pub fn load_and_merge_configs(
     gem5_mode,
   );
 
-  // 补全相对路径
+  // Resolve relative paths
   resolve_paths(&mut config, bebop_root)?;
 
-  // 验证配置
+  // Validate configuration
   validate_config(&config)?;
 
   Ok(config)

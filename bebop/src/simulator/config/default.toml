@@ -16,6 +16,6 @@ fs_image_path = ""
 
 [simulation]
 arch_type = "buckyball"
-quiet = true
-step_mode = true
+quiet = false
+step_mode = false
 trace_file = ""

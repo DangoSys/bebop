@@ -1048,6 +1048,16 @@ impl Gemmini {
 
       self.state.c_stride = new_c_stride;
       self.state.a_stride = new_a_stride;
+
+      log::info!(
+        "GEMMINI: config_ex - set mode to {:?}, activation to {:?}, sys shift to {:?}, sys acc shift to {:?}, a transpose to {:?}, b transpose to {:?}",
+        new_mode,
+        new_act,
+        new_sys_shift,
+        new_sys_acc_shift,
+        new_a_transpose,
+        new_b_transpose
+      );
     } else if (rs1 & 0b11) == 1 {
       // config_mvin: configure load pipeline
       let state_id = ((rs1 >> 3) & 0x3) as usize;
@@ -1059,6 +1069,15 @@ impl Gemmini {
       if self.state.pixels_per_rows[state_id] == 0 {
         self.state.pixels_per_rows[state_id] = 1;
       }
+
+      log::info!(
+        "GEMMINI: config_ld - set load stride to {:?} (rs2=0x{:x}), load block stride to {:?}, load scale to {:?}, pixels per rows to {:?}",
+        rs2,
+        rs2,
+        self.state.load_block_strides[state_id],
+        self.state.load_scales[state_id],
+        self.state.pixels_per_rows[state_id]
+      );
     } else if (rs1 & 0b11) == 2 {
       // config_mvout: configure store pipeline
       self.state.store_stride = rs2 & 0xFFFFFFFF;
@@ -1085,6 +1104,22 @@ impl Gemmini {
       self.state.pool_pocols = ((rs1 >> 40) & 0xFF) as u8;
       self.state.pool_orows = ((rs1 >> 48) & 0xFF) as u8;
       self.state.pool_ocols = ((rs1 >> 56) & 0xFF) as u8;
+    
+      log::info!(
+        "GEMMINI: config_st - set store stride to {:?}, activation to {:?}, acc shift to {:?}, pool stride to {:?}, pool size to {:?}, pool upad to {:?}, pool lpad to {:?}, pool out dim to {:?}, pool porows to {:?}, pool pocols to {:?}, pool orows to {:?}, pool ocols to {:?}",
+        rs2 & 0xFFFFFFFF,
+        new_act,
+        f32::from_bits(new_acc_shift as u32),
+        self.state.pool_stride,
+        self.state.pool_size,
+        self.state.pool_upad,
+        self.state.pool_lpad,
+        self.state.pool_out_dim,
+        self.state.pool_porows,
+        self.state.pool_pocols,
+        self.state.pool_orows,
+        self.state.pool_ocols
+      );
     } else if (rs1 & 0b11) == 3 {
       // config_norm: configure norm pipeline
       self.state.norm_stat_id = ((rs1 >> 8) & 0xFF) as u8;
@@ -1093,6 +1128,14 @@ impl Gemmini {
         self.state.igelu_qc = ((rs2 >> 32) & 0xFFFFFFFF) as AccT;
         self.state.qln2 = ((rs1 >> 32) & 0xFFFFFFFF) as AccT;
       }
+
+      log::info!(
+        "GEMMINI: config_norm - set norm stat id to {:?}, igelu qb to {:?}, igelu qc to {:?}, qln2 to {:?}",
+        self.state.norm_stat_id,
+        self.state.igelu_qb,
+        self.state.igelu_qc,
+        self.state.qln2
+      );
     }
   }
 
@@ -1325,26 +1368,62 @@ impl Gemmini {
     self.state.loop_ws_pad_I = (rs1 & 0xFFFF) as u16;
     self.state.loop_ws_pad_J = ((rs1 >> 16) & 0xFFFF) as u16;
     self.state.loop_ws_pad_K = ((rs1 >> 32) & 0xFFFF) as u16;
+
+    log::info!(
+      "GEMMINI: loop_ws_config_bounds - set loop ws I to {:?}, loop ws J to {:?}, loop ws K to {:?}, loop ws pad I to {:?}, loop ws pad J to {:?}, loop ws pad K to {:?}",
+      self.state.loop_ws_I,
+      self.state.loop_ws_J,
+      self.state.loop_ws_K,
+      self.state.loop_ws_pad_I,
+      self.state.loop_ws_pad_J,
+      self.state.loop_ws_pad_K
+    );
   }
 
   pub fn loop_ws_config_addrs_AB(&mut self, rs1: RegT, rs2: RegT) {
     self.state.loop_ws_A = rs1;
     self.state.loop_ws_B = rs2;
+
+    log::info!(
+      "GEMMINI: loop_ws_config_addrs_AB - set loop ws A to {:?}, loop ws B to {:?}",
+      self.state.loop_ws_A,
+      self.state.loop_ws_B
+    );
   }
 
   pub fn loop_ws_config_addrs_DC(&mut self, rs1: RegT, rs2: RegT) {
     self.state.loop_ws_D = rs1;
     self.state.loop_ws_C = rs2;
+
+    log::info!(
+      "GEMMINI: loop_ws_config_addrs_DC - set loop ws D to {:?}, loop ws C to {:?}",
+      self.state.loop_ws_D,
+      self.state.loop_ws_C
+    );
   }
 
   pub fn loop_ws_config_strides_AB(&mut self, rs1: RegT, rs2: RegT) {
     self.state.loop_ws_A_stride = rs1;
     self.state.loop_ws_B_stride = rs2;
+
+    log::info!(
+      "GEMMINI: loop_ws_config_strides_AB - set loop ws A stride to {:?}, loop ws B stride to {:?}",
+      self.state.loop_ws_A_stride,
+      self.state.loop_ws_B_stride
+    );
   }
 
   pub fn loop_ws_config_strides_DC(&mut self, rs1: RegT, rs2: RegT) {
     self.state.loop_ws_D_stride = rs1;
     self.state.loop_ws_C_stride = rs2;
+
+      log::info!(
+        "GEMMINI: loop_ws_config_strides_DC - set loop ws D stride to {:?} (0x{:x}), loop ws C stride to {:?} (0x{:x})",
+        self.state.loop_ws_D_stride,
+        self.state.loop_ws_D_stride,
+        self.state.loop_ws_C_stride,
+        self.state.loop_ws_C_stride
+      );
   }
 
   pub fn loop_ws(&mut self, rs1: RegT, rs2: RegT) {

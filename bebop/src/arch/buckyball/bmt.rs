@@ -22,7 +22,7 @@ pub fn init_bmt(num_vbanks: u64, num_pbanks: u64) {
   *BANK_MAP_TABLE.lock().unwrap() = Some(state);
 }
 
-/// 分配物理 bank
+/// Allocate physical bank
 pub fn allocate_bank(vbank_id: u64, num_pbanks: u64) -> Option<Vec<u64>> {
   let mut state_opt = BANK_MAP_TABLE.lock().unwrap();
   if let Some(ref mut state) = *state_opt {
@@ -50,7 +50,7 @@ pub fn allocate_bank(vbank_id: u64, num_pbanks: u64) -> Option<Vec<u64>> {
   None
 }
 
-/// 释放虚拟 bank
+/// Free virtual bank
 pub fn free_bank(vbank_id: u64) -> bool {
   let mut state_opt = BANK_MAP_TABLE.lock().unwrap();
   if let Some(ref mut state) = *state_opt {
@@ -65,7 +65,7 @@ pub fn free_bank(vbank_id: u64) -> bool {
   false
 }
 
-/// 查询虚拟 bank 对应的物理 bank 列表
+/// Query physical bank list corresponding to virtual bank
 pub fn get_pbank_ids(vbank_id: u64) -> Option<Vec<u64>> {
   let state_opt = BANK_MAP_TABLE.lock().unwrap();
   if let Some(ref state) = *state_opt {
@@ -75,7 +75,7 @@ pub fn get_pbank_ids(vbank_id: u64) -> Option<Vec<u64>> {
   }
 }
 
-/// 查询物理 bank 被哪个虚拟 bank 占用
+/// Query which virtual bank occupies the physical bank
 pub fn get_vbank_id(pbank_id: u64) -> Option<u64> {
   let state_opt = BANK_MAP_TABLE.lock().unwrap();
   if let Some(ref state) = *state_opt {
