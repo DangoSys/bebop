@@ -33,13 +33,15 @@ system.clk_domain.clock = "1GHz"
 system.clk_domain.voltage_domain = VoltageDomain()
 
 # Set memory mode and range
-# system.mem_mode = "timing"
-system.mem_mode = "atomic"
+# system.mem_mode = "atomic"
+system.mem_mode = "timing"
 system.mem_ranges = [AddrRange("8GiB")]
 
 # Create CPU
+# system.cpu = AtomicSimpleCPU()
 # system.cpu = RiscvTimingSimpleCPU()
-system.cpu = AtomicSimpleCPU()
+system.cpu = RiscvMinorCPU()
+# system.cpu = RiscvO3CPU()
 
 # Create memory bus
 system.membus = SystemXBar()

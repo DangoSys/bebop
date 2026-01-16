@@ -556,6 +556,42 @@ impl Gemmini {
     }
   }
 
+  // Batch read DIM bytes from DRAM (optimized for DIM-sized chunks)
+  fn read_batch_dim(&self, addr: RegT) -> [u8; DIM] {
+    let mut result = [0u8; DIM];
+
+    if let Some(ref dma_read) = self.state.dma_read {
+      let mut handler = dma_read.lock().unwrap();
+
+      match handler.read(addr, DIM as u32) {
+        Ok(data) => {
+          for i in 0..DIM {
+            result[i] = ((data >> (i * 8)) & 0xFF) as u8;
+          }
+        },
+        Err(_) => {
+          // Return zeros on error
+        }
+      }
+    }
+
+    result
+  }
+
+  // Batch write DIM bytes to DRAM (optimized for DIM-sized chunks)
+  fn write_batch_dim(&mut self, addr: RegT, data: &[u8; DIM]) {
+    if let Some(ref dma_write) = self.state.dma_write {
+      let mut handler = dma_write.lock().unwrap();
+
+      let mut data_u128: u128 = 0;
+      for i in 0..DIM {
+        data_u128 |= (data[i] as u128) << (i * 8);
+      }
+
+      let _ = handler.write(addr, data_u128, DIM as u32);
+    }
+  }
+
   fn read_matrix_from_dram(
     &self,
     addr: RegT,
@@ -573,13 +609,26 @@ impl Gemmini {
       panic!("ERROR: non-zeroable matrix given address zero!");
     }
 
+    // Batch read optimization: read DIM bytes at a time
     for i in 0..rows as usize {
       let ii = if repeating_bias { 0 } else { i };
       let dram_row_addr = addr + (ii * cols as usize * std::mem::size_of::<ElemT>()) as u64;
 
-      for j in 0..cols as usize {
-        let dram_byte_addr = dram_row_addr + (j * std::mem::size_of::<ElemT>()) as u64;
-        result[i][j] = self.read_from_dram::<ElemT>(dram_byte_addr);
+      // Read in DIM-byte chunks
+      for j in (0..cols as usize).step_by(DIM) {
+        let remaining = cols as usize - j;
+        if remaining >= DIM {
+          // Read full DIM bytes
+          let bytes = self.read_batch_dim(dram_row_addr + j as u64);
+          for k in 0..DIM {
+            result[i][j + k] = bytes[k] as ElemT;
+          }
+        } else {
+          // Handle remaining bytes individually (fallback for tail)
+          for k in 0..remaining {
+            result[i][j + k] = self.read_from_dram::<ElemT>(dram_row_addr + (j + k) as u64);
+          }
+        }
       }
     }
 
