@@ -1,4 +1,4 @@
-use bebop::simulator::config::config::load_and_merge_configs;
+use bebop::simulator::config::config::load_configs;
 use bebop::simulator::utils::log::init_log;
 use bebop::simulator::Simulator;
 use clap::Parser;
@@ -60,12 +60,12 @@ fn main() -> std::io::Result<()> {
 
   let args = Args::parse();
 
-  // 获取bebop文件夹路径（CARGO_MANIFEST_DIR）
+  // Get bebop folder path (CARGO_MANIFEST_DIR)
   let bebop_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
   let bebop_root = bebop_root.join("..").to_path_buf();
 
-  // 加载并合并配置
-  let app_config = load_and_merge_configs(
+  // Load and merge configuration
+  let app_config = load_configs(
     args.config_file.as_deref(),
     &bebop_root,
     args.quiet,
@@ -80,8 +80,6 @@ fn main() -> std::io::Result<()> {
     args.gem5_mode.as_deref(),
   )?;
 
-  // 从AppConfig直接创建Simulator
   let mut simulator = Simulator::from_app_config(&app_config)?;
-
   simulator.run()
 }

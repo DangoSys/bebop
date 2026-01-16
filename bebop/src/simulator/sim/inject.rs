@@ -1,16 +1,16 @@
 use sim::simulator::{Message, Simulation};
 
-/// 向指定Model注入消息
+/// Inject message to specified Model
 ///
-/// # 参数
-/// - `simulation`: 仿真实例
-/// - `target_model`: 目标模型名称
-/// - `latency`: 延时（时间单位）
-/// - `source_id`: 可选的消息来源ID，默认为 "default"
-/// - `source_port`: 可选的来源端口，默认为 "default"
-/// - `target_port`: 可选的目标端口，默认为 "default"
+/// # Parameters
+/// - `simulation`: Simulation instance
+/// - `target_model`: Target model name
+/// - `latency`: Delay (time unit)
+/// - `source_id`: Optional message source ID, defaults to "default"
+/// - `source_port`: Optional source port, defaults to "default"
+/// - `target_port`: Optional target port, defaults to "default"
 ///
-/// 如果周期模式未启用（CYCLE_MODE_ENABLED == false），此函数会直接返回
+/// If cycle mode is not enabled (CYCLE_MODE_ENABLED == false), this function returns directly
 pub fn inject_message(
   simulation: &mut Simulation,
   target_model: &str,

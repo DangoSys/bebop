@@ -13,9 +13,7 @@ pub struct HostConfig {
 }
 
 impl HostConfig {
-  /// 从AppConfig创建HostConfig（新方法）
   pub fn from_app_config(app_config: &AppConfig) -> Result<Self> {
-    // 获取当前主机类型的配置
     let host_type = app_config.host.host_type.to_lowercase();
     let host_type_config = match host_type.as_str() {
       "spike" => app_config.host.spike.as_ref(),
@@ -23,7 +21,7 @@ impl HostConfig {
       other => {
         return Err(std::io::Error::new(
           std::io::ErrorKind::InvalidInput,
-          format!("不支持的主机类型: {}", other),
+          format!("unsupported host type: {}", other),
         ));
       },
     };
@@ -31,28 +29,40 @@ impl HostConfig {
     let host_type_config = host_type_config.ok_or_else(|| {
       std::io::Error::new(
         std::io::ErrorKind::InvalidInput,
-        format!("配置中缺少主机类型 '{}' 的配置", host_type),
+        format!("missing host type '{}' configuration", host_type),
       )
     })?;
 
-    // 根据主机类型构建参数
+    // Build arguments based on host type
     let arg = if host_type == "gem5" {
-      // gem5的情况：根据gem5_mode构建不同的命令行
+      // For gem5: build different command line based on gem5_mode
       let mode = host_type_config.gem5_mode.to_lowercase();
       let mut args = Vec::new();
-      let gem5_dir = Path::new(host_type_config.host_path.as_str()).parent().unwrap().to_string_lossy().to_string();
-      let se_script_path = Path::new(gem5_dir.as_str()).join("../../../riscv-se.py").to_path_buf().to_string_lossy().to_string();
-      let fs_script_path = Path::new(gem5_dir.as_str()).join("../../../riscv-fs-custom-kernel.py").to_path_buf().to_string_lossy().to_string();
-      
+      let gem5_dir = Path::new(host_type_config.host_path.as_str())
+        .parent()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+      let se_script_path = Path::new(gem5_dir.as_str())
+        .join("../../../riscv-se.py")
+        .to_path_buf()
+        .to_string_lossy()
+        .to_string();
+      let fs_script_path = Path::new(gem5_dir.as_str())
+        .join("../../../riscv-fs-custom-kernel.py")
+        .to_path_buf()
+        .to_string_lossy()
+        .to_string();
+
       match mode.as_str() {
         "se" => {
-          // SE模式: ./build/RISCV/gem5.opt ../riscv-se.py --test-binary <test_binary_path>
+          // SE mode: ./build/RISCV/gem5.opt ../riscv-se.py --test-binary <test_binary_path>
           args.push(se_script_path);
           args.push("--test-binary".to_string());
           args.push(host_type_config.se_binary_path.clone());
         },
         "fs" => {
-          // FS模式: ./build/RISCV/gem5.opt ../riscv-fs-custom-kernel.py --custom-kernel <fs_kernel_path> --custom-disk-image <fs_image_path>
+          // FS mode: ./build/RISCV/gem5.opt ../riscv-fs-custom-kernel.py --custom-kernel <fs_kernel_path> --custom-disk-image <fs_image_path>
           args.push(fs_script_path);
           args.push("--custom-kernel".to_string());
           args.push(host_type_config.fs_kernel_path.clone());
@@ -62,13 +72,13 @@ impl HostConfig {
         other => {
           return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("不支持的gem5模式: {}", other),
+            format!("unsupported gem5 mode: {}", other),
           ));
         },
       }
       args
     } else {
-      // Spike或其他主机的情况：使用host_args和test_binary_path
+      // For Spike or other hosts: use host_args and test_binary_path
       let mut args: Vec<String> = host_type_config
         .host_args
         .iter()
@@ -122,7 +132,7 @@ pub fn launch_host_process(host_config: HostConfig) -> Result<(Option<Child>, Ar
     if let Some(mut child_process) = host_process.take() {
       thread::spawn(move || match child_process.wait() {
         Ok(_status) => {
-          // println!("host process exited with status: {}", _status);
+          println!("host process exited with status: {}", _status);
           exit_flag.store(true, Ordering::Relaxed);
         },
         Err(e) => {

@@ -6,7 +6,10 @@ Simple gem5 configuration script to run a hello world program on RISCV
 import os
 import sys
 import argparse
+import atexit
+import signal
 import m5
+import m5.stats
 from m5.objects import *
 
 # Parse command line arguments
@@ -30,11 +33,13 @@ system.clk_domain.clock = "1GHz"
 system.clk_domain.voltage_domain = VoltageDomain()
 
 # Set memory mode and range
-system.mem_mode = "timing"
-system.mem_ranges = [AddrRange("2GiB")]
+# system.mem_mode = "timing"
+system.mem_mode = "atomic"
+system.mem_ranges = [AddrRange("8GiB")]
 
 # Create CPU
-system.cpu = RiscvTimingSimpleCPU()
+# system.cpu = RiscvTimingSimpleCPU()
+system.cpu = AtomicSimpleCPU()
 
 # Create memory bus
 system.membus = SystemXBar()
