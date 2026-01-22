@@ -8,6 +8,7 @@ use super::mem_ctrl::MemController;
 use super::mset::Mset;
 use super::rob::Rob;
 use super::rs::Rs;
+use super::systolic_array::SystolicArray;
 use super::tdma_loader::TdmaLoader;
 use super::tdma_storer::TdmaStorer;
 use super::vecball::VectorBall;
@@ -46,8 +47,10 @@ pub fn create_simulation() -> Simulation {
       Box::new(MemController::new(
         String::from("tdma_mem_write_req"),
         String::from("vball_mem_write_req"),
+        String::from("systolic_mem_write_req"),
         String::from("mem_tdma_read_resp"),
         String::from("mem_vball_read_resp"),
+        String::from("mem_systolic_read_resp"),
         String::from("mem_bank_write_req"),
         String::from("bank_mem_read_resp"),
       )),
@@ -73,6 +76,14 @@ pub fn create_simulation() -> Simulation {
       String::from("tdma_storer"),
       Box::new(TdmaStorer::new(
         String::from("mem_tdma_read_resp"),
+        String::from("commit_to_rob"),
+      )),
+    ),
+    Model::new(
+      String::from("systolic_array"),
+      Box::new(SystolicArray::new(
+        String::from("systolic_mem_write_req"),
+        String::from("mem_systolic_read_resp"),
         String::from("commit_to_rob"),
       )),
     ),
@@ -118,12 +129,28 @@ pub fn create_simulation() -> Simulation {
       String::from("vball_mem_write_req"),
       String::from("vball_mem_write_req"),
     ),
+    // Systolic Array <-> MemController (write request)
+    Connector::new(
+      String::from("systolic_memctrl_write_req"),
+      String::from("systolic_array"),
+      String::from("mem_controller"),
+      String::from("systolic_mem_write_req"),
+      String::from("systolic_mem_write_req"),
+    ),
     Connector::new(
       String::from("memctrl_vball_read_resp"),
       String::from("mem_controller"),
       String::from("vector_ball"),
       String::from("mem_vball_read_resp"),
       String::from("mem_vball_read_resp"),
+    ),
+    // Systolic Array <-> MemController (read response)
+    Connector::new(
+      String::from("memctrl_systolic_read_resp"),
+      String::from("mem_controller"),
+      String::from("systolic_array"),
+      String::from("mem_systolic_read_resp"),
+      String::from("mem_systolic_read_resp"),
     ),
     // MemController <-> Bank (write request and read response are multi-cycle)
     Connector::new(
@@ -165,6 +192,14 @@ pub fn create_simulation() -> Simulation {
     Connector::new(
       String::from("vball_rob_commit"),
       String::from("vector_ball"),
+      String::from("rob"),
+      String::from("commit_to_rob"),
+      String::from("commit"),
+    ),
+    // Systolic Array -> ROB (commit)
+    Connector::new(
+      String::from("systolic_rob_commit"),
+      String::from("systolic_array"),
       String::from("rob"),
       String::from("commit_to_rob"),
       String::from("commit"),

@@ -24,7 +24,7 @@ cmake --build ${HOST_BUILD} --target bebop_ipc -j$(nproc)
 
 cd ${GEM5_ROOT}
 # Apply the patch to gem5
-git apply ${SCRIPT_DIR}/bebop.patch
+# git apply ${SCRIPT_DIR}/bebop.patch
 # We need to update the patch in this way if we make changes to gem5
 # git add -A && git diff --cached > ../bebop.patch
 

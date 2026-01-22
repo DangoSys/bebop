@@ -6,6 +6,7 @@ use sim::utils::errors::SimulationError;
 use std::f64::INFINITY;
 
 use super::mset::{receive_mset_inst, MSET_INST_CAN_ISSUE};
+use super::systolic_array::{receive_systolic_array_inst, SYSTOLIC_ARRAY_INST_CAN_ISSUE};
 use super::tdma_loader::{receive_mvin_inst, MVIN_INST_CAN_ISSUE};
 use super::tdma_storer::{receive_mvout_inst, MVOUT_INST_CAN_ISSUE};
 use super::vecball::{receive_vecball_inst, VECBALL_INST_CAN_ISSUE};
@@ -85,6 +86,29 @@ impl DevsModel for Rs {
         30 => {
           if VECBALL_INST_CAN_ISSUE.load(Ordering::Relaxed) {
             receive_vecball_inst(inst.xs1, inst.xs2, inst.rob_id);
+          }
+        },
+        32 => {
+          // Systolic array matrix multiplication instruction
+          // For now, we'll use xs1, xs2, and domain_id to encode the bank IDs and dimensions
+          // In a real system, these would be extracted from register values or immediate fields
+          if SYSTOLIC_ARRAY_INST_CAN_ISSUE.load(Ordering::Relaxed) {
+            let op1_bank_id = inst.xs1;
+            let op2_bank_id = inst.xs2;
+            let wr_bank_id = (inst.domain_id >> 24) & 0xFF;
+            let m_dim = (inst.domain_id >> 16) & 0xFF;
+            let n_dim = (inst.domain_id >> 8) & 0xFF;
+            let k_dim = inst.domain_id & 0xFF;
+            
+            receive_systolic_array_inst(
+              op1_bank_id, 
+              op2_bank_id, 
+              wr_bank_id, 
+              m_dim, 
+              n_dim, 
+              k_dim, 
+              inst.rob_id
+            );
           }
         },
         _ => {

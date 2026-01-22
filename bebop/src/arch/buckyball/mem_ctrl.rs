@@ -27,11 +27,13 @@ pub struct MemController {
   // Write request ports (multi-cycle)
   tdma_write_req_port: String,
   vball_write_req_port: String,
+  systolic_write_req_port: String,
   bank_write_req_port: String,
 
   // Read response ports (multi-cycle)
   tdma_read_resp_port: String,
   vball_read_resp_port: String,
+  systolic_read_resp_port: String,
   bank_read_resp_port: String,
 
   until_next_event: f64,
@@ -45,8 +47,10 @@ impl MemController {
   pub fn new(
     tdma_write_req_port: String,
     vball_write_req_port: String,
+    systolic_write_req_port: String,
     tdma_read_resp_port: String,
     vball_read_resp_port: String,
+    systolic_read_resp_port: String,
     bank_write_req_port: String,
     bank_read_resp_port: String,
   ) -> Self {
@@ -56,9 +60,11 @@ impl MemController {
     Self {
       tdma_write_req_port,
       vball_write_req_port,
+      systolic_write_req_port,
       bank_write_req_port,
       tdma_read_resp_port,
       vball_read_resp_port,
+      systolic_read_resp_port,
       bank_read_resp_port,
       until_next_event: INFINITY,
       records: Vec::new(),
@@ -164,6 +170,71 @@ impl DevsModel for MemController {
       return Ok(());
     }
 
+    // Handle write requests from Systolic Array (multi-cycle)
+    if incoming_message.port_name == self.systolic_write_req_port {
+      // Parse request: (rob_id, vbank_id, start_addr, data_u64)
+      // For now, we'll use a simple format where we get the data directly
+      let data: Vec<u64> = 
+        serde_json::from_str(&incoming_message.content)
+        .map_err(|_| SimulationError::InvalidModelState)?;
+      let data_count = data.len();
+      
+      // In a real system, we would parse rob_id, vbank_id, start_addr from the request
+      // For now, we'll use hardcoded values for testing
+      let rob_id = 1;
+      let vbank_id = 0;
+      let start_addr = 0;
+
+      // Convert vbank_id to pbank_id using BMT
+      let pbank_id = if let Some(pbank_ids) = get_pbank_ids(vbank_id) {
+        if pbank_ids.is_empty() {
+          vbank_id
+        } else {
+          pbank_ids[0]
+        }
+      } else {
+        vbank_id
+      };
+
+      // Check dependency
+      if scoreboard::check_dependency(pbank_id, rob_id) {
+        // No dependency, can proceed immediately
+        // Re-encode with rob_id, vbank_id, and start_addr for the write request queue
+        let request = (rob_id, vbank_id, start_addr, data);
+        let request_content = serde_json::to_string(&request)
+          .map_err(|_| SimulationError::InvalidModelState)?;
+        
+        self
+          .write_request_queue
+          .push(("systolic".to_string(), request_content));
+      } else {
+        // Has dependency, add to scoreboard
+        // Re-encode with rob_id, vbank_id, and start_addr for the scoreboard
+        let request = (rob_id, vbank_id, start_addr, data);
+        let request_content = serde_json::to_string(&request)
+          .map_err(|_| SimulationError::InvalidModelState)?;
+        
+        scoreboard::add_to_scoreboard(
+          rob_id,
+          pbank_id,
+          "systolic".to_string(),
+          request_content,
+        );
+      }
+
+      self.records.push(ModelRecord {
+        time: services.global_time(),
+        action: "enqueue_systolic_write".to_string(),
+        subject: format!(
+          "rob_id={}, bank={}, addr={}, count={}",
+          rob_id, vbank_id, start_addr, data_count
+        ),
+      });
+
+      self.until_next_event = 1.0;
+      return Ok(());
+    }
+    
     // Handle read responses from Bank - forward to the correct source (multi-cycle)
     if incoming_message.port_name == self.bank_read_resp_port {
       let data_vec: Vec<u128> =
@@ -193,8 +264,10 @@ impl DevsModel for MemController {
     if let Some(resp) = READ_RESPONSE_QUEUE.lock().unwrap().pop() {
       let response_port = if resp.source == "tdma" {
         self.tdma_read_resp_port.clone()
-      } else {
+      } else if resp.source == "vecball" {
         self.vball_read_resp_port.clone()
+      } else {
+        self.systolic_read_resp_port.clone()
       };
 
       messages.push(ModelMessage {

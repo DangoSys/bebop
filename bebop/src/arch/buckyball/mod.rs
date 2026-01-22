@@ -7,6 +7,7 @@ pub mod mset;
 pub mod rob;
 pub mod rs;
 pub mod scoreboard;
+pub mod systolic_array;
 pub mod tdma_loader;
 pub mod tdma_storer;
 pub mod vecball;
