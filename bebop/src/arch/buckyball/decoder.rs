@@ -46,7 +46,7 @@ impl DevsModel for Decoder {
     // fence inst dont push to rob
     if funct == 31 {
       FENCE_CSR.store(true, Ordering::Relaxed);
-      self.until_next_event = INFINITY;
+      self.until_next_event = 1.0; // Set to 1.0 to trigger events_int
     } else {
       self.until_next_event = 1.0;
     }
@@ -60,6 +60,14 @@ impl DevsModel for Decoder {
     if !rob_ready {
       self.inst = Some((funct, xs1, xs2));
       self.until_next_event = 1.0;
+      return Ok(Vec::new());
+    }
+
+    // Special handling for Fence instruction (funct=31)
+    if funct == 31 {
+      // Fence instruction has been processed, reset the flag
+      FENCE_CSR.store(false, Ordering::Relaxed);
+      self.until_next_event = INFINITY;
       return Ok(Vec::new());
     }
 
