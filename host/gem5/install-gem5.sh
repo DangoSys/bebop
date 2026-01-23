@@ -23,6 +23,7 @@ cmake --build ${HOST_BUILD} --target bebop_ipc -j$(nproc)
 # scons build/RISCV/gem5.opt -j $(nproc) LIBS="absl_log_internal_check_op \
 
 cd ${GEM5_ROOT}
+# We dont need this step now
 # Apply the patch to gem5
 # git apply ${SCRIPT_DIR}/bebop.patch
 # We need to update the patch in this way if we make changes to gem5
