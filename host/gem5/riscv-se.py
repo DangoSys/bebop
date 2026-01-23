@@ -33,13 +33,15 @@ system.clk_domain.clock = "1GHz"
 system.clk_domain.voltage_domain = VoltageDomain()
 
 # Set memory mode and range
-# system.mem_mode = "timing"
 system.mem_mode = "atomic"
-system.mem_ranges = [AddrRange("8GiB")]
+# system.mem_mode = "timing"
+system.mem_ranges = [AddrRange("32GiB")]
 
 # Create CPU
-# system.cpu = RiscvTimingSimpleCPU()
 system.cpu = AtomicSimpleCPU()
+# system.cpu = RiscvTimingSimpleCPU()
+# system.cpu = RiscvMinorCPU()
+# system.cpu = RiscvO3CPU()
 
 # Create memory bus
 system.membus = SystemXBar()
@@ -60,12 +62,72 @@ system.mem_ctrl.port = system.membus.mem_side_ports
 # Connect system port
 system.system_port = system.membus.cpu_side_ports
 
+# Set up dynamic linker directory
+# gem5 needs to know where to find the RISC-V dynamic linker
+from m5.core import setInterpDir
+import shutil
+
+def find_riscv_toolchain_sysroot():
+  """Find RISC-V toolchain sysroot, prioritizing conda environment"""
+  # Try to find toolchain binary first
+  toolchain_names = [
+    "riscv64-unknown-linux-gnu-g++",
+    "riscv64-unknown-linux-gnu-gcc",
+    "riscv64-linux-gnu-g++",
+    "riscv64-linux-gnu-gcc",
+  ]
+  
+  toolchain_path = None
+  for name in toolchain_names:
+    path = shutil.which(name)
+    if path:
+      toolchain_path = path
+      break
+  
+  # If found, try to derive sysroot from toolchain path
+  if toolchain_path:
+    # Common patterns: toolchain_dir/sysroot or toolchain_dir/../sysroot
+    toolchain_dir = os.path.dirname(toolchain_path)
+    possible_sysroots = [
+      os.path.join(toolchain_dir, "sysroot"),
+      os.path.join(os.path.dirname(toolchain_dir), "sysroot"),
+      os.path.join(toolchain_dir, "..", "sysroot"),
+    ]
+    for sysroot in possible_sysroots:
+      sysroot = os.path.abspath(sysroot)
+      ld_path = os.path.join(sysroot, "lib/ld-linux-riscv64-lp64d.so.1")
+      if os.path.exists(ld_path):
+        return sysroot
+  
+  return None
+
+# Priority: conda environment toolchain > system toolchain > standard locations
+interp_dir = find_riscv_toolchain_sysroot()
+
+setInterpDir(interp_dir)
+print(f"Using dynamic linker directory: {interp_dir}")
+
 # Set up workload
 system.workload = SEWorkload.init_compatible(test_binary)
 
 # Create process
 process = Process()
 process.cmd = [test_binary]
+
+# Set up library search path for dynamic linker
+# Add sysroot/lib to LD_LIBRARY_PATH so shared libraries can be found
+env_list = []
+if interp_dir:
+  lib_path = os.path.join(interp_dir, "lib")
+  if os.path.exists(lib_path):
+    ld_library_path = f"LD_LIBRARY_PATH={lib_path}"
+    env_list.append(ld_library_path)
+    print(f"Setting LD_LIBRARY_PATH to {lib_path}")
+
+# Set environment variables
+if env_list:
+  process.env = env_list
+
 system.cpu.workload = process
 system.cpu.createThreads()
 
