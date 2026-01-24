@@ -11,6 +11,7 @@ import signal
 import m5
 import m5.stats
 from m5.objects import *
+from m5.objects import RiscvBebopInOCPU 
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Run a binary on RISCV using gem5')
@@ -33,12 +34,13 @@ system.clk_domain.clock = "1GHz"
 system.clk_domain.voltage_domain = VoltageDomain()
 
 # Set memory mode and range
-system.mem_mode = "atomic"
-# system.mem_mode = "timing"
+# system.mem_mode = "atomic"
+system.mem_mode = "timing"
 system.mem_ranges = [AddrRange("32GiB")]
 
 # Create CPU
-system.cpu = AtomicSimpleCPU()
+# system.cpu = AtomicSimpleCPU()
+system.cpu = RiscvBebopInOCPU()
 # system.cpu = RiscvTimingSimpleCPU()
 # system.cpu = RiscvMinorCPU()
 # system.cpu = RiscvO3CPU()

@@ -4,9 +4,168 @@ from m5.objects.BranchPredictor import *
 from m5.objects.DummyChecker import DummyChecker
 from m5.objects.FuncUnit import OpClass
 from m5.objects.TimingExpr import TimingExpr
+from m5.objects.BebopInOFU import (
+  BebopInOOpClass,
+  BebopInOOpClassSet,
+  BebopInOFUTiming,
+  BebopInOFU,
+  BebopInOFUPool,
+)
 from m5.params import *
 from m5.proxy import *
 from m5.SimObject import SimObject
+
+
+def bebopMakeOpClassSet(op_classes):
+  def boxOpClass(op_class):
+    return BebopInOOpClass(opClass=op_class)
+
+  return BebopInOOpClassSet(opClasses=[boxOpClass(o) for o in op_classes])
+
+
+class BebopInODefaultIntFU(BebopInOFU):
+  opClasses = bebopMakeOpClassSet(["IntAlu"])
+  timings = [BebopInOFUTiming(description="Int", srcRegsRelativeLats=[2])]
+  opLat = 3
+
+
+class BebopInODefaultIntMulFU(BebopInOFU):
+  opClasses = bebopMakeOpClassSet(["IntMult"])
+  timings = [BebopInOFUTiming(description="Mul", srcRegsRelativeLats=[0])]
+  opLat = 3
+
+
+class BebopInODefaultIntDivFU(BebopInOFU):
+  opClasses = bebopMakeOpClassSet(["IntDiv"])
+  issueLat = 9
+  opLat = 9
+
+
+class BebopInODefaultFloatSimdFU(BebopInOFU):
+  opClasses = bebopMakeOpClassSet(
+    [
+      "FloatAdd",
+      "FloatCmp",
+      "FloatCvt",
+      "FloatMisc",
+      "FloatMult",
+      "FloatMultAcc",
+      "FloatDiv",
+      "FloatSqrt",
+      "Bf16Cvt",
+      "SimdAdd",
+      "SimdAddAcc",
+      "SimdAlu",
+      "SimdCmp",
+      "SimdCvt",
+      "SimdMisc",
+      "SimdMult",
+      "SimdMultAcc",
+      "SimdMatMultAcc",
+      "SimdShift",
+      "SimdShiftAcc",
+      "SimdDiv",
+      "SimdSqrt",
+      "SimdFloatAdd",
+      "SimdFloatAlu",
+      "SimdFloatCmp",
+      "SimdFloatCvt",
+      "SimdFloatDiv",
+      "SimdFloatMisc",
+      "SimdFloatMult",
+      "SimdFloatMultAcc",
+      "SimdFloatMatMultAcc",
+      "SimdFloatSqrt",
+      "SimdReduceAdd",
+      "SimdReduceAlu",
+      "SimdReduceCmp",
+      "SimdFloatReduceAdd",
+      "SimdFloatReduceCmp",
+      "SimdAes",
+      "SimdAesMix",
+      "SimdSha1Hash",
+      "SimdSha1Hash2",
+      "SimdSha256Hash",
+      "SimdSha256Hash2",
+      "SimdShaSigma2",
+      "SimdShaSigma3",
+      "SimdSha3",
+      "SimdSm4e",
+      "SimdCrc",
+      "Matrix",
+      "MatrixMov",
+      "MatrixOP",
+      "SimdExt",
+      "SimdFloatExt",
+      "SimdFloatCvt",
+      "SimdConfig",
+      "SimdDotProd",
+      "SimdBf16Add",
+      "SimdBf16Cmp",
+      "SimdBf16Cvt",
+      "SimdBf16DotProd",
+      "SimdBf16MatMultAcc",
+      "SimdBf16Mult",
+      "SimdBf16MultAcc",
+    ]
+  )
+
+  timings = [
+    BebopInOFUTiming(description="FloatSimd", srcRegsRelativeLats=[2])
+  ]
+  opLat = 6
+
+
+class BebopInODefaultPredFU(BebopInOFU):
+  opClasses = bebopMakeOpClassSet(["SimdPredAlu"])
+  timings = [BebopInOFUTiming(description="Pred", srcRegsRelativeLats=[2])]
+  opLat = 3
+
+
+class BebopInODefaultMemFU(BebopInOFU):
+  opClasses = bebopMakeOpClassSet(
+    [
+      "MemRead",
+      "MemWrite",
+      "FloatMemRead",
+      "FloatMemWrite",
+      "SimdUnitStrideLoad",
+      "SimdUnitStrideStore",
+      "SimdUnitStrideMaskLoad",
+      "SimdUnitStrideMaskStore",
+      "SimdStridedLoad",
+      "SimdStridedStore",
+      "SimdIndexedLoad",
+      "SimdIndexedStore",
+      "SimdUnitStrideFaultOnlyFirstLoad",
+      "SimdWholeRegisterLoad",
+      "SimdWholeRegisterStore",
+    ]
+  )
+  timings = [
+    BebopInOFUTiming(
+      description="Mem", srcRegsRelativeLats=[1], extraAssumedLat=2
+    )
+  ]
+  opLat = 1
+
+
+class BebopInODefaultMiscFU(BebopInOFU):
+  opClasses = bebopMakeOpClassSet(["InstPrefetch", "System"])
+  opLat = 1
+
+
+class BebopInODefaultFUPool(BebopInOFUPool):
+  funcUnits = [
+    BebopInODefaultIntFU(),
+    BebopInODefaultIntFU(),
+    BebopInODefaultIntMulFU(),
+    BebopInODefaultIntDivFU(),
+    BebopInODefaultFloatSimdFU(),
+    BebopInODefaultPredFU(),
+    BebopInODefaultMemFU(),
+    BebopInODefaultMiscFU(),
+  ]
 
 
 class BaseBebopInOCPU(BaseCPU):
@@ -157,6 +316,6 @@ class BaseBebopInOCPU(BaseCPU):
 
   # Functional unit pool
   executeFuncUnits = Param.BebopInOFUPool(
-    "FU pool for this processor"
+    BebopInODefaultFUPool(), "FU pool for this processor"
   )
 

@@ -35,7 +35,7 @@ class BebopInOFUTiming(SimObject):
     [], "per-src-reg relative latencies"
   )
   opClasses = Param.BebopInOOpClassSet(
-    NULL, "op classes to apply timing to"
+    BebopInOOpClassSet(), "op classes to apply timing to"
   )
   description = Param.String("", "description string")
 
