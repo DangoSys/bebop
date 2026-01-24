@@ -9,8 +9,8 @@ HOST_BUILD=${HOST_ROOT}/build
 IPC_BUILD_LIB=${HOST_BUILD}/ipc
 IPC_INCLUDE=${HOST_ROOT}/ipc/include
 
-cmake -S ${HOST_ROOT} -B ${HOST_BUILD}
-cmake --build ${HOST_BUILD} --target bebop_ipc -j$(nproc)
+# cmake -S ${HOST_ROOT} -B ${HOST_BUILD}
+# cmake --build ${HOST_BUILD} --target bebop_ipc -j$(nproc)
 
 
 # Install gem5 and integerate bebop into gem5
@@ -46,3 +46,10 @@ BEBOP_IPC_LIB=${IPC_BUILD_LIB}/libbebop_ipc.a \
   absl_spinlock_wait \
   absl_int128 \
   absl_log_severity"
+
+
+# Install SimPoint 3.2
+# because simpoint source code has some bugs, so we patch it here
+SIMPOINT_DIR="${GEM5_ROOT}/../simpoint"
+cd ${SIMPOINT_DIR}
+make
