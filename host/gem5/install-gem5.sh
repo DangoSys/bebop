@@ -33,7 +33,8 @@ cd ${GEM5_ROOT}
 export PKG_CONFIG_PATH=${CONDA_PREFIX:-}/lib/pkgconfig:${PKG_CONFIG_PATH:-}
 BEBOP_IPC_LIB=${IPC_BUILD_LIB}/libbebop_ipc.a \
   BEBOP_IPC_INCLUDE=${IPC_INCLUDE} \
-  scons build/RISCV/gem5.opt -j $(nproc) \
+  scons build/RISCV/gem5.opt -j$(nproc) \
+  EXTRAS=${GEM5_ROOT}/../BebopInOCPU \
   LIBS="absl_log_internal_check_op \
   absl_log_internal_conditions \
   absl_log_internal_message \
