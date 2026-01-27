@@ -9,10 +9,10 @@ HOST_BUILD=${HOST_ROOT}/build
 IPC_BUILD_LIB=${HOST_BUILD}/ipc
 IPC_INCLUDE=${HOST_ROOT}/ipc/include
 
-# cmake -S ${HOST_ROOT} -B ${HOST_BUILD}
-# cmake --build ${HOST_BUILD} --target bebop_ipc -j$(nproc)
+cmake -S ${HOST_ROOT} -B ${HOST_BUILD}
+cmake --build ${HOST_BUILD} --target bebop_ipc -j$(nproc)
 
-
+pip install scons
 # Install gem5 and integerate bebop into gem5
 # sudo apt install build-essential git m4 scons zlib1g zlib1g-dev \
 #     libprotobuf-dev protobuf-compiler libprotoc-dev libgoogle-perftools-dev \
