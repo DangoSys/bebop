@@ -22,7 +22,7 @@ struct Args {
   #[arg(long, value_name = "FILE")]
   trace_file: Option<String>,
 
-  /// Architecture type: buckyball or gemmini
+  /// Architecture type: buckyball or gemmini or verilator-rtl
   #[arg(short, long, value_name = "ARCH")]
   arch: Option<String>,
 
