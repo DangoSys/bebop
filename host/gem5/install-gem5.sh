@@ -12,7 +12,7 @@ IPC_INCLUDE=${HOST_ROOT}/ipc/include
 cmake -S ${HOST_ROOT} -B ${HOST_BUILD}
 cmake --build ${HOST_BUILD} --target bebop_ipc -j$(nproc)
 
-
+pip install scons
 # Install gem5 and integerate bebop into gem5
 # sudo apt install build-essential git m4 scons zlib1g zlib1g-dev \
 #     libprotobuf-dev protobuf-compiler libprotoc-dev libgoogle-perftools-dev \
@@ -23,6 +23,7 @@ cmake --build ${HOST_BUILD} --target bebop_ipc -j$(nproc)
 # scons build/RISCV/gem5.opt -j $(nproc) LIBS="absl_log_internal_check_op \
 
 cd ${GEM5_ROOT}
+# We dont need this step now
 # Apply the patch to gem5
 git apply ${SCRIPT_DIR}/bebop.patch
 # We need to update the patch in this way if we make changes to gem5
@@ -32,7 +33,8 @@ git apply ${SCRIPT_DIR}/bebop.patch
 export PKG_CONFIG_PATH=${CONDA_PREFIX:-}/lib/pkgconfig:${PKG_CONFIG_PATH:-}
 BEBOP_IPC_LIB=${IPC_BUILD_LIB}/libbebop_ipc.a \
   BEBOP_IPC_INCLUDE=${IPC_INCLUDE} \
-  scons build/RISCV/gem5.opt -j $(nproc) \
+  scons build/RISCV/gem5.opt -j$(nproc) \
+  EXTRAS=${GEM5_ROOT}/../BebopInOCPU \
   LIBS="absl_log_internal_check_op \
   absl_log_internal_conditions \
   absl_log_internal_message \
@@ -44,3 +46,10 @@ BEBOP_IPC_LIB=${IPC_BUILD_LIB}/libbebop_ipc.a \
   absl_spinlock_wait \
   absl_int128 \
   absl_log_severity"
+
+
+# Install SimPoint 3.2
+# because simpoint source code has some bugs, so we patch it here
+SIMPOINT_DIR="${GEM5_ROOT}/../simpoint"
+cd ${SIMPOINT_DIR}
+make

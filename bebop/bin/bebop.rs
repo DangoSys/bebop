@@ -22,7 +22,7 @@ struct Args {
   #[arg(long, value_name = "FILE")]
   trace_file: Option<String>,
 
-  /// Architecture type: buckyball or gemmini
+  /// Architecture type: buckyball or gemmini or verilator-rtl
   #[arg(short, long, value_name = "ARCH")]
   arch: Option<String>,
 
@@ -61,8 +61,7 @@ fn main() -> std::io::Result<()> {
   let args = Args::parse();
 
   // Get bebop folder path (CARGO_MANIFEST_DIR)
-  let bebop_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-  let bebop_root = bebop_root.join("..").to_path_buf();
+  let bebop_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").to_path_buf();
 
   // Load and merge configuration
   let app_config = load_configs(

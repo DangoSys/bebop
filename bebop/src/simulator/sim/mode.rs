@@ -8,6 +8,7 @@ pub enum StepMode {
 pub enum ArchType {
   Buckyball,
   Gemmini,
+  VerilatorRTL,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

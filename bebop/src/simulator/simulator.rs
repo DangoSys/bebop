@@ -1,5 +1,5 @@
 use super::host::host::{launch_host_process, HostConfig};
-use super::server::socket::{accept_connection_async, CmdHandler, CmdReq, DmaReadHandler, DmaWriteHandler};
+use super::server::socket::{accept_connection_async, CmdHandler, CmdReq, DmaReadHandler, DmaWriteHandler, VerilatorClient};
 use super::sim::mode::{ArchType, StepMode};
 use super::sim::model::model_step;
 use super::sim::shell;
@@ -27,6 +27,7 @@ use std::time::Duration;
 enum SimulationType {
   Buckyball(Simulation),
   Gemmini(GemminiSimulation),
+  VerilatorRTL, // No internal simulation, just forward to Verilator
 }
 
 pub struct Simulator {
@@ -38,6 +39,11 @@ pub struct Simulator {
   host_process: Option<Child>,
   host_exit: Arc<AtomicBool>,
   trace_writer: Option<BufWriter<File>>,
+  verilator_client: Option<Arc<Mutex<VerilatorClient>>>, // For VerilatorRTL mode
+  dma_read_handler: Option<Arc<Mutex<DmaReadHandler>>>, // For VerilatorRTL DMA
+  dma_write_handler: Option<Arc<Mutex<DmaWriteHandler>>>, // For VerilatorRTL DMA
+  dma_thread_handle: Option<thread::JoinHandle<()>>, // DMA handling thread
+  dma_stop: Arc<AtomicBool>, // Signal to stop DMA thread
 }
 
 impl Simulator {
@@ -50,6 +56,7 @@ impl Simulator {
     let arch_type = match app_config.simulation.arch_type.to_lowercase().as_str() {
       "gemmini" => ArchType::Gemmini,
       "buckyball" => ArchType::Buckyball,
+      "verilator" | "verilator-rtl" => ArchType::VerilatorRTL,
       _ => {
         return Err(io::Error::new(
           io::ErrorKind::InvalidInput,
@@ -132,6 +139,15 @@ impl Simulator {
         gemmini_sim.set_dma_handlers(Arc::clone(&dma_read_handler), Arc::clone(&dma_write_handler));
         SimulationType::Gemmini(gemmini_sim)
       },
+      ArchType::VerilatorRTL => SimulationType::VerilatorRTL,
+    };
+
+    // Initialize Verilator client for VerilatorRTL mode
+    let verilator_client = if arch_type == ArchType::VerilatorRTL {
+      info!("Connecting to Verilator RTL server...");
+      Some(Arc::new(Mutex::new(VerilatorClient::connect()?)))
+    } else {
+      None
     };
 
     // Initialize trace writer if trace file is specified
@@ -139,6 +155,69 @@ impl Simulator {
       let file = File::create(&app_config.simulation.trace_file)?;
       info!("Trace file enabled: {}", app_config.simulation.trace_file);
       Some(BufWriter::new(file))
+    } else {
+      None
+    };
+
+    // Spawn DMA handling thread for VerilatorRTL mode
+    let dma_stop = Arc::new(AtomicBool::new(false));
+    let dma_thread_handle = if arch_type == ArchType::VerilatorRTL {
+      let verilator_client = verilator_client.as_ref().map(|c| Arc::clone(c));
+      let dma_read_handler = dma_read_handler.clone();
+      let dma_write_handler = dma_write_handler.clone();
+      let dma_stop = Arc::clone(&dma_stop);
+
+      Some(thread::spawn(move || {
+        eprintln!("[Bebop DMA Thread] Started");
+        loop {
+          if dma_stop.load(Ordering::Relaxed) {
+            break;
+          }
+
+          if let Some(ref client) = verilator_client {
+            let mut client = client.lock().unwrap();
+
+            // Try to receive DMA read request (blocking with timeout would be ideal)
+            eprintln!("[Bebop DMA Thread] Waiting for DMA read request...");
+            match client.recv_dma_read_request() {
+              Ok(dma_req) => {
+                let addr = dma_req.addr;
+                let size = dma_req.size;
+                eprintln!("[Bebop DMA] Received read request: addr=0x{:x}, size={}", addr, size);
+                let mut h = dma_read_handler.lock().unwrap();
+                eprintln!("[Bebop DMA] Locked dma_read_handler, calling Spike read");
+                match h.read(addr, size) {
+                  Ok(data) => {
+                    let data_lo = data as u64;
+                    let data_hi = (data >> 64) as u64;
+                    eprintln!("[Bebop DMA] Read data from Spike: lo=0x{:x}, hi=0x{:x}", data_lo, data_hi);
+                    match client.send_dma_read_response(data_lo, data_hi) {
+                      Ok(_) => {
+                        eprintln!("[Bebop DMA] Sent read response");
+                      }
+                      Err(e) => {
+                        eprintln!("[Bebop DMA] Failed to send read response: {}", e);
+                      }
+                    }
+                  }
+                  Err(e) => {
+                    eprintln!("[Bebop DMA] DMA read from Spike failed: {}", e);
+                  }
+                }
+              }
+              Err(e) => {
+                eprintln!("[Bebop DMA] recv_dma_read_request error: {}", e);
+                break;
+              }
+            }
+
+            drop(client);
+          } else {
+            break;
+          }
+        }
+        eprintln!("[Bebop DMA Thread] Exiting");
+      }))
     } else {
       None
     };
@@ -152,6 +231,11 @@ impl Simulator {
       host_process,
       host_exit,
       trace_writer,
+      verilator_client,
+      dma_read_handler: if arch_type == ArchType::VerilatorRTL { Some(dma_read_handler) } else { None },
+      dma_write_handler: if arch_type == ArchType::VerilatorRTL { Some(dma_write_handler) } else { None },
+      dma_thread_handle,
+      dma_stop,
     })
   }
 
@@ -214,6 +298,20 @@ impl Simulator {
           let result = gemmini_sim.execute(req.funct as u64, req.xs1, req.xs2);
           let _ = self.resp_tx.send(result);
         },
+        SimulationType::VerilatorRTL => {
+          // Forward CMD to Verilator
+          if let Some(ref client) = self.verilator_client {
+            let mut client = client.lock().unwrap();
+            match client.send_cmd(req.funct, req.xs1, req.xs2) {
+              Ok(result) => {
+                let _ = self.resp_tx.send(result);
+              }
+              Err(e) => {
+                eprintln!("Failed to send CMD to Verilator: {}", e);
+              }
+            }
+          }
+        },
       }
     }
 
@@ -225,6 +323,10 @@ impl Simulator {
       SimulationType::Gemmini(_) => {
         self.global_clock += 1.0;
       },
+      SimulationType::VerilatorRTL => {
+        // Verilator handles its own time stepping
+        self.global_clock += 1.0;
+      },
     }
 
     Ok(())
@@ -233,6 +335,14 @@ impl Simulator {
 
 impl Drop for Simulator {
   fn drop(&mut self) {
+    // Signal DMA thread to stop
+    self.dma_stop.store(true, Ordering::Relaxed);
+
+    // Wait for DMA thread to finish
+    if let Some(handle) = self.dma_thread_handle.take() {
+      let _ = handle.join();
+    }
+
     if let Some(mut child) = self.host_process.take() {
       let _ = child.kill();
       let _ = child.wait();

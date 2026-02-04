@@ -284,7 +284,7 @@ pub fn validate_config(config: &AppConfig) -> io::Result<()> {
 
   // Validate arch_type is valid
   match config.simulation.arch_type.to_lowercase().as_str() {
-    "buckyball" | "gemmini" => {},
+    "buckyball" | "gemmini" | "verilator" | "verilator-rtl" => {},
     other => {
       return Err(io::Error::new(
         io::ErrorKind::InvalidData,
