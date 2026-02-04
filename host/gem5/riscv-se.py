@@ -1,81 +1,220 @@
 #!/usr/bin/env python3
 """
-Simple gem5 configuration script to run a hello world program on RISCV
+Top-level manager for gem5 RISC-V system-call emulation simulation
+
+This script orchestrates simulation configuration, checkpoint management,
+and SimPoint-based sampling for RISC-V binaries in gem5.
 """
 
 import os
 import sys
 import argparse
-import atexit
-import signal
+
+# Add current directory to Python path to find our modules
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
 import m5
-import m5.stats
-from m5.objects import *
+from m5.objects import Root
 
-# Parse command line arguments
-parser = argparse.ArgumentParser(description='Run a binary on RISCV using gem5')
-parser.add_argument('--test-binary', required=True, help='Path to the binary to execute')
-args = parser.parse_args()
+from simulation_config import SimulationConfig
+from checkpoint_manager import CheckpointManager
+from simpoint_manager import SimPointManager
 
-test_binary = args.test_binary
 
-# Check if binary exists
-if not os.path.exists(test_binary):
-  print(f"Error: binary not found at {test_binary}")
-  sys.exit(1)
+def parse_arguments():
+    """Parse command line arguments
 
-# Create system
-system = System()
+    Returns:
+        Parsed argument namespace
+    """
+    parser = argparse.ArgumentParser(
+        description='Run a RISC-V binary in gem5 with optional checkpointing and SimPoint support',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Basic simulation
+  %(prog)s --test-binary /path/to/binary
 
-# Set up clock domain
-system.clk_domain = SrcClockDomain()
-system.clk_domain.clock = "1GHz"
-system.clk_domain.voltage_domain = VoltageDomain()
+  # SimPoint profiling (step 1)
+  %(prog)s --test-binary /path/to/binary --simpoint-profile
 
-# Set memory mode and range
-# system.mem_mode = "atomic"
-system.mem_mode = "timing"
-system.mem_ranges = [AddrRange("8GiB")]
+  # Take SimPoint checkpoints (step 2, after running SimPoint tool)
+  %(prog)s --test-binary /path/to/binary --take-simpoint-checkpoints simpoints.txt,weights.txt,10000000,1000000
 
-# Create CPU
-# system.cpu = AtomicSimpleCPU()
-# system.cpu = RiscvTimingSimpleCPU()
-system.cpu = RiscvMinorCPU()
-# system.cpu = RiscvO3CPU()
+  # Run from SimPoint checkpoint
+  %(prog)s --test-binary /path/to/binary --restore-from m5out/cpt/cpt.simpoint_00_... --restore-simpoint-checkpoint
 
-# Create memory bus
-system.membus = SystemXBar()
+  # Periodic checkpointing
+  %(prog)s --test-binary /path/to/binary --checkpoint-interval-insts 1000000
 
-# Connect CPU to memory bus
-system.cpu.icache_port = system.membus.cpu_side_ports
-system.cpu.dcache_port = system.membus.cpu_side_ports
+  # Restore from checkpoint and continue
+  %(prog)s --test-binary /path/to/binary --restore-from m5out/cpt/cpt_0
+"""
+    )
 
-# Create interrupt controller
-system.cpu.createInterruptController()
+    # Basic configuration
+    parser.add_argument(
+        '--test-binary',
+        required=True,
+        help='Path to the RISC-V binary to execute'
+    )
 
-# Create memory controller
-system.mem_ctrl = MemCtrl()
-system.mem_ctrl.dram = DDR3_1600_8x8()
-system.mem_ctrl.dram.range = system.mem_ranges[0]
-system.mem_ctrl.port = system.membus.mem_side_ports
+    # Checkpoint options
+    checkpoint_group = parser.add_argument_group('checkpoint options')
+    checkpoint_group.add_argument(
+        '--checkpoint-dir',
+        default='m5out/cpt',
+        help='Base directory to store or load checkpoints (default: m5out/cpt)',
+    )
+    checkpoint_group.add_argument(
+        '--checkpoint-interval-insts',
+        type=int,
+        default=None,
+        help='Take periodic checkpoints every N committed instructions',
+    )
+    checkpoint_group.add_argument(
+        '--restore-from',
+        default=None,
+        help='Restore simulation state from this checkpoint directory',
+    )
 
-# Connect system port
-system.system_port = system.membus.cpu_side_ports
+    # SimPoint options
+    simpoint_group = parser.add_argument_group('SimPoint options')
+    simpoint_group.add_argument(
+        '--simpoint-profile',
+        action='store_true',
+        help='Enable SimPoint BBV profiling (requires AtomicSimpleCPU)',
+    )
+    simpoint_group.add_argument(
+        '--simpoint-interval',
+        type=int,
+        default=10000000,
+        help='SimPoint interval in number of instructions (default: 10000000)',
+    )
+    simpoint_group.add_argument(
+        '--take-simpoint-checkpoints',
+        type=str,
+        default=None,
+        metavar='SIMPOINT_FILE,WEIGHT_FILE,INTERVAL,WARMUP',
+        help='Take SimPoint checkpoints using: <simpoint_file,weight_file,interval_length,warmup_length>',
+    )
+    simpoint_group.add_argument(
+        '--restore-simpoint-checkpoint',
+        action='store_true',
+        help='Restore from a SimPoint checkpoint and run only the SimPoint region (requires --restore-from)',
+    )
 
-# Set up workload
-system.workload = SEWorkload.init_compatible(test_binary)
+    return parser.parse_args()
 
-# Create process
-process = Process()
-process.cmd = [test_binary]
-system.cpu.workload = process
-system.cpu.createThreads()
 
-# Create root and instantiate
-root = Root(full_system=False, system=system)
-m5.instantiate()
+def determine_cpu_type(args):
+    """Determine CPU type based on arguments
 
-# Run simulation
-print("Beginning simulation!")
-exit_event = m5.simulate()
-print(f"Exiting @ tick {m5.curTick()} because {exit_event.getCause()}")
+    Args:
+        args: Parsed command line arguments
+
+    Returns:
+        CPU type string and whether to use atomic mode
+    """
+    # SimPoint requires atomic CPU
+    if args.simpoint_profile or args.take_simpoint_checkpoints or args.restore_simpoint_checkpoint:
+        return 'atomic', True
+    else:
+        return 'bebop', False
+
+
+def run_simulation(system, args):
+    """Run the main simulation based on mode
+
+    Args:
+        system: Configured gem5 system
+        args: Parsed command line arguments
+    """
+    # Create checkpoint and SimPoint managers
+    checkpoint_mgr = CheckpointManager(system, args.checkpoint_dir)
+    simpoint_mgr = SimPointManager(system.cpu, args.checkpoint_dir)
+
+    # Handle SimPoint checkpoint taking
+    if args.take_simpoint_checkpoints:
+        parts = args.take_simpoint_checkpoints.split(',')
+        if len(parts) != 4:
+            print("Error: --take-simpoint-checkpoints format: <simpoint_file,weight_file,interval_length,warmup_length>")
+            sys.exit(1)
+
+        simpoint_file, weight_file, interval_length, warmup_length = parts
+        interval_length = int(interval_length)
+        warmup_length = int(warmup_length)
+
+        if not simpoint_mgr.parse_simpoint_files(simpoint_file, weight_file, interval_length, warmup_length):
+            sys.exit(1)
+
+        simpoint_mgr.take_simpoint_checkpoints()
+        return
+
+    # Handle SimPoint checkpoint restoration
+    if args.restore_simpoint_checkpoint:
+        if not args.restore_from:
+            print("Error: --restore-simpoint-checkpoint requires --restore-from")
+            sys.exit(1)
+
+        simpoint_mgr.setup_simpoint_restore(args.restore_from)
+        exit_code = simpoint_mgr.run_simpoint_region()
+        sys.exit(exit_code)
+
+    # Handle periodic checkpointing
+    if args.checkpoint_interval_insts is not None:
+        checkpoint_mgr.take_periodic_checkpoints(args.checkpoint_interval_insts)
+        return
+
+    # Normal simulation run
+    print("Beginning simulation!")
+    exit_event = m5.simulate()
+    print(f"Exiting @ tick {m5.curTick()} because {exit_event.getCause()}")
+
+
+def main():
+    """Main entry point"""
+    # Parse command line arguments
+    args = parse_arguments()
+
+    # Create simulation configuration
+    sim_config = SimulationConfig(args.test_binary)
+
+    # Validate binary exists
+    if not sim_config.validate_binary():
+        sys.exit(1)
+
+    # Determine CPU type
+    cpu_type, use_atomic = determine_cpu_type(args)
+
+    # Setup system
+    system = sim_config.setup_system(cpu_type=cpu_type, use_atomic=use_atomic)
+
+    # Setup workload
+    sim_config.setup_workload()
+
+    # Enable SimPoint profiling if requested
+    if args.simpoint_profile:
+        simpoint_mgr = SimPointManager(sim_config.get_cpu())
+        simpoint_mgr.enable_profiling(args.simpoint_interval)
+
+    # Create root and instantiate
+    root = Root(full_system=False, system=system)
+
+    # Handle checkpoint restoration
+    if args.restore_from:
+        checkpoint_mgr = CheckpointManager(system, args.checkpoint_dir)
+        if not checkpoint_mgr.restore_checkpoint(args.restore_from):
+            sys.exit(1)
+        m5.instantiate(args.restore_from)
+    else:
+        m5.instantiate()
+
+    # Run simulation
+    run_simulation(system, args)
+
+
+# gem5 scripts don't use if __name__ == "__main__" guard
+# Execute directly at module level
+main()

@@ -571,7 +571,7 @@ impl Gemmini {
         },
         Err(_) => {
           // Return zeros on error
-        }
+        },
       }
     }
 
@@ -1153,7 +1153,7 @@ impl Gemmini {
       self.state.pool_pocols = ((rs1 >> 40) & 0xFF) as u8;
       self.state.pool_orows = ((rs1 >> 48) & 0xFF) as u8;
       self.state.pool_ocols = ((rs1 >> 56) & 0xFF) as u8;
-    
+
       log::info!(
         "GEMMINI: config_st - set store stride to {:?}, activation to {:?}, acc shift to {:?}, pool stride to {:?}, pool size to {:?}, pool upad to {:?}, pool lpad to {:?}, pool out dim to {:?}, pool porows to {:?}, pool pocols to {:?}, pool orows to {:?}, pool ocols to {:?}",
         rs2 & 0xFFFFFFFF,
@@ -1466,13 +1466,13 @@ impl Gemmini {
     self.state.loop_ws_D_stride = rs1;
     self.state.loop_ws_C_stride = rs2;
 
-      log::info!(
-        "GEMMINI: loop_ws_config_strides_DC - set loop ws D stride to {:?} (0x{:x}), loop ws C stride to {:?} (0x{:x})",
-        self.state.loop_ws_D_stride,
-        self.state.loop_ws_D_stride,
-        self.state.loop_ws_C_stride,
-        self.state.loop_ws_C_stride
-      );
+    log::info!(
+      "GEMMINI: loop_ws_config_strides_DC - set loop ws D stride to {:?} (0x{:x}), loop ws C stride to {:?} (0x{:x})",
+      self.state.loop_ws_D_stride,
+      self.state.loop_ws_D_stride,
+      self.state.loop_ws_C_stride,
+      self.state.loop_ws_C_stride
+    );
   }
 
   pub fn loop_ws(&mut self, rs1: RegT, rs2: RegT) {
