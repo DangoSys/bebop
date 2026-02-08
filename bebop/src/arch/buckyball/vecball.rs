@@ -22,6 +22,8 @@ struct VecballInstData {
 
 static VECBALL_INST_DATA: Mutex<Option<VecballInstData>> = Mutex::new(None);
 
+static VECBALL_STATE: Mutex<VecBallState> = Mutex::new(VecBallState::Idle);
+
 // VectorBall states for matrix multiplication pipeline
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 enum VecBallState {
@@ -118,6 +120,7 @@ impl DevsModel for VectorBall {
 
           // Now request operand 2
           self.state = VecBallState::WaitOp2;
+          *VECBALL_STATE.lock().unwrap() = VecBallState::WaitOp2;
           self.until_next_event = 1.0;
         },
         VecBallState::WaitOp2 => {
@@ -132,6 +135,7 @@ impl DevsModel for VectorBall {
 
           // Start computing
           self.state = VecBallState::Computing;
+          *VECBALL_STATE.lock().unwrap() = VecBallState::Computing;
           self.until_next_event = self.compute_latency;
         },
         _ => {},
@@ -160,6 +164,7 @@ impl DevsModel for VectorBall {
 
           // Start by requesting operand 1 (all 16 elements at once)
           self.state = VecBallState::WaitOp1;
+          *VECBALL_STATE.lock().unwrap() = VecBallState::WaitOp1;
           self.until_next_event = 1.0;
 
           self.records.push(ModelRecord {
@@ -242,6 +247,7 @@ impl DevsModel for VectorBall {
 
         // Move to wait for write response
         self.state = VecBallState::WaitWriteResp;
+        *VECBALL_STATE.lock().unwrap() = VecBallState::WaitWriteResp;
         self.until_next_event = self.write_latency;
       },
       VecBallState::WaitWriteResp => {
@@ -267,6 +273,7 @@ impl DevsModel for VectorBall {
           });
 
           self.state = VecBallState::Idle;
+          *VECBALL_STATE.lock().unwrap() = VecBallState::Idle;
           self.until_next_event = 1.0;
           VECBALL_INST_CAN_ISSUE.store(true, Ordering::Relaxed);
         }
@@ -340,4 +347,8 @@ pub fn receive_vecball_inst(xs1: u64, xs2: u64, rob_id: u64) {
 
   // Mark as busy
   VECBALL_INST_CAN_ISSUE.store(false, Ordering::Relaxed);
+}
+
+pub fn is_vecball_idle() -> bool {
+  *VECBALL_STATE.lock().unwrap() == VecBallState::Idle
 }

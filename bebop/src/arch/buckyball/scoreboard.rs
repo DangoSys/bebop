@@ -287,3 +287,29 @@ pub fn get_pending_count() -> usize {
     0
   }
 }
+
+/// Get number of pending read requests in read scoreboard
+pub fn get_pending_read_count() -> usize {
+  let read_scoreboard_opt = READ_SCOREBOARD.lock().unwrap();
+  if let Some(ref read_scoreboard) = *read_scoreboard_opt {
+    read_scoreboard.values().map(|v| v.len()).sum()
+  } else {
+    0
+  }
+}
+
+/// Get number of in-flight requests
+pub fn get_in_flight_count() -> usize {
+  let in_flight_opt = IN_FLIGHT_REQUESTS.lock().unwrap();
+  if let Some(ref in_flight) = *in_flight_opt {
+    in_flight.len()
+  } else {
+    0
+  }
+}
+
+/// Check if all memory operations are complete
+/// Returns true if there are no pending requests, no pending read requests, and no in-flight requests
+pub fn is_all_memory_complete() -> bool {
+  get_pending_count() == 0 && get_pending_read_count() == 0 && get_in_flight_count() == 0
+}
