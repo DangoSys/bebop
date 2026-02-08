@@ -116,32 +116,36 @@ impl Bank {
 impl DevsModel for Bank {
   fn events_ext(&mut self, incoming_message: &ModelMessage, services: &mut Services) -> Result<(), SimulationError> {
     if incoming_message.port_name == self.write_bank_req_port {
-      let value: (u64, u64, Vec<u64>) =
-        serde_json::from_str(&incoming_message.content).map_err(|_| SimulationError::InvalidModelState)?;
+      match serde_json::from_str::<(u64, u64, Vec<u64>)>(&incoming_message.content) {
+        Ok(value) => {
+          let vbank_id = value.0;
+          let start_addr = value.1;
+          let data_u64 = value.2;
 
-      let vbank_id = value.0;
-      let start_addr = value.1;
-      let data_u64 = value.2;
+          let mut data_vec = Vec::new();
+          for i in (0..data_u64.len()).step_by(2) {
+            if i + 1 < data_u64.len() {
+              let lo = data_u64[i];
+              let hi = data_u64[i + 1];
+              data_vec.push((hi as u128) << 64 | (lo as u128));
+            }
+          }
 
-      let mut data_vec = Vec::new();
-      for i in (0..data_u64.len()).step_by(2) {
-        if i + 1 < data_u64.len() {
-          let lo = data_u64[i];
-          let hi = data_u64[i + 1];
-          data_vec.push((hi as u128) << 64 | (lo as u128));
+          if vbank_id < self.banks.len() as u64 {
+            self.banks[vbank_id as usize].write_batch(start_addr, &data_vec);
+            self.sync_bank_data();
+
+            model_record!(
+              self,
+              services,
+              "write_bank",
+              format!("id={}, count={}", vbank_id, data_vec.len())
+            );
+          }
+        },
+        Err(_) => {
+          // Failed to deserialize write request, skipping this request
         }
-      }
-
-      if vbank_id < self.banks.len() as u64 {
-        self.banks[vbank_id as usize].write_batch(start_addr, &data_vec);
-        self.sync_bank_data();
-
-        model_record!(
-          self,
-          services,
-          "write_bank",
-          format!("id={}, count={}", vbank_id, data_vec.len())
-        );
       }
 
       return Ok(());
@@ -159,10 +163,17 @@ impl DevsModel for Bank {
     });
 
     for data_vec in ready_responses {
-      messages.push(ModelMessage {
-        content: serde_json::to_string(&data_vec).map_err(|_| SimulationError::InvalidModelState)?,
-        port_name: self.read_bank_resp_port.clone(),
-      });
+      match serde_json::to_string(&data_vec) {
+        Ok(content) => {
+          messages.push(ModelMessage {
+            content,
+            port_name: self.read_bank_resp_port.clone(),
+          });
+        },
+        Err(_) => {
+          // Failed to serialize read response, skipping this response
+        }
+      }
     }
 
     self.until_next_event = INFINITY;
