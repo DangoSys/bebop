@@ -71,111 +71,127 @@ impl DevsModel for MemController {
   fn events_ext(&mut self, incoming_message: &ModelMessage, services: &mut Services) -> Result<(), SimulationError> {
     // Handle write requests from TDMA (multi-cycle)
     if incoming_message.port_name == self.tdma_write_req_port {
-      // Parse request: (rob_id, vbank_id, start_addr, data_u64)
-      let value: (u64, u64, u64, Vec<u64>) =
-        serde_json::from_str(&incoming_message.content).map_err(|_| SimulationError::InvalidModelState)?;
-      let rob_id = value.0;
-      let vbank_id = value.1;
-      let start_addr = value.2;
-      let data_count = value.3.len() / 2;
+      match serde_json::from_str::<(u64, u64, u64, Vec<u64>)>(&incoming_message.content) {
+        Ok(value) => {
+          let rob_id = value.0;
+          let vbank_id = value.1;
+          let start_addr = value.2;
+          let data_count = value.3.len() / 2;
 
-      // Convert vbank_id to pbank_id using BMT
-      let pbank_id = if let Some(pbank_ids) = get_pbank_ids(vbank_id) {
-        if pbank_ids.is_empty() {
-          vbank_id
-        } else {
-          pbank_ids[0]
+          // Convert vbank_id to pbank_id using BMT
+          let pbank_id = if let Some(pbank_ids) = get_pbank_ids(vbank_id) {
+            if pbank_ids.is_empty() {
+              vbank_id
+            } else {
+              pbank_ids[0]
+            }
+          } else {
+            vbank_id
+          };
+
+          // Check dependency
+          if scoreboard::check_dependency(pbank_id, rob_id) {
+            // No dependency, can proceed immediately
+            self
+              .write_request_queue
+              .push(("tdma".to_string(), incoming_message.content.clone()));
+          } else {
+            // Has dependency, add to scoreboard
+            scoreboard::add_to_scoreboard(rob_id, pbank_id, "tdma".to_string(), incoming_message.content.clone());
+          }
+
+          self.records.push(ModelRecord {
+            time: services.global_time(),
+            action: "enqueue_tdma_write".to_string(),
+            subject: format!(
+              "rob_id={}, bank={}, addr={}, count={}",
+              rob_id, vbank_id, start_addr, data_count
+            ),
+          });
+
+          self.until_next_event = 1.0;
+        },
+        Err(_) => {
+          // Failed to deserialize TDMA write request, skipping this request
         }
-      } else {
-        vbank_id
-      };
-
-      // Check dependency
-      if scoreboard::check_dependency(pbank_id, rob_id) {
-        // No dependency, can proceed immediately
-        self
-          .write_request_queue
-          .push(("tdma".to_string(), incoming_message.content.clone()));
-      } else {
-        // Has dependency, add to scoreboard
-        scoreboard::add_to_scoreboard(rob_id, pbank_id, "tdma".to_string(), incoming_message.content.clone());
       }
-
-      self.records.push(ModelRecord {
-        time: services.global_time(),
-        action: "enqueue_tdma_write".to_string(),
-        subject: format!(
-          "rob_id={}, bank={}, addr={}, count={}",
-          rob_id, vbank_id, start_addr, data_count
-        ),
-      });
-
-      self.until_next_event = 1.0;
       return Ok(());
     }
 
     // Handle write requests from VectorBall (multi-cycle)
     if incoming_message.port_name == self.vball_write_req_port {
-      // Parse request: (rob_id, vbank_id, start_addr, data_u64)
-      let value: (u64, u64, u64, Vec<u64>) =
-        serde_json::from_str(&incoming_message.content).map_err(|_| SimulationError::InvalidModelState)?;
-      let rob_id = value.0;
-      let vbank_id = value.1;
-      let start_addr = value.2;
-      let data_count = value.3.len() / 2;
+      match serde_json::from_str::<(u64, u64, u64, Vec<u64>)>(&incoming_message.content) {
+        Ok(value) => {
+          let rob_id = value.0;
+          let vbank_id = value.1;
+          let start_addr = value.2;
+          let data_count = value.3.len() / 2;
 
-      // Convert vbank_id to pbank_id using BMT
-      let pbank_id = if let Some(pbank_ids) = get_pbank_ids(vbank_id) {
-        if pbank_ids.is_empty() {
-          vbank_id
-        } else {
-          pbank_ids[0]
+          // Convert vbank_id to pbank_id using BMT
+          let pbank_id = if let Some(pbank_ids) = get_pbank_ids(vbank_id) {
+            if pbank_ids.is_empty() {
+              vbank_id
+            } else {
+              pbank_ids[0]
+            }
+          } else {
+            vbank_id
+          };
+
+          // Check dependency
+          if scoreboard::check_dependency(pbank_id, rob_id) {
+            // No dependency, can proceed immediately
+            self
+              .write_request_queue
+              .push(("vecball".to_string(), incoming_message.content.clone()));
+          } else {
+            // Has dependency, add to scoreboard
+            scoreboard::add_to_scoreboard(
+              rob_id,
+              pbank_id,
+              "vecball".to_string(),
+              incoming_message.content.clone(),
+            );
+          }
+
+          self.records.push(ModelRecord {
+            time: services.global_time(),
+            action: "enqueue_vball_write".to_string(),
+            subject: format!(
+              "rob_id={}, bank={}, addr={}, count={}",
+              rob_id, vbank_id, start_addr, data_count
+            ),
+          });
+
+          self.until_next_event = 1.0;
+        },
+        Err(_) => {
+          // Failed to deserialize VectorBall write request, skipping
         }
-      } else {
-        vbank_id
-      };
-
-      // Check dependency
-      if scoreboard::check_dependency(pbank_id, rob_id) {
-        // No dependency, can proceed immediately
-        self
-          .write_request_queue
-          .push(("vecball".to_string(), incoming_message.content.clone()));
-      } else {
-        // Has dependency, add to scoreboard
-        scoreboard::add_to_scoreboard(
-          rob_id,
-          pbank_id,
-          "vecball".to_string(),
-          incoming_message.content.clone(),
-        );
       }
-
-      self.records.push(ModelRecord {
-        time: services.global_time(),
-        action: "enqueue_vball_write".to_string(),
-        subject: format!(
-          "rob_id={}, bank={}, addr={}, count={}",
-          rob_id, vbank_id, start_addr, data_count
-        ),
-      });
-
-      self.until_next_event = 1.0;
       return Ok(());
     }
 
     // Handle read responses from Bank - forward to the correct source (multi-cycle)
     if incoming_message.port_name == self.bank_read_resp_port {
-      let data_vec: Vec<u128> =
-        serde_json::from_str(&incoming_message.content).map_err(|_| SimulationError::InvalidModelState)?;
+      match serde_json::from_str::<Vec<u128>>(&incoming_message.content) {
+        Ok(data_vec) => {
+          // Get source from queue (FIFO)
+          if let Some(source) = READ_SOURCE_QUEUE.lock().unwrap().pop() {
+            let source_clone = source.clone();
+            let data_len = data_vec.len();
 
-      // Get source from queue (FIFO)
-      if let Some(source) = READ_SOURCE_QUEUE.lock().unwrap().pop() {
-        READ_RESPONSE_QUEUE
-          .lock()
-          .unwrap()
-          .push(ReadResponse { source, data: data_vec });
-        self.until_next_event = 1.0;
+            READ_RESPONSE_QUEUE
+              .lock()
+              .unwrap()
+              .push(ReadResponse { source, data: data_vec });
+
+            self.until_next_event = 1.0;
+          }
+        },
+        Err(_) => {
+          // Failed to deserialize bank read response, skipping
+        }
       }
       return Ok(());
     }
@@ -197,89 +213,107 @@ impl DevsModel for MemController {
         self.vball_read_resp_port.clone()
       };
 
-      messages.push(ModelMessage {
-        content: serde_json::to_string(&resp.data).map_err(|_| SimulationError::InvalidModelState)?,
-        port_name: response_port,
-      });
+      match serde_json::to_string(&resp.data) {
+        Ok(content) => {
+          messages.push(ModelMessage {
+            content,
+            port_name: response_port,
+          });
 
-      self.records.push(ModelRecord {
-        time: services.global_time(),
-        action: "forward_read_resp".to_string(),
-        subject: format!("to {}", resp.source),
-      });
-
-      // Schedule next event
-      if !READ_RESPONSE_QUEUE.lock().unwrap().is_empty()
-        || !self.write_request_queue.is_empty()
-        || scoreboard::get_pending_count() > 0
-      {
-        self.until_next_event = 1.0;
-      } else {
-        self.until_next_event = INFINITY;
+          self.records.push(ModelRecord {
+            time: services.global_time(),
+            action: "forward_read_resp".to_string(),
+            subject: format!("to {}", resp.source),
+          });
+        },
+        Err(_) => {
+          // Failed to serialize read response, skipping
+        }
       }
 
+      // Schedule next event
+      self.until_next_event = 1.0;
       return Ok(messages);
     }
 
     // Check scoreboard for ready requests (each cycle, unified judgment)
     let ready_request = scoreboard::get_one_ready_request();
     if let Some((rob_id, pbank_id, source, json_content)) = ready_request {
-      self.write_request_queue.push((source, json_content));
+      if !json_content.is_empty() {
+        self.write_request_queue.push((source, json_content));
+        self.until_next_event = 1.0;
+      } else {
+        // Skipping empty request from scoreboard
+      }
     }
 
     // Process one write request if available
     if !self.write_request_queue.is_empty() {
       let (source, json_content) = self.write_request_queue.remove(0);
 
-      // Parse request: (rob_id, vbank_id, start_addr, data_u64)
-      let value: (u64, u64, u64, Vec<u64>) =
-        serde_json::from_str(&json_content).map_err(|_| SimulationError::InvalidModelState)?;
-      let rob_id = value.0;
-      let vbank_id = value.1;
-      let start_addr = value.2;
-      let data_u64 = value.3;
+      match serde_json::from_str::<(u64, u64, u64, Vec<u64>)>(&json_content) {
+        Ok(value) => {
+          let rob_id = value.0;
+          let vbank_id = value.1;
+          let start_addr = value.2;
+          let data_u64 = value.3;
 
-      // Convert vbank_id to pbank_id using BMT
-      // Use first pbank_id if vbank maps to multiple pbanks
-      let pbank_id = if let Some(pbank_ids) = get_pbank_ids(vbank_id) {
-        if pbank_ids.is_empty() {
-          vbank_id
-        } else {
-          pbank_ids[0]
+          // Convert vbank_id to pbank_id using BMT
+          // Use first pbank_id if vbank maps to multiple pbanks
+          let pbank_id = if let Some(pbank_ids) = get_pbank_ids(vbank_id) {
+            if pbank_ids.is_empty() {
+              vbank_id
+            } else {
+              pbank_ids[0]
+            }
+          } else {
+            vbank_id
+          };
+
+          // Mark as in-flight
+          scoreboard::mark_in_flight(pbank_id, rob_id);
+
+          // Re-encode with pbank_id (remove rob_id for bank)
+          let request = (pbank_id, start_addr, data_u64);
+          match serde_json::to_string(&request) {
+            Ok(new_content) => {
+              messages.push(ModelMessage {
+                content: new_content,
+                port_name: self.bank_write_req_port.clone(),
+              });
+
+              self.records.push(ModelRecord {
+                time: services.global_time(),
+                action: "forward_write_req".to_string(),
+                subject: format!(
+                  "from {}, rob_id={}, vbank={}->pbank={}",
+                  source, rob_id, vbank_id, pbank_id
+                ),
+              });
+
+              // Bank write is synchronous (single cycle), mark as completed immediately
+              scoreboard::mark_completed(pbank_id);
+
+              // Check if there are ready read requests that can now proceed (unified judgment each cycle)
+              let ready_read = scoreboard::get_one_ready_read_request();
+              if let Some((read_rob_id, read_pbank_id, read_start_addr, read_count, read_source)) = ready_read {
+                READ_SOURCE_QUEUE.lock().unwrap().push(read_source.clone());
+                request_read_bank(read_pbank_id, read_start_addr, read_count);
+                self.until_next_event = 1.0;
+              }
+            },
+            Err(_) => {
+              // Failed to serialize bank write request, skipping
+              // Mark as completed to avoid blocking
+              scoreboard::mark_completed(pbank_id);
+              self.until_next_event = 1.0;
+            }
+          }
+        },
+        Err(_) => {
+          // Failed to deserialize write request, skipping
+          self.until_next_event = 1.0;
         }
-      } else {
-        vbank_id
-      };
-
-      // Mark as in-flight
-      scoreboard::mark_in_flight(pbank_id, rob_id);
-
-      // Re-encode with pbank_id (remove rob_id for bank)
-      let request = (pbank_id, start_addr, data_u64);
-      let new_content = serde_json::to_string(&request).map_err(|_| SimulationError::InvalidModelState)?;
-
-      messages.push(ModelMessage {
-        content: new_content,
-        port_name: self.bank_write_req_port.clone(),
-      });
-
-      self.records.push(ModelRecord {
-        time: services.global_time(),
-        action: "forward_write_req".to_string(),
-        subject: format!(
-          "from {}, rob_id={}, vbank={}->pbank={}",
-          source, rob_id, vbank_id, pbank_id
-        ),
-      });
-
-      // Bank write is synchronous (single cycle), mark as completed immediately
-      scoreboard::mark_completed(pbank_id);
-
-      // Check if there are ready read requests that can now proceed (unified judgment each cycle)
-      let ready_read = scoreboard::get_one_ready_read_request();
-      if let Some((read_rob_id, read_pbank_id, read_start_addr, read_count, read_source)) = ready_read {
-        READ_SOURCE_QUEUE.lock().unwrap().push(read_source.clone());
-        request_read_bank(read_pbank_id, read_start_addr, read_count);
       }
     }
 
@@ -325,6 +359,20 @@ impl SerializableModel for MemController {
   fn get_type(&self) -> &'static str {
     "MemController"
   }
+}
+
+/// Check if MemController has any pending operations
+/// Returns true if write_request_queue is empty and READ_RESPONSE_QUEUE is empty
+pub fn is_mem_ctrl_idle() -> bool {
+  let read_response_queue_empty = {
+    let queue = READ_RESPONSE_QUEUE.lock().unwrap();
+    queue.is_empty()
+  };
+  let read_source_queue_empty = {
+    let queue = READ_SOURCE_QUEUE.lock().unwrap();
+    queue.is_empty()
+  };
+  read_response_queue_empty && read_source_queue_empty
 }
 
 pub fn request_read_bank_for_tdma(vbank_id: u64, start_addr: u64, count: u64, rob_id: u64) {

@@ -13,6 +13,11 @@ use crate::arch::buckyball::mset::MSET_INST_CAN_ISSUE;
 use crate::arch::buckyball::tdma_loader::MVIN_INST_CAN_ISSUE;
 use crate::arch::buckyball::tdma_storer::MVOUT_INST_CAN_ISSUE;
 use crate::arch::buckyball::vecball::VECBALL_INST_CAN_ISSUE;
+use crate::arch::buckyball::scoreboard;
+use crate::arch::buckyball::mem_ctrl;
+use crate::arch::buckyball::tdma_loader;
+use crate::arch::buckyball::tdma_storer;
+use crate::arch::buckyball::vecball;
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 enum EntryStatus {
@@ -94,9 +99,19 @@ impl DevsModel for Rob {
   fn events_int(&mut self, services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
     if is_empty(&mut self.rob_buffer) {
       if FENCE_CSR.load(Ordering::Relaxed) {
-        FENCE_CSR.store(false, Ordering::Relaxed);
-        send_cmd_response(0u64);
-        self.until_next_event = INFINITY;
+        let all_idle = scoreboard::is_all_memory_complete() 
+          && mem_ctrl::is_mem_ctrl_idle()
+          && tdma_loader::is_tdma_loader_idle()
+          && tdma_storer::is_tdma_storer_idle()
+          && vecball::is_vecball_idle();
+        
+        if all_idle {
+          FENCE_CSR.store(false, Ordering::Relaxed);
+          send_cmd_response(0u64);
+          self.until_next_event = INFINITY;
+        } else {
+          self.until_next_event = 1.0;
+        }
       }
     } else {
       self.until_next_event = 1.0;

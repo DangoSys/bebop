@@ -64,27 +64,36 @@ impl DevsModel for Rs {
     }
   }
 
-  fn events_int(&mut self, _services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
+  fn events_int(&mut self, services: &mut Services) -> Result<Vec<ModelMessage>, SimulationError> {
+    let mut remaining_instructions = Vec::new();
     for inst in self.inst_buffer.drain(..) {
       match inst.funct {
         23 => {
           if MSET_INST_CAN_ISSUE.load(Ordering::Relaxed) {
             receive_mset_inst(inst.xs1, inst.xs2, inst.rob_id);
+          } else {
+            remaining_instructions.push(inst);
           }
         },
         24 => {
           if MVIN_INST_CAN_ISSUE.load(Ordering::Relaxed) {
             receive_mvin_inst(inst.xs1, inst.xs2, inst.rob_id);
+          } else {
+            remaining_instructions.push(inst);
           }
         },
         25 => {
           if MVOUT_INST_CAN_ISSUE.load(Ordering::Relaxed) {
             receive_mvout_inst(inst.xs1, inst.xs2, inst.rob_id);
+          } else {
+            remaining_instructions.push(inst);
           }
         },
         30 => {
           if VECBALL_INST_CAN_ISSUE.load(Ordering::Relaxed) {
             receive_vecball_inst(inst.xs1, inst.xs2, inst.rob_id);
+          } else {
+            remaining_instructions.push(inst);
           }
         },
         _ => {
@@ -93,7 +102,14 @@ impl DevsModel for Rs {
       }
     }
 
-    self.until_next_event = INFINITY;
+    self.inst_buffer = remaining_instructions;
+    
+    if !self.inst_buffer.is_empty() {
+      self.until_next_event = 1.0;
+    } else {
+      self.until_next_event = INFINITY;
+    }
+    
     Ok(Vec::new())
   }
 
