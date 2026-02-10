@@ -27,6 +27,8 @@ struct MvoutInstData {
 
 static MVOUT_INST_DATA: Mutex<Option<MvoutInstData>> = Mutex::new(None);
 
+static TDMA_STORER_STATE: Mutex<TdmaStorerState> = Mutex::new(TdmaStorerState::Idle);
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 enum TdmaStorerState {
   Idle,
@@ -79,21 +81,30 @@ impl DevsModel for TdmaStorer {
   fn events_ext(&mut self, incoming_message: &ModelMessage, services: &mut Services) -> Result<(), SimulationError> {
     if incoming_message.port_name == self.read_bank_resp_port {
       if self.state != TdmaStorerState::Wait {
-        return Err(SimulationError::InvalidModelState);
+        return Ok(());
       }
 
-      let data_vec: Vec<u128> =
-        serde_json::from_str(&incoming_message.content).map_err(|_| SimulationError::InvalidModelState)?;
+      match serde_json::from_str::<Vec<u128>>(&incoming_message.content) {
+        Ok(data_vec) => {
+          for (i, &data) in data_vec.iter().enumerate() {
+            let dram_addr = self.base_dram_addr + (i as u64) * 16 * self.stride;
+            dma_write_dram(dram_addr, data);
+          }
 
-      for (i, &data) in data_vec.iter().enumerate() {
-        let dram_addr = self.base_dram_addr + (i as u64) * 16 * self.stride;
-        dma_write_dram(dram_addr, data);
+          model_record!(self, services, "write_dram", format!("count={}", data_vec.len()));
+
+          self.state = TdmaStorerState::Active;
+          *TDMA_STORER_STATE.lock().unwrap() = TdmaStorerState::Active;
+          self.until_next_event = self.transfer_latency * self.depth as f64;
+        },
+        Err(_) => {
+          // Reset state to Idle to allow new instructions
+          MVOUT_INST_CAN_ISSUE.store(true, Ordering::Relaxed);
+          self.state = TdmaStorerState::Idle;
+          *TDMA_STORER_STATE.lock().unwrap() = TdmaStorerState::Idle;
+          self.until_next_event = INFINITY;
+        }
       }
-
-      model_record!(self, services, "write_dram", format!("count={}", data_vec.len()));
-
-      self.state = TdmaStorerState::Active;
-      self.until_next_event = self.transfer_latency * self.depth as f64;
 
       return Ok(());
     }
@@ -130,6 +141,7 @@ impl DevsModel for TdmaStorer {
           );
 
           self.state = TdmaStorerState::Wait;
+          *TDMA_STORER_STATE.lock().unwrap() = TdmaStorerState::Wait;
           self.until_next_event = 1.0;
         }
       },
@@ -150,18 +162,27 @@ impl DevsModel for TdmaStorer {
       },
       TdmaStorerState::Active => {
         self.state = TdmaStorerState::Complete;
+        *TDMA_STORER_STATE.lock().unwrap() = TdmaStorerState::Complete;
         self.until_next_event = 1.0;
       },
       TdmaStorerState::Complete => {
-        messages.push(ModelMessage {
-          content: serde_json::to_string(&self.rob_id).map_err(|_| SimulationError::InvalidModelState)?,
-          port_name: self.commit_to_rob_port.clone(),
-        });
+        match serde_json::to_string(&self.rob_id) {
+          Ok(content) => {
+            messages.push(ModelMessage {
+              content,
+              port_name: self.commit_to_rob_port.clone(),
+            });
 
-        model_record!(self, services, "commit_mvout", format!("rob_id={}", self.rob_id));
+            model_record!(self, services, "commit_mvout", format!("rob_id={}", self.rob_id));
+          },
+          Err(_) => {
+            // Failed to serialize commit message, skipping
+          }
+        }
 
         MVOUT_INST_CAN_ISSUE.store(true, Ordering::Relaxed);
         self.state = TdmaStorerState::Idle;
+        *TDMA_STORER_STATE.lock().unwrap() = TdmaStorerState::Idle;
         self.until_next_event = INFINITY;
       },
     }
@@ -206,10 +227,11 @@ impl SerializableModel for TdmaStorer {
 /// --- Helper Functions ---
 /// ------------------------------------------------------------
 fn decode_inst(xs1: u64, xs2: u64) -> (u64, u64, u64, u64) {
-  let base_dram_addr = (xs1 & 0xffffffff) as u64;
-  let stride = ((xs2 >> 24) & 0x3ff) as u64;
-  let depth = ((xs2 >> 8) & 0xffff) as u64;
-  let vbank_id = (xs2 & 0xff) as u64;
+  let base_dram_addr = xs1;  // 使用完整的64位地址
+  // 根据bb_mvin宏的定义解析参数：bank_id(5位) | depth(10位) | stride(19位)
+  let vbank_id = (xs2 & 0x1f) as u64;  // 低5位
+  let depth = ((xs2 >> 5) & 0x3ff) as u64;  // 中间10位
+  let stride = ((xs2 >> 15) & 0x7ffff) as u64;  // 高19位
   (base_dram_addr, stride, depth, vbank_id)
 }
 
@@ -241,4 +263,8 @@ fn dma_write_dram(dram_addr: u64, data: u128) {
     let mut h = handler.lock().unwrap();
     let _ = h.write(dram_addr, data, 16);
   }
+}
+
+pub fn is_tdma_storer_idle() -> bool {
+  *TDMA_STORER_STATE.lock().unwrap() == TdmaStorerState::Idle
 }

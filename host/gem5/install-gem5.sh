@@ -25,7 +25,7 @@ pip install scons
 cd ${GEM5_ROOT}
 # We dont need this step now
 # Apply the patch to gem5
-# git apply ${SCRIPT_DIR}/bebop.patch
+git apply ${SCRIPT_DIR}/bebop.patch
 # We need to update the patch in this way if we make changes to gem5
 # git add -A && git diff --cached > ../bebop.patch
 
