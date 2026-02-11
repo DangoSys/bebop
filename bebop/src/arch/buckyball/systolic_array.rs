@@ -204,10 +204,10 @@ impl SystolicArray {
                               self.rows, self.cols, a_rows, a_cols, b_rows, b_cols));
         }
         self.reset();
-        // 确保矩阵A和B都是16x16大小，并且所有元素都非零
+        // 确保矩阵A和B都是16x16大小
         let mut padded_a = vec![vec![0; 16]; 16];
         let mut padded_b = vec![vec![0; 16]; 16];
-        // 复制原始数据到16x16矩阵，并确保所有元素非零
+        // 复制原始数据到16x16矩阵
         for i in 0..16 {
             for j in 0..16 {
                 if i < matrix_a.len() && j < matrix_a[i].len() {
@@ -215,8 +215,20 @@ impl SystolicArray {
                 } else {
                     padded_a[i][j] = 0; // 使用0进行填充
                 }
-                if i < matrix_b.len() && j < matrix_b[i].len() {
-                    padded_b[i][j] = matrix_b[i][j];
+            }
+        }
+        // 矩阵B需要按列访问，所以这里需要转置
+        let mut transposed_b = vec![vec![0; matrix_b[0].len()]; matrix_b.len()];
+        for i in 0..matrix_b.len() {
+            for j in 0..matrix_b[i].len() {
+                transposed_b[j][i] = matrix_b[i][j];
+            }
+        }
+        // 填充转置后的矩阵B
+        for i in 0..16 {
+            for j in 0..16 {
+                if i < transposed_b.len() && j < transposed_b[i].len() {
+                    padded_b[i][j] = transposed_b[i][j];
                 } else {
                     padded_b[i][j] = 0; // 使用0进行填充
                 }
@@ -236,9 +248,9 @@ impl SystolicArray {
 
         let input_a = self.input_buffer_a.as_ref().unwrap();
         let input_b = self.input_buffer_b.as_ref().unwrap();
-        let m = 16; // 确保使用16x16大小
-        let k = 16;
-        let n = 16;
+        let m = self.rows;
+        let k = self.k_dim;
+        let n = self.cols;
         let t = self.cycle_count;
 
         // 脉动阵列的计算逻辑：按对角线顺序处理
@@ -425,15 +437,8 @@ impl DevsModel for SystolicArray {
                         }
                         row_data
                     }).collect::<Vec<Vec<u64>>>();
-                    // 矩阵B需要按列访问，所以这里需要转置
-                    let mut transposed_b = vec![vec![0; self.k_dim_inst as usize]; self.n_dim as usize];
-                    for i in 0..self.k_dim_inst as usize {
-                        for j in 0..self.n_dim as usize {
-                            transposed_b[j][i] = original_b[i][j];
-                        }
-                    }
 
-                    self.op2_data = transposed_b;
+                    self.op2_data = original_b;
                     self.records.push(ModelRecord {
                         time: services.global_time(),
                         action: "received_op2_data".to_string(),
@@ -734,8 +739,8 @@ mod tests {
         systolic_array.start();
         while systolic_array.cycle() {}
         let result = systolic_array.get_results().unwrap();
-        // 由于矩阵被填充到16x16大小并将零值替换为1，计算结果为5*7 + 15*1 = 50
-        assert_eq!(result[0][0] as u64, 50);
+        // 由于矩阵被填充到16x16大小并使用0进行填充，计算结果为5*7 = 35
+        assert_eq!(result[0][0] as u64, 35);
     }
     #[test]
     fn test_matrix_multiplication() {
@@ -744,9 +749,8 @@ mod tests {
         systolic_array.cols = 2;
         let matrix_a = vec![vec![2, 3], vec![4, 5]];
         let matrix_b = vec![vec![6, 7], vec![8, 9]];
-        // 由于矩阵被填充到16x16大小并将零值替换为1，计算结果会包含额外的1*1项
-        // 对于2x2矩阵，每个元素会有14个额外的1*1项，所以预期结果需要调整
-        let expected = vec![vec![36 + 14, 41 + 14], vec![64 + 14, 73 + 14]];
+        // 由于矩阵被填充到16x16大小并使用0进行填充，计算结果为标准矩阵乘法
+        let expected = vec![vec![2*6 + 3*8, 2*7 + 3*9], vec![4*6 + 5*8, 4*7 + 5*9]];
         systolic_array.load_matrices(matrix_a, matrix_b).unwrap();
         systolic_array.start();
         while systolic_array.cycle() {}
