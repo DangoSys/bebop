@@ -13,11 +13,13 @@ use crate::arch::buckyball::mset::MSET_INST_CAN_ISSUE;
 use crate::arch::buckyball::tdma_loader::MVIN_INST_CAN_ISSUE;
 use crate::arch::buckyball::tdma_storer::MVOUT_INST_CAN_ISSUE;
 use crate::arch::buckyball::vecball::VECBALL_INST_CAN_ISSUE;
+use crate::arch::buckyball::systolic_array::SYSTOLIC_ARRAY_INST_CAN_ISSUE;
 use crate::arch::buckyball::scoreboard;
 use crate::arch::buckyball::mem_ctrl;
 use crate::arch::buckyball::tdma_loader;
 use crate::arch::buckyball::tdma_storer;
 use crate::arch::buckyball::vecball;
+use crate::arch::buckyball::systolic_array;
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 enum EntryStatus {
@@ -103,7 +105,8 @@ impl DevsModel for Rob {
           && mem_ctrl::is_mem_ctrl_idle()
           && tdma_loader::is_tdma_loader_idle()
           && tdma_storer::is_tdma_storer_idle()
-          && vecball::is_vecball_idle();
+          && vecball::is_vecball_idle()
+          && systolic_array::is_systolic_array_idle();
         
         if all_idle {
           FENCE_CSR.store(false, Ordering::Relaxed);
@@ -251,6 +254,7 @@ fn check_can_issue(funct: u64) -> bool {
     24 => MVIN_INST_CAN_ISSUE.load(Ordering::Relaxed),
     25 => MVOUT_INST_CAN_ISSUE.load(Ordering::Relaxed),
     30 => VECBALL_INST_CAN_ISSUE.load(Ordering::Relaxed),
+    42 => SYSTOLIC_ARRAY_INST_CAN_ISSUE.load(Ordering::Relaxed),
     _ => false,
   }
 }
