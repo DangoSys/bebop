@@ -226,12 +226,8 @@ impl DevsModel for VectorBall {
         });
 
         // Send batch write request (bank_id, start_addr, data_vec)
-        // Convert u128 array to pairs of u64 for serialization
-        let mut write_data: Vec<u64> = Vec::new();
-        for &val in &self.result_data {
-          write_data.push((val & 0xFFFFFFFFFFFFFFFF) as u64); // low 64 bits
-          write_data.push(((val >> 64) & 0xFFFFFFFFFFFFFFFF) as u64); // high 64 bits
-        }
+        // Directly use u128 array for serialization
+        let write_data = self.result_data.clone();
 
         let request = (self.rob_id, self.wr_bank_id, 0u64, write_data);
         messages.push(ModelMessage {

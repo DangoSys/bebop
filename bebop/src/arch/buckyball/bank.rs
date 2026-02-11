@@ -116,20 +116,11 @@ impl Bank {
 impl DevsModel for Bank {
   fn events_ext(&mut self, incoming_message: &ModelMessage, services: &mut Services) -> Result<(), SimulationError> {
     if incoming_message.port_name == self.write_bank_req_port {
-      match serde_json::from_str::<(u64, u64, Vec<u64>)>(&incoming_message.content) {
+      match serde_json::from_str::<(u64, u64, Vec<u128>)>(&incoming_message.content) {
         Ok(value) => {
           let vbank_id = value.0;
           let start_addr = value.1;
-          let data_u64 = value.2;
-
-          let mut data_vec = Vec::new();
-          for i in (0..data_u64.len()).step_by(2) {
-            if i + 1 < data_u64.len() {
-              let lo = data_u64[i];
-              let hi = data_u64[i + 1];
-              data_vec.push((hi as u128) << 64 | (lo as u128));
-            }
-          }
+          let data_vec = value.2;
 
           if vbank_id < self.banks.len() as u64 {
             self.banks[vbank_id as usize].write_batch(start_addr, &data_vec);
@@ -256,4 +247,28 @@ pub fn request_write_bank(vbank_id: u64, start_addr: u64, data_vec: Vec<u128>) -
     }
   }
   false
+}
+
+pub fn request_read_bank_for_systolic(vbank_id: u64, start_addr: u64, count: u64, _rob_id: u64) {
+  let bank_data_opt = BANK_DATA.lock().unwrap();
+  if let Some(ref bank_data) = *bank_data_opt {
+    if vbank_id < bank_data.len() as u64 {
+      let bank = &bank_data[vbank_id as usize];
+
+      let mut data_vec = Vec::new();
+      for i in 0..count {
+        let addr = start_addr + i;
+        if addr < bank.len() as u64 {
+          data_vec.push(bank[addr as usize]);
+        } else {
+          data_vec.push(0);
+        }
+      }
+
+      READ_RESPONSE_QUEUE
+        .lock()
+        .unwrap()
+        .push(ReadResponse { data: data_vec });
+    }
+  }
 }
