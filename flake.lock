@@ -1,0 +1,97 @@
+{
+  "nodes": {
+    "flake-utils": {
+      "inputs": {
+        "systems": "systems"
+      },
+      "locked": {
+        "lastModified": 1731533236,
+        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "gem5-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1754946347,
+        "narHash": "sha256-cvJMe6VEKUE1vnS/IvZR2pBDvgw5KMaUBjx6ouUgmo4=",
+        "owner": "gem5",
+        "repo": "gem5",
+        "rev": "ddd4ae35adb0a3df1f1ba11e9a973a5c2f8c2944",
+        "type": "github"
+      },
+      "original": {
+        "owner": "gem5",
+        "repo": "gem5",
+        "rev": "ddd4ae35adb0a3df1f1ba11e9a973a5c2f8c2944",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1770562336,
+        "narHash": "sha256-ub1gpAONMFsT/GU2hV6ZWJjur8rJ6kKxdm9IlCT0j84=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "d6c71932130818840fc8fe9509cf50be8c64634f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "flake-utils": "flake-utils",
+        "gem5-src": "gem5-src",
+        "nixpkgs": "nixpkgs",
+        "spike-src": "spike-src"
+      }
+    },
+    "spike-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1766824496,
+        "narHash": "sha256-GysjOv1077ogF2ajkcQpw7TX4KKrbCIwz9jFst24LoI=",
+        "owner": "riscv-software-src",
+        "repo": "riscv-isa-sim",
+        "rev": "45fe6c110aed80d5689752236ba0a668f093ce48",
+        "type": "github"
+      },
+      "original": {
+        "owner": "riscv-software-src",
+        "repo": "riscv-isa-sim",
+        "rev": "45fe6c110aed80d5689752236ba0a668f093ce48",
+        "type": "github"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

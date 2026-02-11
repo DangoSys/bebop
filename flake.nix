@@ -4,12 +4,20 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    spike-src = {
+      url = "github:riscv-software-src/riscv-isa-sim/45fe6c110aed80d5689752236ba0a668f093ce48";
+      flake = false;
+    };
+    gem5-src = {
+      url = "github:gem5/gem5/ddd4ae35adb0a3df1f1ba11e9a973a5c2f8c2944";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, spike-src, gem5-src }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        overlays = [ (import ./scripts/nix/overlay.nix) ];
+        overlays = [ (import ./scripts/nix/overlay.nix { inherit spike-src gem5-src; }) ];
         pkgs = import nixpkgs {
           inherit system overlays;
         };
@@ -32,15 +40,16 @@
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
+            bebopCli
+            pkgs.bebopSpike
+            pkgs.bebopGem5
             pkgs.rustc
             pkgs.cargo
             pkgs.pkg-config
           ];
           shellHook = ''
             echo "Bebop development shell"
-            echo " - build Rust CLI: cargo build --release --bin bebop"
-            echo " - host libs available under ${pkgs.bebopHost}"
-            echo " - spike binary available under ${pkgs.bebopSpike}"
+            echo " - bebop, spike, gem5.opt are available in PATH"
           '';
         };
 

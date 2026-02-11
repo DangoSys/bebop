@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.10)
+
 set(BEBOP_IPC_SOURCES
   src/socket/socket.cc
   src/socket/socket_cmd.cc
