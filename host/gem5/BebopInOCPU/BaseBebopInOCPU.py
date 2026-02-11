@@ -52,7 +52,6 @@ class BebopInODefaultFloatSimdFU(BebopInOFU):
       "FloatMultAcc",
       "FloatDiv",
       "FloatSqrt",
-      "Bf16Cvt",
       "SimdAdd",
       "SimdAddAcc",
       "SimdAlu",
@@ -89,24 +88,13 @@ class BebopInODefaultFloatSimdFU(BebopInOFU):
       "SimdSha256Hash2",
       "SimdShaSigma2",
       "SimdShaSigma3",
-      "SimdSha3",
-      "SimdSm4e",
-      "SimdCrc",
+      "SimdPredAlu",
       "Matrix",
       "MatrixMov",
       "MatrixOP",
       "SimdExt",
       "SimdFloatExt",
-      "SimdFloatCvt",
       "SimdConfig",
-      "SimdDotProd",
-      "SimdBf16Add",
-      "SimdBf16Cmp",
-      "SimdBf16Cvt",
-      "SimdBf16DotProd",
-      "SimdBf16MatMultAcc",
-      "SimdBf16Mult",
-      "SimdBf16MultAcc",
     ]
   )
 
@@ -151,7 +139,7 @@ class BebopInODefaultMemFU(BebopInOFU):
 
 
 class BebopInODefaultMiscFU(BebopInOFU):
-  opClasses = bebopMakeOpClassSet(["InstPrefetch", "System"])
+  opClasses = bebopMakeOpClassSet(["InstPrefetch"])
   opLat = 1
 
 

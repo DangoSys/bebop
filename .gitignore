@@ -4,3 +4,4 @@ build/
 m5out/
 
 *.json
+*.o
