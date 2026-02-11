@@ -292,9 +292,7 @@ class BaseBebopInOCPU(BaseCPU):
   )
 
   branchPred = Param.BranchPredictor(
-    BranchPredictor(
-      conditionalBranchPred=TournamentBP(numThreads=Parent.numThreads)
-    ),
+    TournamentBP(numThreads=Parent.numThreads),
     "Branch Predictor",
   )
 

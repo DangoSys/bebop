@@ -110,9 +110,51 @@ class SimulationConfig:
         # Create memory bus
         self.system.membus = SystemXBar()
 
-        # Connect CPU to memory bus
-        self.system.cpu.icache_port = self.system.membus.cpu_side_ports
-        self.system.cpu.dcache_port = self.system.membus.cpu_side_ports
+        # L1 + L2 caches (Rocket-style; only in timing mode)
+        if not (use_atomic or cpu_type == 'atomic'):
+            # L1 I/D (same as configs/common/Caches.py L1_ICache / L1_DCache)
+            self.system.cpu.icache = Cache(
+                size="32KiB",
+                assoc=2,
+                tag_latency=2,
+                data_latency=2,
+                response_latency=2,
+                mshrs=4,
+                tgts_per_mshr=20,
+                is_read_only=True,
+                writeback_clean=True,
+            )
+            self.system.cpu.dcache = Cache(
+                size="32KiB",
+                assoc=2,
+                tag_latency=2,
+                data_latency=2,
+                response_latency=2,
+                mshrs=4,
+                tgts_per_mshr=20,
+            )
+            self.system.cpu.icache.cpu_side = self.system.cpu.icache_port
+            self.system.cpu.dcache.cpu_side = self.system.cpu.dcache_port
+
+            # L2 (configs/common/Caches.py L2Cache, 512KiB like riscv-fs / Rocket)
+            self.system.tol2bus = L2XBar()
+            self.system.l2 = Cache(
+                size="512KiB",
+                assoc=8,
+                tag_latency=20,
+                data_latency=20,
+                response_latency=20,
+                mshrs=20,
+                tgts_per_mshr=12,
+                write_buffers=8,
+            )
+            self.system.l2.cpu_side = self.system.tol2bus.mem_side_ports
+            self.system.l2.mem_side = self.system.membus.cpu_side_ports
+            self.system.cpu.icache.mem_side = self.system.tol2bus.cpu_side_ports
+            self.system.cpu.dcache.mem_side = self.system.tol2bus.cpu_side_ports
+        else:
+            self.system.cpu.icache_port = self.system.membus.cpu_side_ports
+            self.system.cpu.dcache_port = self.system.membus.cpu_side_ports
 
         # Create interrupt controller
         self.system.cpu.createInterruptController()
