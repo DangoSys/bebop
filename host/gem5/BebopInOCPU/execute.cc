@@ -869,86 +869,77 @@ Execute::tryPCEvents(ThreadID thread_id)
 void
 Execute::doInstCommitAccounting(BebopInODynInstPtr inst)
 {
-    assert(!inst->isFault());
-    bool is_nop = inst->staticInst->isNop();
-    const ThreadID tid = inst->id.threadId;
-    MinorThread *thread = cpu.threads[tid];
-    const bool in_user_mode = thread->getIsaPtr()->inUserMode();
+  assert(!inst->isFault());
 
-    /* Increment the many and various inst and op counts in the
-     *  thread and system */
-    if (!inst->staticInst->isMicroop() || inst->staticInst->isLastMicroop())
-    {
-        thread->numInst++;
-        thread->threadStats.numInsts++;
-        cpu.commitStats[tid]->numInsts++;
-        cpu.executeStats[tid]->numInsts++;
-        cpu.baseStats.numInsts++;
-        if (in_user_mode) {
-            cpu.commitStats[tid]->numUserInsts++;
-        }
+  bool is_nop = inst->staticInst->isNop();
+  const ThreadID tid = inst->id.threadId;
+  MinorThread *thread = cpu.threads[tid];
 
-        if (!is_nop) {
-            cpu.commitStats[inst->id.threadId]->numInstsNotNOP++;
-        }
+  /* Increment the many and various inst and op counts in the
+   *  thread and system */
+  if (!inst->staticInst->isMicroop() || inst->staticInst->isLastMicroop())
+  {
+    thread->numInst++;
+    thread->threadStats.numInsts++;
+    cpu.commitStats[tid]->numInsts++;
+    cpu.executeStats[tid]->numInsts++;
+    cpu.baseStats.numInsts++;
 
-        /* Act on events related to instruction counts */
-        thread->comInstEventQueue.serviceEvents(thread->numInst);
-    }
-
-    thread->numOp++;
-    thread->threadStats.numOps++;
     if (!is_nop) {
-        cpu.commitStats[tid]->numOpsNotNOP++;
+      cpu.commitStats[tid]->numInstsNotNOP++;
     }
 
-    if (inst->staticInst->isMemRef()) {
-        cpu.executeStats[tid]->numMemRefs++;
-        cpu.commitStats[tid]->numMemRefs++;
-        thread->threadStats.numMemRefs++;
-    }
-    if (inst->staticInst->isLoad()) {
-        cpu.executeStats[tid]->numLoadInsts++;
-        cpu.commitStats[tid]->numLoadInsts++;
-    }
+    /* Act on events related to instruction counts */
+    thread->comInstEventQueue.serviceEvents(thread->numInst);
+  }
 
-    if (inst->staticInst->isStore() || inst->staticInst->isAtomic()) {
-        cpu.commitStats[tid]->numStoreInsts++;
-    }
-    if (inst->staticInst->isInteger()) {
-        cpu.commitStats[tid]->numIntInsts++;
-    }
+  thread->numOp++;
+  thread->threadStats.numOps++;
+  cpu.commitStats[tid]->numOps++;
 
-    if (inst->staticInst->isFloating()) {
-        cpu.commitStats[tid]->numFpInsts++;
-    }
+  if (!is_nop) {
+    cpu.commitStats[tid]->numOpsNotNOP++;
+  }
 
-    if (inst->staticInst->isVector()) {
-        cpu.commitStats[tid]->numVecInsts++;
-    }
-    if (inst->staticInst->isControl()) {
-        cpu.executeStats[tid]->numBranches++;
-    }
-    if (inst->staticInst->isCall() || inst->staticInst->isReturn()) {
-        cpu.commitStats[tid]->numCallsReturns++;
-    }
-    if (inst->staticInst->isCall()) {
-        cpu.commitStats[tid]->functionCalls++;
-    }
+  if (inst->staticInst->isMemRef()) {
+    cpu.executeStats[tid]->numMemRefs++;
+    cpu.commitStats[tid]->numMemRefs++;
+    thread->threadStats.numMemRefs++;
+  }
 
-    cpu.commitStats[tid]->numOps++;
-    cpu.commitStats[tid]
-        ->committedInstType[inst->staticInst->opClass()]++;
-    cpu.commitStats[tid]->updateComCtrlStats(inst->staticInst);
-    if (in_user_mode) {
-        cpu.commitStats[tid]->numUserOps++;
-    }
+  if (inst->staticInst->isLoad()) {
+    cpu.executeStats[tid]->numLoadInsts++;
+    cpu.commitStats[tid]->numLoadInsts++;
+  }
 
-    /* Set the CP SeqNum to the numOps commit number */
-    if (inst->traceData)
-        inst->traceData->setCPSeq(thread->numOp);
+  if (inst->staticInst->isStore() || inst->staticInst->isAtomic()) {
+    cpu.commitStats[tid]->numStoreInsts++;
+  }
 
-    cpu.probeInstCommit(inst->staticInst, inst->pc->instAddr());
+  if (inst->staticInst->isInteger()) {
+    cpu.commitStats[tid]->numIntInsts++;
+  }
+
+  if (inst->staticInst->isFloating()) {
+    cpu.commitStats[tid]->numFpInsts++;
+  }
+
+  if (inst->staticInst->isVector()) {
+    cpu.commitStats[tid]->numVecInsts++;
+  }
+
+  if (inst->staticInst->isControl()) {
+    cpu.executeStats[tid]->numBranches++;
+  }
+
+  cpu.commitStats[tid]->committedInstType[inst->staticInst->opClass()]++;
+  cpu.commitStats[tid]->updateComCtrlStats(inst->staticInst);
+
+  /* Set the CP SeqNum to the numOps commit number */
+  if (inst->traceData)
+    inst->traceData->setCPSeq(thread->numOp);
+
+  cpu.probeInstCommit(inst->staticInst, inst->pc->instAddr());
 }
 
 bool

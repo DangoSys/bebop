@@ -22,14 +22,8 @@ pip install scons
 # export PKG_CONFIG_PATH=$CONDA_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH
 # scons build/RISCV/gem5.opt -j $(nproc) LIBS="absl_log_internal_check_op \
 
-cd ${GEM5_ROOT}
-# We dont need this step now
-# Apply the patch to gem5
-git apply ${SCRIPT_DIR}/bebop.patch
-# We need to update the patch in this way if we make changes to gem5
-# git add -A && git diff --cached > ../bebop.patch
-
 # Build gem5
+cd ${GEM5_ROOT}
 export PKG_CONFIG_PATH=${CONDA_PREFIX:-}/lib/pkgconfig:${PKG_CONFIG_PATH:-}
 BEBOP_IPC_LIB=${IPC_BUILD_LIB}/libbebop_ipc.a \
   BEBOP_IPC_INCLUDE=${IPC_INCLUDE} \
@@ -52,4 +46,5 @@ BEBOP_IPC_LIB=${IPC_BUILD_LIB}/libbebop_ipc.a \
 # because simpoint source code has some bugs, so we patch it here
 SIMPOINT_DIR="${GEM5_ROOT}/../simpoint"
 cd ${SIMPOINT_DIR}
+make clean
 make

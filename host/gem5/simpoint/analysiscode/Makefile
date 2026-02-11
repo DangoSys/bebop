@@ -1,4 +1,4 @@
-CPPFLAGS = -Wall -pedantic -pedantic-errors -O3
+CPPFLAGS = -Wall -pedantic -pedantic-errors -O3 -fPIE
 
 CXX = g++
 
@@ -21,7 +21,7 @@ DEPENDENCIES = $(SOURCES:.cpp=.d)
 # SimpointOptions takes forever to compile with optimizations on, so we simply
 # do it without optimizations (shouldn't affect the run-time of the program)
 SimpointOptions.o:
-	$(CXX)  -Wall -pedantic -pedantic-errors -o SimpointOptions.o -c SimpointOptions.cpp
+	$(CXX) $(CPPFLAGS) -o SimpointOptions.o -c SimpointOptions.cpp
 
 # If the target is not "clean", then include the dependencies (which also makes
 # them as necessary) 
