@@ -79,5 +79,6 @@ if env['CONF']['BUILD_ISA']:
         'pipeline.cc',
         'scoreboard.cc',
         'stats.cc',
+        'bebop/coprocessor.cc',
     ]:
         Source(src)

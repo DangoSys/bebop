@@ -46,6 +46,7 @@
 #define __CPU_BEBOPINO_EXECUTE_HH__
 
 #include <vector>
+#include <memory>
 
 #include "base/named.hh"
 #include "base/types.hh"
@@ -61,6 +62,9 @@ namespace gem5
 
 namespace bbino
 {
+
+// Forward declaration for bebop coprocessor
+class BebopCoprocessor;
 
 /** Execute stage.  Everything apart from fetching and decoding instructions.
  *  The LSQ lives here too. */
@@ -120,6 +124,9 @@ class Execute : public Named
 
     /** Dcache port to pass on to the CPU.  Execute owns this */
     LSQ lsq;
+
+    /** Bebop NPU coprocessor for handling custom instructions */
+    std::unique_ptr<BebopCoprocessor> bebopCoprocessor;
 
     /** Scoreboard of instruction dependencies */
     std::vector<Scoreboard> scoreboard;

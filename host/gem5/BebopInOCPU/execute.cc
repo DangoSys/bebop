@@ -39,6 +39,7 @@
 
 #include <functional>
 
+#include "bebop/coprocessor.hh"
 #include "cpu.hh"
 #include "exec_context.hh"
 #include "fetch1.hh"
@@ -190,6 +191,10 @@ Execute::Execute(const std::string &name_, BebopInOCPU &cpu_,
             ReportTraitsAdaptor<QueuedInst> >(
             name_ + ".inFUMemInsts" + tid_str, "insts", total_slots);
     }
+
+    // Initialize bebop coprocessor
+    bebopCoprocessor = std::make_unique<BebopCoprocessor>(
+        name_ + ".bebop", cpu_, *this);
 }
 
 const ForwardInstData *
@@ -1026,8 +1031,47 @@ Execute::commitInst(BebopInODynInstPtr inst, bool early_memory_issue,
 
         DPRINTF(MinorExecute, "Committing inst: %s\n", *inst);
 
-        fault = inst->staticInst->execute(&context,
-            inst->traceData);
+        // Check if this is a custom-3 instruction (opcode 0x7b)
+        // If so, forward it to the bebop coprocessor
+        uint64_t emi = inst->staticInst->getEMI();
+        uint8_t opcode = emi & 0x7F;  // Extract bits [6:0]
+
+        if (opcode == 0x7B) {
+            // This is a RISC-V custom-3 instruction
+            // Extract func7 field to identify specific bebop operations
+            uint8_t func7 = (emi >> 25) & 0x7F;  // Extract bits [31:25]
+
+            DPRINTF(MinorExecute, "Detected Bebop custom instruction: "
+                    "opcode=0x%x, func7=%d, full_inst=0x%x\n",
+                    opcode, func7, (uint32_t)emi);
+
+            // Extract rs1 and rs2 indices
+            uint8_t rs1_idx = (emi >> 15) & 0x1F;  // bits [19:15]
+            uint8_t rs2_idx = (emi >> 20) & 0x1F;  // bits [24:20]
+
+            // Read register values using getRegOperand
+            // For RISC-V, rs1 is srcRegIdx(0) and rs2 is srcRegIdx(1)
+            uint64_t rs1_val = 0, rs2_val = 0;
+            context.getRegOperand(inst->staticInst.get(), 0, &rs1_val);
+            context.getRegOperand(inst->staticInst.get(), 1, &rs2_val);
+
+            // Get current tick (use a simple counter for now)
+            uint64_t current_tick = cpu.curCycle();
+
+            // Submit instruction to bebop coprocessor
+            bebopCoprocessor->submitInstruction(emi, func7, rs1_val, rs2_val, current_tick);
+
+            // Simulate processing: call complete after notional 10 cycles
+            BebopInst completed_inst(emi, func7, rs1_val, rs2_val, current_tick);
+            bebopCoprocessor->completeInstruction(completed_inst);
+
+            // Mark as completed without executing through normal path
+            fault = NoFault;
+        } else {
+            // Normal instruction execution
+            fault = inst->staticInst->execute(&context,
+                inst->traceData);
+        }
 
         /* Set the predicate for tracing and dump */
         if (inst->traceData)

@@ -1,105 +1,46 @@
 {
-  description = "Bebop - A buckyball emulator written in Rust";
+  description = "Bebop emulator, host IPC, Spike and gem5 toolchain";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
+  outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        overlays = [ (import rust-overlay) ];
+        overlays = [ (import ./scripts/nix/overlay.nix) ];
         pkgs = import nixpkgs {
           inherit system overlays;
         };
 
-        # Rust toolchain
-        rustToolchain = pkgs.rust-bin.stable.latest.default;
-
-        # Host dependencies (for spike, ipc, etc.)
-        hostDeps = with pkgs; [
-          cmake
-          ninja
-          gcc
-          boost
-          dtc  # device tree compiler
-        ];
-
-        # Build the host (C/C++ part)
-        bebopHost = pkgs.stdenv.mkDerivation {
-          pname = "bebop-host";
+        bebopCli = pkgs.rustPlatform.buildRustPackage {
+          pname = "bebop-cli";
           version = "0.1.0";
-
-          src = ./host;
-
-          nativeBuildInputs = [ pkgs.cmake pkgs.ninja ];
-          buildInputs = hostDeps;
-
-          configurePhase = ''
-            mkdir -p build
-            cd build
-            cmake -G Ninja ..
-          '';
-
-          buildPhase = ''
-            ninja -j$NIX_BUILD_CORES
-          '';
-
-          installPhase = ''
-            mkdir -p $out
-            cp -r ./* $out/
-          '';
+          src = builtins.path { path = ./bebop; name = "bebop-cli-src"; };
+          cargoLock.lockFile = ./bebop/Cargo.lock;
         };
-
-        # Build the Rust emulator
-        bebopRust = pkgs.rustPlatform.buildRustPackage {
-          pname = "bebop";
-          version = "0.1.0";
-
-          src = ./bebop;
-
-          cargoLock = {
-            lockFile = ./bebop/Cargo.lock;
-          };
-
-          nativeBuildInputs = [ rustToolchain ];
-          buildInputs = [ bebopHost ] ++ hostDeps;
-
-          # Link to host libraries
-          preBuild = ''
-            export BEBOP_HOST_DIR=${bebopHost}
-          '';
-
-          # Install the binary
-          installPhase = ''
-            mkdir -p $out/bin
-            cp target/release/bebop $out/bin/
-          '';
-        };
-
       in
       {
         packages = {
-          host = bebopHost;
-          emulator = bebopRust;
-          default = bebopRust;
+          bebop = bebopCli;
+          host = pkgs.bebopHost;
+          spike = pkgs.bebopSpike;
+          gem5 = pkgs.bebopGem5;
+          default = bebopCli;
         };
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
-            rustToolchain
-            pkgs.rust-analyzer
-            pkgs.cargo-watch
-            pkgs.cargo-edit
-          ] ++ hostDeps;
-
+            pkgs.rustc
+            pkgs.cargo
+            pkgs.pkg-config
+          ];
           shellHook = ''
-            echo "Bebop development environment"
-            echo "- Build host: cd host && mkdir -p build && cd build && cmake -G Ninja .. && ninja"
-            echo "- Build emulator: cd bebop && cargo build --release --bin bebop"
-            echo "- Run emulator: cd bebop && cargo run --release --bin bebop"
+            echo "Bebop development shell"
+            echo " - build Rust CLI: cargo build --release --bin bebop"
+            echo " - host libs available under ${pkgs.bebopHost}"
+            echo " - spike binary available under ${pkgs.bebopSpike}"
           '';
         };
 
