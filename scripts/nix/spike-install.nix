@@ -1,15 +1,20 @@
-{ pkgs, bebop-host ? null }:
+{ pkgs, bebopHost ? null, spikeSrc }:
 
 let
-  hostSrc = builtins.path {
-    path = ../../host;
-    name = "bebop-host-tree";
+  customExt = builtins.path {
+    path = ../../host/spike/customext;
+    name = "bebop-customext";
+  };
+
+  ipcSrc = builtins.path {
+    path = ../../host/ipc;
+    name = "bebop-ipc-src";
   };
 in
 pkgs.stdenv.mkDerivation {
   pname = "bebop-spike";
   version = "0.1.0";
-  src = hostSrc;
+  src = spikeSrc;
 
   nativeBuildInputs = with pkgs; [
     autoconf
@@ -31,47 +36,55 @@ pkgs.stdenv.mkDerivation {
   configurePhase = ''
     runHook preConfigure
 
-    export SPIKE_SOURCE_DIR="$PWD/spike"
-    export SPIKE_SRC="$SPIKE_SOURCE_DIR/riscv-isa-sim"
-    export INSTALL_ROOT="$PWD/spike-build/install"
+    export SPIKE_ROOT="$PWD"
+    export INSTALL_ROOT="$SPIKE_ROOT/install"
     mkdir -p "$INSTALL_ROOT"
-    mkdir -p "$SPIKE_SRC/build"
 
-    pushd "$SPIKE_SRC/build"
-    ../configure \
+    mkdir -p "$SPIKE_ROOT/build-spike"
+    cd "$SPIKE_ROOT/build-spike"
+    "$SPIKE_ROOT/configure" \
       --prefix="$INSTALL_ROOT" \
       --with-boost=no \
       --with-boost-asio=no \
       --with-boost-regex=no
-    popd
   '';
 
   buildPhase = ''
-    export SPIKE_SOURCE_DIR="$PWD/spike"
-    export SPIKE_SRC="$SPIKE_SOURCE_DIR/riscv-isa-sim"
-    export INSTALL_ROOT="$PWD/spike-build/install"
+    export SPIKE_ROOT="$NIX_BUILD_TOP/$sourceRoot"
+    export INSTALL_ROOT="$SPIKE_ROOT/install"
     export RISCV="$INSTALL_ROOT"
 
-    pushd "$SPIKE_SRC/build"
-    make
+    # 1. Build and install spike itself
+    cd "$SPIKE_ROOT/build-spike"
+    make -j$NIX_BUILD_CORES
     make install
-    popd
 
-    ln -sfn "$INSTALL_ROOT" "$SPIKE_SRC/install"
+    # 2. Prepare customext source tree with ipc alongside it
+    #    customext CMakeLists expects paths relative to its own dir:
+    #      SPIKE_ROOT = ../riscv-isa-sim
+    #      SPIKE_PREFIX = SPIKE_ROOT/install
+    #    So we create: work/spike/riscv-isa-sim/install -> $INSTALL_ROOT
+    cd "$SPIKE_ROOT"
+    mkdir -p work/spike/riscv-isa-sim work/ipc
+    ln -sfn "$INSTALL_ROOT" work/spike/riscv-isa-sim/install
+    cp -r ${customExt} work/spike/customext
+    chmod -R u+w work/spike/customext
+    cp -r ${ipcSrc}/. work/ipc/
+    chmod -R u+w work/ipc
 
-    mkdir -p "$PWD/spike-build/custom"
-    pushd "$PWD/spike-build/custom"
-    cmake "$SPIKE_SOURCE_DIR" -G Ninja \
+    # 3. Build customext (produces libbebop.so)
+    mkdir -p work/spike/customext/build
+    cd work/spike/customext/build
+    cmake .. \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX="$INSTALL_ROOT"
-    cmake --build .
-    cmake --install .
-    popd
+    make -j$NIX_BUILD_CORES
+    make install
   '';
 
   installPhase = ''
     mkdir -p $out
-    cp -r "$INSTALL_ROOT"/. $out/
+    cp -r "$NIX_BUILD_TOP/$sourceRoot/install"/. $out/
   '';
 
   meta = with pkgs.lib; {

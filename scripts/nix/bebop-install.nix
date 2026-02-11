@@ -1,51 +1,47 @@
 { pkgs }:
 
 let
-  hostSrc = builtins.path {
-    path = ../../host;
-    name = "bebop-host-src";
+  ipcSrc = builtins.path {
+    path = ../../host/ipc;
+    name = "bebop-ipc-src";
   };
 in
 pkgs.stdenv.mkDerivation {
-  pname = "bebop-host";
+  pname = "bebop-ipc";
   version = "0.1.0";
-  src = hostSrc;
+  src = ipcSrc;
 
-  nativeBuildInputs = with pkgs; [
-    cmake
-    ninja
-  ];
+  nativeBuildInputs = with pkgs; [ cmake ];
 
-  buildInputs = with pkgs; [
-    boost
-    dtc
-  ];
+  # ipc source only uses standard libraries, no external deps needed
 
   configurePhase = ''
     runHook preConfigure
-
-    export RISCV="$PWD/riscv-placeholder"
-    mkdir -p "$RISCV/include" "$RISCV/lib"
-
-    cmake -S . -B build -G Ninja \
-      -DCMAKE_INSTALL_PREFIX=$out \
+    cmake -S . -B build \
       -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=$out \
       -DCMAKE_INSTALL_RPATH=$out/lib
+    runHook postConfigure
   '';
 
   buildPhase = ''
+    runHook preBuild
     cmake --build build
+    runHook postBuild
   '';
 
   installPhase = ''
+    runHook preInstall
     cmake --install build
     mkdir -p $out/include
-    cp -r ipc/include $out/include/ipc
+    cp -r include/ipc $out/include/
+    mkdir -p $out/lib
+    cp build/libbebop_ipc.a $out/lib/
+    runHook postInstall
   '';
 
   meta = with pkgs.lib; {
-    description = "Bebop host IPC libraries";
-    homepage = "https://github.com/betrusted-io/buckyball";
+    description = "Bebop IPC static library";
     license = licenses.asl20;
     platforms = platforms.linux;
   };
