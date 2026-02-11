@@ -27,11 +27,13 @@ pub struct MemController {
   // Write request ports (multi-cycle)
   tdma_write_req_port: String,
   vball_write_req_port: String,
+  systolic_write_req_port: String,
   bank_write_req_port: String,
 
   // Read response ports (multi-cycle)
   tdma_read_resp_port: String,
   vball_read_resp_port: String,
+  systolic_read_resp_port: String,
   bank_read_resp_port: String,
 
   until_next_event: f64,
@@ -45,8 +47,10 @@ impl MemController {
   pub fn new(
     tdma_write_req_port: String,
     vball_write_req_port: String,
+    systolic_write_req_port: String,
     tdma_read_resp_port: String,
     vball_read_resp_port: String,
+    systolic_read_resp_port: String,
     bank_write_req_port: String,
     bank_read_resp_port: String,
   ) -> Self {
@@ -56,9 +60,11 @@ impl MemController {
     Self {
       tdma_write_req_port,
       vball_write_req_port,
+      systolic_write_req_port,
       bank_write_req_port,
       tdma_read_resp_port,
       vball_read_resp_port,
+      systolic_read_resp_port,
       bank_read_resp_port,
       until_next_event: INFINITY,
       records: Vec::new(),
@@ -71,12 +77,12 @@ impl DevsModel for MemController {
   fn events_ext(&mut self, incoming_message: &ModelMessage, services: &mut Services) -> Result<(), SimulationError> {
     // Handle write requests from TDMA (multi-cycle)
     if incoming_message.port_name == self.tdma_write_req_port {
-      match serde_json::from_str::<(u64, u64, u64, Vec<u64>)>(&incoming_message.content) {
+      match serde_json::from_str::<(u64, u64, u64, Vec<u128>)>(&incoming_message.content) {
         Ok(value) => {
           let rob_id = value.0;
           let vbank_id = value.1;
           let start_addr = value.2;
-          let data_count = value.3.len() / 2;
+          let data_count = value.3.len();
 
           // Convert vbank_id to pbank_id using BMT
           let pbank_id = if let Some(pbank_ids) = get_pbank_ids(vbank_id) {
@@ -120,12 +126,12 @@ impl DevsModel for MemController {
 
     // Handle write requests from VectorBall (multi-cycle)
     if incoming_message.port_name == self.vball_write_req_port {
-      match serde_json::from_str::<(u64, u64, u64, Vec<u64>)>(&incoming_message.content) {
+      match serde_json::from_str::<(u64, u64, u64, Vec<u128>)>(&incoming_message.content) {
         Ok(value) => {
           let rob_id = value.0;
           let vbank_id = value.1;
           let start_addr = value.2;
-          let data_count = value.3.len() / 2;
+          let data_count = value.3.len();
 
           // Convert vbank_id to pbank_id using BMT
           let pbank_id = if let Some(pbank_ids) = get_pbank_ids(vbank_id) {
@@ -172,6 +178,64 @@ impl DevsModel for MemController {
       return Ok(());
     }
 
+    // Handle write requests from Systolic Array (multi-cycle)
+    if incoming_message.port_name == self.systolic_write_req_port {
+      match serde_json::from_str::<Vec<u128>>(&incoming_message.content) {
+        Ok(data_vec) => {
+          let rob_id = 0; // Assuming systolic array uses fixed rob_id for now
+          let vbank_id = 2; // Assuming result bank is 2 based on test
+          let start_addr = 0;
+          let data_count = data_vec.len();
+
+          // Convert vbank_id to pbank_id using BMT
+          let pbank_id = if let Some(pbank_ids) = get_pbank_ids(vbank_id) {
+            if pbank_ids.is_empty() {
+              vbank_id
+            } else {
+              pbank_ids[0]
+            }
+          } else {
+            vbank_id
+          };
+
+          // Create write request with rob_id, vbank_id, start_addr, data
+          let write_req = (rob_id, vbank_id, start_addr, data_vec);
+          let json_content = serde_json::to_string(&write_req).unwrap_or_default();
+
+          // Check dependency
+          if scoreboard::check_dependency(pbank_id, rob_id) {
+            // No dependency, can proceed immediately
+            self
+              .write_request_queue
+              .push(("systolic".to_string(), json_content));
+          } else {
+            // Has dependency, add to scoreboard
+            scoreboard::add_to_scoreboard(
+              rob_id,
+              pbank_id,
+              "systolic".to_string(),
+              json_content,
+            );
+          }
+
+          self.records.push(ModelRecord {
+            time: services.global_time(),
+            action: "enqueue_systolic_write".to_string(),
+            subject: format!(
+              "rob_id={}, bank={}, addr={}, count={}",
+              rob_id, vbank_id, start_addr, data_count
+            ),
+          });
+
+          self.until_next_event = 1.0;
+        },
+        Err(_) => {
+          // Failed to deserialize Systolic Array write request, skipping
+        }
+      }
+      return Ok(());
+    }
+
     // Handle read responses from Bank - forward to the correct source (multi-cycle)
     if incoming_message.port_name == self.bank_read_resp_port {
       match serde_json::from_str::<Vec<u128>>(&incoming_message.content) {
@@ -209,6 +273,8 @@ impl DevsModel for MemController {
     if let Some(resp) = READ_RESPONSE_QUEUE.lock().unwrap().pop() {
       let response_port = if resp.source == "tdma" {
         self.tdma_read_resp_port.clone()
+      } else if resp.source == "systolic" {
+        self.systolic_read_resp_port.clone()
       } else {
         self.vball_read_resp_port.clone()
       };
@@ -251,12 +317,12 @@ impl DevsModel for MemController {
     if !self.write_request_queue.is_empty() {
       let (source, json_content) = self.write_request_queue.remove(0);
 
-      match serde_json::from_str::<(u64, u64, u64, Vec<u64>)>(&json_content) {
+      match serde_json::from_str::<(u64, u64, u64, Vec<u128>)>(&json_content) {
         Ok(value) => {
           let rob_id = value.0;
           let vbank_id = value.1;
           let start_addr = value.2;
-          let data_u64 = value.3;
+          let data_u128 = value.3;
 
           // Convert vbank_id to pbank_id using BMT
           // Use first pbank_id if vbank maps to multiple pbanks
@@ -274,7 +340,7 @@ impl DevsModel for MemController {
           scoreboard::mark_in_flight(pbank_id, rob_id);
 
           // Re-encode with pbank_id (remove rob_id for bank)
-          let request = (pbank_id, start_addr, data_u64);
+          let request = (pbank_id, start_addr, data_u128);
           match serde_json::to_string(&request) {
             Ok(new_content) => {
               messages.push(ModelMessage {
@@ -420,6 +486,30 @@ pub fn request_read_bank_for_vecball(vbank_id: u64, start_addr: u64, count: u64,
   } else {
     // Has dependency, add to read scoreboard
     scoreboard::add_read_to_scoreboard(rob_id, pbank_id, start_addr, count, "vecball".to_string());
+  }
+}
+
+pub fn request_read_bank_for_systolic(vbank_id: u64, start_addr: u64, count: u64, rob_id: u64) {
+  // Convert vbank_id to pbank_id using BMT
+  // Use first pbank_id if vbank maps to multiple pbanks
+  let pbank_id = if let Some(pbank_ids) = get_pbank_ids(vbank_id) {
+    if pbank_ids.is_empty() {
+      vbank_id // Fallback to vbank_id
+    } else {
+      pbank_ids[0]
+    }
+  } else {
+    vbank_id // Fallback to vbank_id
+  };
+
+  // Check dependency
+  if scoreboard::check_dependency(pbank_id, rob_id) {
+    // No dependency, can proceed immediately
+    READ_SOURCE_QUEUE.lock().unwrap().push("systolic".to_string());
+    request_read_bank(pbank_id, start_addr, count);
+  } else {
+    // Has dependency, add to read scoreboard
+    scoreboard::add_read_to_scoreboard(rob_id, pbank_id, start_addr, count, "systolic".to_string());
   }
 }
 

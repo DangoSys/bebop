@@ -130,19 +130,19 @@ impl DevsModel for TdmaLoader {
       },
       TdmaLoaderState::Wait => {
         // Wait state: keep sending write request to mem_ctrl
-        // Read DRAM data and send write request
-        let mut data_u64 = Vec::new();
-        for i in 0..self.depth {
-          // 当stride=0时，使用默认步长1，避免所有数据都从同一个地址读取
-          let stride = if self.stride == 0 { 1 } else { self.stride };
-          // 每次读取16字节数据，步长16
-          let dram_addr = self.base_dram_addr + i * 16 * stride;
-          let (data_lo, data_hi) = dma_read_dram(dram_addr);
-          data_u64.push(data_lo);
-          data_u64.push(data_hi);
-        }
+          // Read DRAM data and send write request
+          let mut data_u128 = Vec::new();
+          for i in 0..self.depth {
+            // 当stride=0时，使用默认步长1，避免所有数据都从同一个地址读取
+            let stride = if self.stride == 0 { 1 } else { self.stride };
+            // 每次读取16字节数据，步长16
+            let dram_addr = self.base_dram_addr + i * 16 * stride;
+            let (data_lo, data_hi) = dma_read_dram(dram_addr);
+            let data_128 = (data_hi as u128) << 64 | (data_lo as u128);
+            data_u128.push(data_128);
+          }
 
-        let request = (self.rob_id, self.vbank_id, 0u64, data_u64);
+          let request = (self.rob_id, self.vbank_id, 0u64, data_u128);
         match serde_json::to_string(&request) {
           Ok(content) => {
             messages.push(ModelMessage {
