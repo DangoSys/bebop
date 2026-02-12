@@ -21,35 +21,30 @@
         pkgs = import nixpkgs {
           inherit system overlays;
         };
-
-        bebopCli = pkgs.rustPlatform.buildRustPackage {
-          pname = "bebop-cli";
-          version = "0.1.0";
-          src = builtins.path { path = ./bebop; name = "bebop-cli-src"; };
-          cargoLock.lockFile = ./bebop/Cargo.lock;
-        };
       in
       {
         packages = {
-          bebop = bebopCli;
+          bebop = pkgs.bebop;
           host = pkgs.bebopHost;
-          spike = pkgs.bebopSpike;
-          gem5 = pkgs.bebopGem5;
-          default = bebopCli;
+          spike = pkgs.Spike;
+          gem5 = pkgs.Gem5;
+          default = pkgs.bebop;
         };
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
-            bebopCli
-            pkgs.bebopSpike
-            pkgs.bebopGem5
+            pkgs.bebop
+            pkgs.Spike
+            pkgs.Gem5
             pkgs.rustc
             pkgs.cargo
             pkgs.pkg-config
           ];
           shellHook = ''
             echo "Bebop development shell"
-            echo " - bebop, spike, gem5.opt are available in PATH"
+            echo " - bebop path: $(which bebop)"
+            echo " - spike path: $(which spike)"
+            echo " - gem5.opt path: $(which gem5.opt)"
           '';
         };
 

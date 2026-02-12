@@ -3,7 +3,8 @@
 final: prev:
 
 let
-  bebopHost = final.callPackage ./bebop-install.nix { };
+  bebop = final.callPackage ./bebop-install.nix { };
+  bebopHost = final.callPackage ./bebop-lib-install.nix { };
   spike = final.callPackage ./spike-install.nix {
     inherit bebopHost;
     spikeSrc = spike-src;
@@ -14,6 +15,7 @@ let
   };
 in
 {
+  bebop = bebop;
   bebopHost = bebopHost;
   bebopSpike = spike;
   bebopGem5 = gem5;
