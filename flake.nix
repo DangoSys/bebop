@@ -26,16 +26,16 @@
         packages = {
           bebop = pkgs.bebop;
           host = pkgs.bebopHost;
-          spike = pkgs.Spike;
-          gem5 = pkgs.Gem5;
+          spike = pkgs.bebopSpike;
+          gem5 = pkgs.bebopGem5;
           default = pkgs.bebop;
         };
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
             pkgs.bebop
-            pkgs.Spike
-            pkgs.Gem5
+            pkgs.bebopSpike
+            pkgs.bebopGem5
             pkgs.rustc
             pkgs.cargo
             pkgs.pkg-config
