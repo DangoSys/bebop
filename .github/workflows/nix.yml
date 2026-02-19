@@ -12,11 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/determinate-nix-action@v3
-      - name: Build bebop CLI
-        run: nix build .#bebop
-      - name: Build host IPC
-        run: nix build .#host
-      - name: Build spike
-        run: nix build .#spike
-      - name: Build gem5
-        run: nix build .#gem5
+      - name: nix build
+        run: nix build 
+      - name: nix develop
+        run: nix develop -c which gem5.opt
