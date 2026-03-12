@@ -1,6 +1,0 @@
-[submodule "host/spike/riscv-isa-sim"]
-	path = host/spike/riscv-isa-sim
-	url = https://github.com/riscv-software-src/riscv-isa-sim
-[submodule "host/gem5/gem5"]
-	path = host/gem5/gem5
-	url = https://github.com/gem5/gem5.git

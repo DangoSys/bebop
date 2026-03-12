@@ -1,7 +1,0 @@
-target/
-build/
-m5out/
-result
-
-*.json
-*.o
