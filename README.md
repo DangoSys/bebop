@@ -1,27 +1,21 @@
-# bebop
+# bebop-next
 A buckyball emulator written in Rust
 
 
 ### Quick start
 
-1. Build the repo
+1. Setup the repo
+
 ```
-./scripts/install.sh
+git clone https://github.com/DangoSys/bebop.git
+cd bebop
+git checkout next
 ```
 
-1. Build the simulator
+2. Build the simulator
+
 ```
 cd bebop
-cargo build --release --bin bebop 
 ```
 
-1. Run the simulation
-```
-cd bebop
-./target/release/bebop
-```
 
-run in quiet with only workload logs
-```
-cargo run --release --bin bebop -- -q
-```
