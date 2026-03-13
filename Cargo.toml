@@ -1,0 +1,19 @@
+[workspace]
+members = [".", "src/wasm", "src/tauri/src-tauri"]
+resolver = "2"
+
+[package]
+name = "bebop"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "bebop"
+path = "src/main.rs"
+
+[features]
+gui = ["dep:bebop-tauri-lib"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+bebop-tauri-lib = { path = "src/tauri/src-tauri", optional = true }
