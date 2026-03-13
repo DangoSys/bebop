@@ -1,0 +1,9 @@
+target/
+
+node_modules/
+pnpm-lock.yaml
+dist/
+
+pkg/
+result/
+result
