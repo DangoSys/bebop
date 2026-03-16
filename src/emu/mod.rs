@@ -5,5 +5,6 @@ pub mod bemu;
 pub mod config;
 pub mod instructions;
 pub mod interface;
+pub mod c_api;
 
 pub use bemu::Bemu;

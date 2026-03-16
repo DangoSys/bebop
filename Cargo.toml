@@ -11,9 +11,15 @@ edition = "2021"
 name = "bebop"
 path = "src/main.rs"
 
+[lib]
+name = "bemu"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
 [features]
 gui = ["dep:bebop-tauri-lib"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+log = "0.4"
+env_logger = "0.11"
 bebop-tauri-lib = { path = "src/tauri/src-tauri", optional = true }
