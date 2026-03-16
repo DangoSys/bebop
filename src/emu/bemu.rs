@@ -66,7 +66,10 @@ impl Bemu {
     /// * `xs2` - 源操作数 2（根据指令编码不同参数）
     /// 
     /// # Returns
-    /// * `u64` - 执行结果
+    /// * `u64` - 执行结果：
+    ///   - 成功：返回 funct 码（例如 MSET 返回 23）
+    ///   - 失败：返回 0
+    ///   - 未知指令：返回 u64::MAX
     pub fn execute(&mut self, funct: u32, xs1: u64, xs2: u64) -> u64 {
         self.stats.instructions_executed += 1;
         
@@ -74,15 +77,30 @@ impl Bemu {
         
         let result = match funct {
             // Buckyball 核心指令
-            23 => mset::execute_mset(xs1, xs2, &mut self.bank_configs, &mut self.banks),
-            24 => mvin::execute_mvin(xs1, xs2, &self.memory, &mut self.banks, &self.bank_configs),
-            25 => mvout::execute_mvout(xs1, xs2, &mut self.memory, &self.banks, &self.bank_configs),
-            32 => matmul::execute_mul_warp16(xs1, xs2, &mut self.banks),
-            34 => matmul::execute_transpose(xs1, xs2, &mut self.banks),
+            23 => {
+                let ret = mset::execute_mset(xs1, xs2, &mut self.bank_configs, &mut self.banks);
+                if ret == 0 { funct as u64 } else { 0u64 }  // 成功返回 funct
+            },
+            24 => {
+                let ret = mvin::execute_mvin(xs1, xs2, &self.memory, &mut self.banks, &self.bank_configs);
+                if ret == 0 { funct as u64 } else { 0u64 }
+            },
+            25 => {
+                let ret = mvout::execute_mvout(xs1, xs2, &mut self.memory, &self.banks, &self.bank_configs);
+                if ret == 0 { funct as u64 } else { 0u64 }
+            },
+            32 => {
+                let ret = matmul::execute_mul_warp16(xs1, xs2, &mut self.banks);
+                if ret == 0 { funct as u64 } else { 0u64 }
+            },
+            34 => {
+                let ret = matmul::execute_transpose(xs1, xs2, &mut self.banks);
+                if ret == 0 { funct as u64 } else { 0u64 }
+            },
             
             _ => {
                 error!("Bemu: Unknown funct={}", funct);
-                0
+                u64::MAX  // 未知指令返回特殊值
             }
         };
         
@@ -200,31 +218,36 @@ mod tests {
         // 分配 bank 0
         bemu.execute(23, 0, 1 | (1 << 5) | (1 << 10));
         
-        // 准备测试数据（按 16 字节 stride 排列）
-        let test_data = [0x1111111111111111u64, 0x2222222222222222, 0x3333333333333333];
+        // 准备测试数据（16 字节块格式，每个块包含 2 个 u64）
+        let test_values: [(u64, u64); 3] = [
+            (0x1111111111111111u64, 0xAAAAAAAAAAAAAAAAu64),
+            (0x2222222222222222u64, 0xBBBBBBBBBBBBBBBBu64),
+            (0x3333333333333333u64, 0xCCCCCCCCCCCCCCCCu64),
+        ];
         let mem_addr = 0x100u64;
-        // 按 16 字节 stride 写入内存
-        for (i, &val) in test_data.iter().enumerate() {
-            let addr = mem_addr + (i as u64 * 16);  // stride=1 (16 字节)
-            bemu.write_u64(addr, val);
+        // 按 16 字节块写入内存
+        for (i, &(low, high)) in test_values.iter().enumerate() {
+            let addr = mem_addr + (i as u64 * 16);
+            bemu.write_u64(addr, low);
+            bemu.write_u64(addr + 8, high);
         }
         
         // MVIN: 从内存加载到 bank 0
-        // xs1 = BB_BANK0(bank_id) | BB_WR | FIELD(mem_addr, 27, 58)
-        // bank_id=0, mem_addr=0x100
         let xs1 = 0 | (0x100 << 27);
-        // xs2 = FIELD(depth, 0, 9) | FIELD(stride, 10, 28)
-        // depth=3, stride=1 (16 字节为单位)
         let xs2 = 3 | (1 << 10);
         bemu.execute(24, xs1, xs2);
         
-        // 验证 bank 中的数据
-        for (i, &expected) in test_data.iter().enumerate() {
-            let offset = i * 8;
-            let actual = u64::from_le_bytes(
+        // 验证 bank 中的数据（每个块 16 字节）
+        for (i, &(expected_low, expected_high)) in test_values.iter().enumerate() {
+            let offset = i * 16;
+            let actual_low = u64::from_le_bytes(
                 bemu.banks[0][offset..offset + 8].try_into().unwrap()
             );
-            assert_eq!(actual, expected, "Data mismatch at index {}", i);
+            let actual_high = u64::from_le_bytes(
+                bemu.banks[0][offset + 8..offset + 16].try_into().unwrap()
+            );
+            assert_eq!(actual_low, expected_low, "Low mismatch at index {}", i);
+            assert_eq!(actual_high, expected_high, "High mismatch at index {}", i);
         }
         
         // MVOUT: 从 bank 存储到内存
@@ -232,11 +255,13 @@ mod tests {
         let xs1_out = 0 | (out_addr << 27);
         bemu.execute(25, xs1_out, xs2);
         
-        // 验证内存中的数据（按 16 字节 stride 读取）
-        for (i, &expected) in test_data.iter().enumerate() {
+        // 验证内存中的数据（每个块 16 字节）
+        for (i, &(expected_low, expected_high)) in test_values.iter().enumerate() {
             let addr = out_addr + (i * 16) as u64;
-            let actual = bemu.read_u64(addr);
-            assert_eq!(actual, expected, "Output mismatch at index {}", i);
+            let actual_low = bemu.read_u64(addr);
+            let actual_high = bemu.read_u64(addr + 8);
+            assert_eq!(actual_low, expected_low, "Low mismatch at index {}", i);
+            assert_eq!(actual_high, expected_high, "High mismatch at index {}", i);
         }
         
         println!("MVIN/MVOUT test passed!");

@@ -103,12 +103,20 @@ mod tests {
         // 分配 bank 0
         bank_configs[0].allocated = true;
         
-        // 准备测试数据（按 16 字节 stride 排列）
-        let test_data = [0x1111111111111111u64, 0x2222222222222222, 0x3333333333333333];
+        // 准备测试数据（16 字节块，每个块包含 2 个 u64）
+        // 格式：[value1_low][value1_high][value2_low][value2_high]...
+        let test_values: [(u64, u64); 3] = [
+            (0x1111111111111111u64, 0xAAAAAAAAAAAAAAAAu64),  // 第 1 块：2 个 u64
+            (0x2222222222222222u64, 0xBBBBBBBBBBBBBBBBu64),  // 第 2 块：2 个 u64
+            (0x3333333333333333u64, 0xCCCCCCCCCCCCCCCCu64),  // 第 3 块：2 个 u64
+        ];
+        
         let mem_addr = 0x100u64;
-        for (i, &val) in test_data.iter().enumerate() {
+        for (i, &(low, high)) in test_values.iter().enumerate() {
+            // 每个块 16 字节
             let addr = (mem_addr + (i as u64 * 16)) as usize;
-            memory[addr..addr + 8].copy_from_slice(&val.to_le_bytes());
+            memory[addr..addr + 8].copy_from_slice(&low.to_le_bytes());
+            memory[addr + 8..addr + 16].copy_from_slice(&high.to_le_bytes());
         }
         
         // MVIN: 从内存加载到 bank 0
@@ -116,13 +124,17 @@ mod tests {
         let xs2 = 3 | (1 << 10);      // depth=3, stride=1
         execute_mvin(xs1, xs2, &memory, &mut banks, &bank_configs);
         
-        // 验证 bank 中的数据
-        for (i, &expected) in test_data.iter().enumerate() {
-            let offset = i * 8;
-            let actual = u64::from_le_bytes(
+        // 验证 bank 中的数据（每个块 16 字节）
+        for (i, &(expected_low, expected_high)) in test_values.iter().enumerate() {
+            let offset = i * 16;
+            let actual_low = u64::from_le_bytes(
                 banks[0][offset..offset + 8].try_into().unwrap()
             );
-            assert_eq!(actual, expected, "Data mismatch at index {}", i);
+            let actual_high = u64::from_le_bytes(
+                banks[0][offset + 8..offset + 16].try_into().unwrap()
+            );
+            assert_eq!(actual_low, expected_low, "Low mismatch at index {}", i);
+            assert_eq!(actual_high, expected_high, "High mismatch at index {}", i);
         }
     }
 }

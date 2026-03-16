@@ -8,7 +8,8 @@
 /// - 日志输出
 
 use log::{debug, error, info};
-use crate::emu::{Bemu, config::BemuStats};
+use crate::emu::bemu::Bemu;
+use crate::emu::config::BemuStats;
 
 /// Spike 回调函数结果类型
 pub type SpikeResult = Result<u64, SpikeError>;
@@ -246,11 +247,6 @@ impl SpikeCallbacks for BemuSpikeInterface {
         
         // 直接写入 BEMU 内存（假设地址已经是虚拟地址）
         self.bemu.write_memory(addr, data);
-        
-        if self.verbose {
-            debug!("Memory synced successfully: addr=0x{:x}", addr);
-        }
-        
         Ok(())
     }
     
@@ -262,91 +258,6 @@ impl SpikeCallbacks for BemuSpikeInterface {
         self.bemu.reset_stats();
         self.instruction_count = 0;
         info!("BEMU statistics reset");
-    }
-}
-
-/// 辅助函数：从 Spike 自定义指令字段的回调
-/// 
-/// 这是一个 C 兼容的接口，用于从 Spike C++ 代码调用
-/// 
-/// # Safety
-/// 此函数是 unsafe 的，因为涉及到原始指针操作
-#[no_mangle]
-pub unsafe extern "C" fn spike_bemu_handle_custom(
-    interface: *mut BemuSpikeInterface,
-    funct: u32,
-    xs1: u64,
-    xs2: u64,
-    result: *mut u64,
-) -> i32 {
-    if interface.is_null() || result.is_null() {
-        error!("Null pointer passed to spike_bemu_handle_custom");
-        return -1;
-    }
-    
-    let interface = &mut *interface;
-    let params = SpikeCallbackParams::new(funct, xs1, xs2);
-    
-    match interface.handle_custom_instruction(&params) {
-        Ok(res) => {
-            *result = res;
-            0 // 成功
-        }
-        Err(e) => {
-            error!("Spike callback error: {:?}", e);
-            -2 // 错误码
-        }
-    }
-}
-
-/// 辅助函数：创建新的 BEMU Spike 接口
-/// 
-/// # Safety
-/// 返回的指针需要通过 `spike_bemu_free_interface` 释放
-#[no_mangle]
-pub unsafe extern "C" fn spike_bemu_create_interface(verbose: bool) -> *mut BemuSpikeInterface {
-    info!("Creating BEMU Spike interface (verbose={})", verbose);
-    let interface = Box::new(BemuSpikeInterface::with_verbose(verbose));
-    Box::into_raw(interface)
-}
-
-/// 辅助函数：释放 BEMU Spike 接口
-/// 
-/// # Safety
-/// 只能释放通过 `spike_bemu_create_interface` 创建的接口
-#[no_mangle]
-pub unsafe extern "C" fn spike_bemu_free_interface(interface: *mut BemuSpikeInterface) {
-    if !interface.is_null() {
-        info!("Destroying BEMU Spike interface");
-        let _ = Box::from_raw(interface);
-    }
-}
-
-/// 辅助函数：同步内存
-/// 
-/// # Safety
-/// 涉及原始指针操作
-#[no_mangle]
-pub unsafe extern "C" fn spike_bemu_sync_memory(
-    interface: *mut BemuSpikeInterface,
-    addr: u64,
-    data: *const u8,
-    size: usize,
-) -> i32 {
-    if interface.is_null() || data.is_null() {
-        error!("Null pointer passed to spike_bemu_sync_memory");
-        return -1;
-    }
-    
-    let interface = &mut *interface;
-    let slice = std::slice::from_raw_parts(data, size);
-    
-    match interface.sync_memory(addr, slice) {
-        Ok(()) => 0,
-        Err(e) => {
-            error!("Memory sync error: {:?}", e);
-            -3
-        }
     }
 }
 

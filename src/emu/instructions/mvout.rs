@@ -99,12 +99,17 @@ mod tests {
         let mut banks: Vec<Vec<u8>> = (0..BANK_NUM).map(|_| vec![0; BANK_SIZE]).collect();
         let mut bank_configs = [BankConfig::default(); BANK_NUM];
         
-        // 分配 bank 0 并写入数据
+        // 分配 bank 0 并写入数据（16 字节块格式）
         bank_configs[0].allocated = true;
-        let test_data = [0x1111111111111111u64, 0x2222222222222222, 0x3333333333333333];
-        for (i, &val) in test_data.iter().enumerate() {
-            let offset = i * 8;
-            banks[0][offset..offset + 8].copy_from_slice(&val.to_le_bytes());
+        let test_values: [(u64, u64); 3] = [
+            (0x1111111111111111u64, 0xAAAAAAAAAAAAAAAAu64),
+            (0x2222222222222222u64, 0xBBBBBBBBBBBBBBBBu64),
+            (0x3333333333333333u64, 0xCCCCCCCCCCCCCCCCu64),
+        ];
+        for (i, &(low, high)) in test_values.iter().enumerate() {
+            let offset = i * 16;
+            banks[0][offset..offset + 8].copy_from_slice(&low.to_le_bytes());
+            banks[0][offset + 8..offset + 16].copy_from_slice(&high.to_le_bytes());
         }
         
         // MVOUT: 从 bank 存储到内存
@@ -113,13 +118,17 @@ mod tests {
         let xs2 = 3 | (1 << 10);         // depth=3, stride=1
         execute_mvout(xs1, xs2, &mut memory, &banks, &bank_configs);
         
-        // 验证内存中的数据（按 16 字节 stride 读取）
-        for (i, &expected) in test_data.iter().enumerate() {
-            let addr = out_addr + (i * 16) as u64;
-            let actual = u64::from_le_bytes(
-                memory[addr as usize..addr as usize + 8].try_into().unwrap()
+        // 验证内存中的数据（每个块 16 字节）
+        for (i, &(expected_low, expected_high)) in test_values.iter().enumerate() {
+            let addr = (out_addr + (i * 16) as u64) as usize;
+            let actual_low = u64::from_le_bytes(
+                memory[addr..addr + 8].try_into().unwrap()
             );
-            assert_eq!(actual, expected, "Output mismatch at index {}", i);
+            let actual_high = u64::from_le_bytes(
+                memory[addr + 8..addr + 16].try_into().unwrap()
+            );
+            assert_eq!(actual_low, expected_low, "Low mismatch at index {}", i);
+            assert_eq!(actual_high, expected_high, "High mismatch at index {}", i);
         }
     }
 }
