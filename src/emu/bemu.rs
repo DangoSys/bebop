@@ -127,25 +127,21 @@ impl Bemu {
         }
     }
 
-    /// 直接写入内存（用于测试初始化）
+    /// 直接写入内存。地址按 512KB 取模，使 Spike guest 任意 VA 可映射到 BEMU 空间。
     pub fn write_memory(&mut self, addr: u64, data: &[u8]) {
-        let addr = addr as usize;
+        let len = self.memory.len();
         for (i, &byte) in data.iter().enumerate() {
-            if addr + i < self.memory.len() {
-                self.memory[addr + i] = byte;
-            }
+            let idx = ((addr as usize) + i) % len;
+            self.memory[idx] = byte;
         }
     }
 
-    /// 直接读取内存（用于测试验证）
-    pub fn read_memory(&self, addr: u64, size: usize) -> &[u8] {
-        let addr = addr as usize;
-        // 边界检查
-        if addr + size > self.memory.len() {
-            error!("Read out of bounds: addr=0x{:x}, size={}", addr, size);
-            return &[];
-        }
-        &self.memory[addr..addr + size]
+    /// 直接读取内存，返回 Vec。地址按 512KB 取模。
+    pub fn read_memory(&self, addr: u64, size: usize) -> Vec<u8> {
+        let len = self.memory.len();
+        (0..size)
+            .map(|i| self.memory[((addr as usize) + i) % len])
+            .collect()
     }
 
     /// 写入 u64 到内存（用于测试）

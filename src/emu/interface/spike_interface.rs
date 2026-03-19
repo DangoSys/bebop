@@ -173,19 +173,10 @@ impl BemuSpikeInterface {
         &mut self.bemu
     }
     
-    /// 从内存读取数据
+    /// 从内存读取数据（BEMU 内地址按 512KB 取模）
     pub fn read_memory(&self, addr: u64, size: usize) -> Result<Vec<u8>, SpikeError> {
-        // 检查地址和大小是否会导致溢出
-        let end_addr = addr.checked_add(size as u64)
-            .ok_or_else(|| SpikeError::InvalidMemoryAccess(addr))?;
-        
-        if end_addr as usize > crate::emu::config::TOTAL_MEMORY_SIZE {
-            return Err(SpikeError::InvalidMemoryAccess(addr));
-        }
-        
-        // 使用 Bemu 的 read_memory 方法读取数据
-        let data = self.bemu.read_memory(addr, size);
-        Ok(data.to_vec())
+        let _ = addr.checked_add(size as u64).ok_or_else(|| SpikeError::InvalidMemoryAccess(addr))?;
+        Ok(self.bemu.read_memory(addr, size))
     }
     
     /// 执行指令并记录日志
@@ -302,12 +293,11 @@ mod tests {
         let result = interface.handle_custom_instruction(&params);
         assert!(result.is_ok());
         
-        // 测试未知指令（现在会执行但不会报错，只是不会做任何事）
+        // 未知指令：BEMU 返回 u64::MAX，Spike 扩展可据此抛 illegal_instruction
         let params = SpikeCallbackParams::new(99, 0, 0);
         let result = interface.handle_custom_instruction(&params);
-        // 未知指令会返回 0（在 Bemu::execute 中处理）
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 0);
+        assert_eq!(result.unwrap(), u64::MAX);
     }
     
     #[test]
