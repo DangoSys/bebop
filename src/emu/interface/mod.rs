@@ -9,5 +9,3 @@
 
 pub mod capi_exports;
 pub mod spike_interface;
-
-pub use spike_interface::{BemuSpikeInterface, SpikeCallbackParams};

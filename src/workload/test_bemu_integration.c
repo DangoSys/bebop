@@ -2,14 +2,20 @@
  * Integration test: MSET, MVIN, MUL_WARP16, MVOUT, TRANSPOSE, MVOUT.
  * Verifies full pipeline and memory sync between Spike and BEMU.
  */
+#include "bebop_insn.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include "bebop_insn.h"
 
-#define CHECK(cond, msg) do { if (!(cond)) { fprintf(stderr, "FAIL: %s\n", msg); exit(1); } } while (0)
+#define CHECK(cond, msg)                                                                           \
+  do {                                                                                             \
+    if (!(cond)) {                                                                                 \
+      fprintf(stderr, "FAIL: %s\n", msg);                                                          \
+      exit(1);                                                                                     \
+    }                                                                                              \
+  } while (0)
 
-#define N        16
-#define MAT_SZ   (N * N * sizeof(uint64_t))
+#define N 16
+#define MAT_SZ (N * N * sizeof(uint64_t))
 #define N_BLOCKS (MAT_SZ / 16)
 
 static uint64_t mat_a[N][N] __attribute__((aligned(16)));
@@ -17,18 +23,15 @@ static uint64_t mat_b[N][N] __attribute__((aligned(16)));
 static uint64_t mat_c[N][N] __attribute__((aligned(16)));
 static uint64_t mat_ct[N][N] __attribute__((aligned(16)));
 
-static uint64_t make_mvin_xs1(unsigned bank_id, uintptr_t mem_addr)
-{
+static uint64_t make_mvin_xs1(unsigned bank_id, uintptr_t mem_addr) {
   return (bank_id & 0x1F) | (((uint64_t)(uint32_t)mem_addr) << 27);
 }
 
-static uint64_t make_mvin_xs2(unsigned depth, unsigned stride)
-{
+static uint64_t make_mvin_xs2(unsigned depth, unsigned stride) {
   return (depth & 0x3FF) | ((stride & 0x7FFFF) << 10);
 }
 
-int main(void)
-{
+int main(void) {
   printf("BEMU integration test (full pipeline)\n");
 
   for (int i = 0; i < N; i++)

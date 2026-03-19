@@ -1,64 +1,43 @@
 # BEMU 与 Spike 集成说明
 
-本目录实现了 **BEMU**（Bebop Emulator，Buckyball 自定义指令 Golden Model）与 **Spike**（RISC-V ISA 模拟器）的集成：在 Spike 上运行真实 RISC-V 程序时，当程序执行到 **custom-0**（opcode 0x0b）自定义指令，Spike 会通过 RoCC 扩展自动调用 BEMU 执行指令语义。
+本目录实现 **BEMU**（Bebop Emulator，Buckyball 自定义指令 Golden Model）与 **Spike**（RISC-V ISA 模拟器）的集成：guest 执行 **custom-0**（opcode `0x0b`）时，Spike 通过 RoCC 扩展 `bebop_rocc` 与 **独立 BEMU 进程** 通过 **POSIX 共享内存** 做 RPC，不再在 Spike 进程内 `dlopen` `libbemu.so`。
 
 ## 架构概览
 
-- **BEMU**（`src/emu`）：Rust 实现的 Buckyball 自定义指令 Golden Model，通过 C API（`bemu_create_interface`、`bemu_handle_custom` 等）对外提供接口。
-- **libbemu.so**：由 `cargo build --release` 生成的动态库，导出上述 C API。
-- **bebop_rocc**：Spike 的 customext 扩展（`examples/bebop_rocc.cc`，由 CMake/Ninja 构建为 `libbebop_rocc.so`），在 custom-0 指令命中时通过 **dlopen** 加载 libbemu.so 并调用 `bemu_handle_custom(funct, xs1, xs2)`，将返回值写回 rd。并对 **MVIN/MVOUT** 做内存同步：
-  - **MVIN**（funct=24）：执行前按 xs1/xs2 解码的 mem_addr、depth、stride，从 Spike 的 MMU 读取对应 16 字节块，经 `bemu_sync_memory` 写入 BEMU 内存，再执行 BEMU 的 MVIN。
-  - **MVOUT**（funct=25）：执行 BEMU 的 MVOUT 后，用 `bemu_read_memory` 从 BEMU 读出对应范围，再经 Spike MMU 写回 Spike 内存。
+- **BEMU**（`src/emu`）：Rust golden model；在 **`bebop worker-shm`** 子进程里跑（与 Spike 并行），直接调用 `Bemu::execute` / `write_memory` / `read_memory`。
+- **共享内存布局**（须与 C++ 一致）：[`src/workload/bebop_shm.h`](../workload/bebop_shm.h) 与 [`src/shm/layout.rs`](../shm/layout.rs)。控制字段含 `req` / `ack`（C++ 侧用 `std::atomic_ref`），操作码：`HANDLE` / `SYNC` / `READ` / `SHUTDOWN`。
+- **`bebop_rocc`**（[`src/workload/bebop_rocc.cc`](../workload/bebop_rocc.cc) → `libbebop_rocc.so`）：在 custom-0 路径上 `mmap` 环境变量 **`BEBOP_SHM_NAME`** 指向的段，通过 `req`/`ack` 与 worker 同步；**MVIN** 仍从 Spike MMU 读块，经 **`OP_SYNC`** 写入 BEMU；**MVOUT** 经 **`OP_READ`** 取回再写 MMU；普通指令走 **`OP_HANDLE`**。
+- **`bebop spike-test`**：CLI 在 [`src/cli.rs`](../cli.rs)；仿真流程在 [`src/bebop.rs`](../bebop.rs)（创建 shm → `spawn` **`worker-shm`** → 设置 `BEBOP_SHM_NAME` 与 `LD_LIBRARY_PATH` 后启动 `spike --extension=bebop_rocc pk <elf>` → **`rpc_shutdown`** → `shm_unlink`）。
 
-程序中的自定义指令编码为 RISC-V custom-0（opcode 0x0b），funct7 与 rs1/rs2 传递 BEMU 的 funct、xs1、xs2。这样程序用 load/store 访问的地址与 BEMU 的 MVIN/MVOUT 所用地址一致，Spike 与 BEMU 共享同一份“主存”视图。
+程序中的自定义指令为 RISC-V custom-0；funct7 / rs1 / rs2 对应 BEMU 的 funct、xs1、xs2。MVIN/MVOUT 使用 guest 虚地址；BEMU 内地址按 512KB 取模，与 Spike 同步后语义一致。
 
 ## 完整流程（按顺序执行）
 
 ### 方式 A：`bebop` CLI（推荐）
 
+在仓库根目录（需 `spike`、`pk`、RISC-V 交叉编译器在 `PATH` 中，例如 `nix develop`）。先 **`cargo build --release`** 得到 `./target/release/bebop`。
+
 ```bash
 cargo build --release
-./target/release/bebop prepare # cmake + ninja：libbemu、libbebop_rocc.so、测试 ELF
-./target/release/bebopbebop spike-test       # 默认只跑 test_bemu_custom
-./target/release/bebopbebop spike-test --all # 五个测试全部跑
+./target/release/bebop workload
+./target/release/bebop spike-test
+./target/release/bebop spike-test --all
 ```
 
-`prepare` 等价于对 `examples/` 执行 `cmake -S … -B build -G Ninja` 并 `ninja` 构建上述目标；`spike-test` 会设置与 CMake `run` / `run-all` 相同的 `LD_LIBRARY_PATH`，再执行 `spike --extension=bebop_rocc pk <elf>`。
+- **`cargo build --release`**：bebop CLI、`libbemu.so` 等 Rust workspace。
+- **`bebop workload`**：仅对 **`src/workload`** 执行 **`cmake` + `ninja`**（RISC-V ELF 与 `libbebop_rocc.so`）。
+- **`bebop spike-test`**：不自动构建；缺产物时会报错并提示先执行 **`bebop workload`**。
 
-### 方式 B：手动 CMake / Ninja
-
-#### 步骤 1：构建 libbemu.so
-
-在仓库根目录：
+### 方式 B：只构建 workload、不跑测试
 
 ```bash
-nix develop
-cargo build --release
+cmake -S src/workload -B src/workload/build -G Ninja
+ninja -C src/workload/build
 ```
 
-得到 `target/release/libbemu.so`。
+（需要 bebop CLI 时在仓库根执行 **`cargo build --release`**。）
 
-#### 步骤 2：编译 RISC-V 测试程序
-
-```bash
-cd examples
-cmake -S . -B build -G Ninja
-ninja -C build test_bemu_custom
-```
-
-#### 步骤 3：运行测试
-
-```bash
-cd examples
-ninja -C build run
-```
-
-一键跑全部测试（MSET、MVIN/MVOUT、MUL_WARP16、TRANSPOSE、综合）：
-
-```bash
-cd examples
-ninja -C build run-all
-```
+跑 Spike 测试请用 **`bebop spike-test`** / **`bebop spike-test --all`**。
 
 ## 测试内容
 
@@ -70,24 +49,19 @@ ninja -C build run-all
 | `test_bemu_transpose` | MSET, MVIN, TRANSPOSE, MVOUT | 16×16 矩阵转置，校验 |
 | `test_bemu_integration` | 全部 | MSET→MVIN(A,B)→MUL_WARP16→MVOUT(C)→TRANSPOSE→MVOUT(Ct)，校验 C=B、Ct=B^T |
 
-程序中的 MVIN/MVOUT 使用 guest 虚地址（如全局 buffer）；BEMU 内将地址按 512KB 取模，与 Spike 内存同步后语义一致。
-
 ## 配置文件
 
-`BEMU` 运行时从 `src/emu/config.toml` 读取配置（TOML 序列化文件）。
+`BEMU` 运行时从 `src/emu/config.toml` 读取配置。
 
 - 默认路径：`src/emu/config.toml`
 - 可通过环境变量 `BEMU_CONFIG` 指定自定义路径
 - 读取或解析失败会直接报错退出，不会静默回退默认行为
-- 当前实现使用定长数组，`bank_num / bank_width / bank_lines / matrix_size` 需与硬件常量一致
 
 ## 文件说明
 
 | 路径 | 说明 |
 |-----|------|
 | `src/emu/` | BEMU 实现（Rust） |
-| `src/emu/interface/capi_exports.rs` | BEMU C API 导出 |
-| `examples/bebop_rocc.cc` | Spike customext 动态库实现（`libbebop_rocc.so`） |
-| `examples/bebop_insn.h` | 测试程序用 custom-0 编码与封装 |
-| `examples/test_bemu_custom.c` | 调用 MSET 的 C 测试 |
-| `examples/CMakeLists.txt` | 编译测试程序与运行目标（`run` / `run-all`） |
+| `src/emu/interface/capi_exports.rs` | C API（仍可供其他宿主 `dlopen`） |
+| `src/shm/` | POSIX shm、`worker-shm`、与 `bebop_shm.h` 对齐的布局 |
+| `src/workload/` | RISC-V 测试 C 程序、`bebop_rocc.cc`、`bebop_shm.h`、`bebop_insn.h`、`CMakeLists.txt` |

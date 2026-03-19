@@ -1,18 +1,23 @@
 mod bebop;
+mod cli;
 mod emu;
 mod shm;
+mod workload;
+
+use std::env;
 
 use clap::Parser;
-use log::error;
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    let cli = bebop::Cli::parse();
-    if cli.verbose {
-        log::set_max_level(log::LevelFilter::Debug);
+    let cli = cli::Cli::parse();
+    // `worker-shm` is a separate process: it never sees `-v` on argv. Put level in env so child inherits.
+    if cli.verbose && env::var_os("RUST_LOG").is_none() {
+        env::set_var("RUST_LOG", "info");
     }
-    if let Err(e) = bebop::dispatch(cli) {
-        error!("{e}");
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("off")).init();
+
+    if let Err(e) = cli::dispatch(cli) {
+        eprintln!("error: {e}");
         std::process::exit(1);
     }
 }
