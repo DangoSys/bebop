@@ -27,7 +27,7 @@ impl EmuConfig {
     }
 
     pub fn load() -> Result<Self, String> {
-        let root = std::env::var("BEBOP_PATH").map_err(|_| "BEBOP_PATH is not set".to_string())?;
+        let root = std::env::var("BEBOP_DIR").map_err(|_| "BEBOP_DIR is not set".to_string())?;
         let path = Path::new(&root).join("src/emu/configs/config.toml");
         Self::load_from(path.as_path())
     }

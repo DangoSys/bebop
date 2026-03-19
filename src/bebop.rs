@@ -49,7 +49,10 @@ pub fn spike_tests(all: bool) -> Result<(), String> {
     let spike_lib = spike_lib_dir(&spike)?;
     let rocc = build.join("libbebop_rocc.so");
     if !rocc.is_file() {
-        return Err(format!("missing {} — run `bebop workload`", rocc.display()));
+        return Err(format!(
+            "missing {} — set BEBOP_DIR and run `bebop workload` (or use `cargo build` binary from this repo)",
+            rocc.display()
+        ));
     }
 
     let ld = ld_library_path_spike(&spike_lib, &build);
@@ -62,7 +65,10 @@ pub fn spike_tests(all: bool) -> Result<(), String> {
     for exe in list {
         let elf = build.join(exe);
         if !elf.is_file() {
-            return Err(format!("missing {} — run `bebop workload`", elf.display()));
+            return Err(format!(
+                "missing {} — set BEBOP_DIR and run `bebop workload` (or use `cargo build` binary from this repo)",
+                elf.display()
+            ));
         }
         run_spike_pk(&spike, &pk, &elf, &ld)?;
     }

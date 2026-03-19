@@ -1,7 +1,12 @@
 //! Spike workloads: RISC-V tests, `bebop_rocc`, headers, CMake (`bebop workload`).
 //! Rust 侧在仓库根 **`cargo build --release`**。Spike 仿真在 `src/bebop.rs`。
+//!
+//! `nix build` / `cargo install` 二进制里 **`CARGO_MANIFEST_DIR`** 指向沙箱源码路径，在运行时往往不存在。
+//! 解析顺序：**`BEBOP_DIR`**（仓库根，须指向含 `src/workload/CMakeLists.txt` 的目录；`nix develop` shellHook 会设）→
+//! 否则回退编译期 **`CARGO_MANIFEST_DIR`**（本机 **`cargo build`** / **`cargo run`** 时有效；`nix build` 产物需设 `BEBOP_DIR`）。
 
-use std::path::PathBuf;
+use std::env;
+use std::path::{Path, PathBuf};
 
 mod prep;
 
@@ -19,7 +24,18 @@ pub const TEST_ELF_NAMES: &[&str] = &[
     "test_bemu_integration",
 ];
 
+fn is_bebop_repo_root(p: &Path) -> bool {
+    p.join("src/workload/CMakeLists.txt").is_file()
+}
+
+/// 仓库根（含 `src/workload` 的那一层）。
 pub fn repo_root() -> PathBuf {
+    if let Ok(s) = env::var("BEBOP_DIR") {
+        let r = PathBuf::from(s.trim());
+        if is_bebop_repo_root(&r) {
+            return r;
+        }
+    }
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
