@@ -1,3 +1,0 @@
-[submodule "thirdparty/spike"]
-	path = thirdparty/spike
-	url = https://github.com/riscv-software-src/riscv-isa-sim.git
