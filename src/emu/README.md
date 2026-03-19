@@ -14,7 +14,20 @@
 
 ## 完整流程（按顺序执行）
 
-### 步骤 1：构建 libbemu.so
+### 方式 A：`bebop` CLI（推荐）
+
+```bash
+cargo build --release
+./target/release/bebop prepare # cmake + ninja：libbemu、libbebop_rocc.so、测试 ELF
+./target/release/bebopbebop spike-test       # 默认只跑 test_bemu_custom
+./target/release/bebopbebop spike-test --all # 五个测试全部跑
+```
+
+`prepare` 等价于对 `examples/` 执行 `cmake -S … -B build -G Ninja` 并 `ninja` 构建上述目标；`spike-test` 会设置与 CMake `run` / `run-all` 相同的 `LD_LIBRARY_PATH`，再执行 `spike --extension=bebop_rocc pk <elf>`。
+
+### 方式 B：手动 CMake / Ninja
+
+#### 步骤 1：构建 libbemu.so
 
 在仓库根目录：
 
@@ -25,8 +38,7 @@ cargo build --release
 
 得到 `target/release/libbemu.so`。
 
-
-### 步骤 2：编译 RISC-V 测试程序
+#### 步骤 2：编译 RISC-V 测试程序
 
 ```bash
 cd examples
@@ -34,7 +46,7 @@ cmake -S . -B build -G Ninja
 ninja -C build test_bemu_custom
 ```
 
-### 步骤 3：运行测试
+#### 步骤 3：运行测试
 
 ```bash
 cd examples

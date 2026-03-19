@@ -20,8 +20,10 @@ gui = ["dep:bebop-tauri-lib"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+libc = "0.2"
 log = "0.4"
 env_logger = "0.11"
+nix = { version = "0.29", features = ["fs", "mman"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 bebop-tauri-lib = { path = "src/tauri/src-tauri", optional = true }
