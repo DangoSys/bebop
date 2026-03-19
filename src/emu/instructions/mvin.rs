@@ -70,23 +70,14 @@ pub fn execute_mvin(
     0
 }
 
-/// 从内存读取 u64
+/// 从内存读取 u64，地址按 memory.len() 取模以支持 guest VA 映射
 fn read_u64_from_memory(memory: &[u8], addr: u64) -> u64 {
-    let addr = addr as usize;
-    if addr + 8 > memory.len() {
-        error!("Read out of bounds: addr=0x{:x}", addr);
-        return 0;
+    let len = memory.len();
+    let mut bytes = [0u8; 8];
+    for (i, b) in bytes.iter_mut().enumerate() {
+        *b = memory[((addr as usize) + i) % len];
     }
-    u64::from_le_bytes([
-        memory[addr],
-        memory[addr + 1],
-        memory[addr + 2],
-        memory[addr + 3],
-        memory[addr + 4],
-        memory[addr + 5],
-        memory[addr + 6],
-        memory[addr + 7],
-    ])
+    u64::from_le_bytes(bytes)
 }
 
 #[cfg(test)]

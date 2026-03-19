@@ -75,16 +75,12 @@ pub fn execute_mvout(
     0
 }
 
-/// 写入 u64 到内存
+/// 写入 u64 到内存，地址按 memory.len() 取模
 fn write_u64_to_memory(memory: &mut [u8], addr: u64, value: u64) {
-    let addr = addr as usize;
-    if addr + 8 > memory.len() {
-        error!("Write out of bounds: addr=0x{:x}", addr);
-        return;
-    }
+    let len = memory.len();
     let bytes = value.to_le_bytes();
     for (i, &byte) in bytes.iter().enumerate() {
-        memory[addr + i] = byte;
+        memory[((addr as usize) + i) % len] = byte;
     }
 }
 
