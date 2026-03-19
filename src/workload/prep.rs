@@ -10,7 +10,16 @@ pub(super) fn run() -> Result<(), String> {
     let wl = dir();
     let out = build_dir();
     if !wl.is_dir() {
-        return Err(format!("workload dir missing: {}", wl.display()));
+        let s = wl.display().to_string();
+        let stale = s.contains("/nix/store") || s.contains("/build/");
+        let rebuild = if stale {
+            " If the path looks like a Nix build sandbox, rebuild `bebop` from this repo so path discovery is included."
+        } else {
+            ""
+        };
+        return Err(format!(
+            "workload dir missing: {s} — export BEBOP_DIR to your bebop repo root (absolute path).{rebuild}"
+        ));
     }
     info!("cmake: {} -> {}", wl.display(), out.display());
     let st = Command::new("cmake")

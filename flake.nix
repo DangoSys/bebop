@@ -17,6 +17,15 @@
         tauriEnv = import ./scripts/nix/tauri.nix { inherit pkgs rustToolchain; };
         spikeEnv = import ./scripts/nix/spike.nix { inherit pkgs; };
         riscvEnv = import ./scripts/nix/riscv.nix { inherit pkgs; };
+
+        bebopCli = pkgs.rustPlatform.buildRustPackage {
+          pname = "bebop";
+          version = "0.1.0";
+          src = ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+          # Only build the CLI binary; tauri/wasm members need extra system libs
+          cargoBuildFlags = [ "--package" "bebop" ];
+        };
       in
       {
         devShells.default = pkgs.mkShell {
@@ -28,12 +37,13 @@
             pkgs.clang-tools
             pkgs.cmake
             pkgs.ninja
-            # self.packages.${system}.default
+            bebopCli
           ] ++ spikeEnv.buildInputs ++ riscvEnv.buildInputs;
 
           shellHook = riscvEnv.shellHook + ''
-            export BEBOP_PATH="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+            export BEBOP_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
             pre-commit install --install-hooks --hook-type pre-commit -c tools/pre-commit-config.yaml
+            echo "bebop: $(command -v bebop)"
             echo "spike: $(command -v spike)"
             echo "pk: $(command -v pk)"
           '';
@@ -49,14 +59,7 @@
           shellHook = tauriEnv.shellHook;
         };
 
-        packages.default = pkgs.rustPlatform.buildRustPackage {
-          pname = "bebop";
-          version = "0.1.0";
-          src = ./.;
-          cargoLock.lockFile = ./Cargo.lock;
-          # Only build the CLI binary; tauri/wasm members need extra system libs
-          cargoBuildFlags = [ "--package" "bebop" ];
-        };
+        packages.default = bebopCli;
 
         # Expose spike derivation to allow `nix build .#spike` verification.
         packages.spike = spikeEnv.spikeDrv;
