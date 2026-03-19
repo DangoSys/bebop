@@ -1,0 +1,30 @@
+/* Shared layout for Spike bebop_rocc and Rust BEMU worker (must stay in sync). */
+#ifndef BEBOP_SHM_H
+#define BEBOP_SHM_H
+
+#include <stdint.h>
+
+#define BEBOP_SHM_SIZE 4096
+
+#define BEBOP_OP_HANDLE 0u
+#define BEBOP_OP_SYNC 1u
+#define BEBOP_OP_READ 2u
+#define BEBOP_OP_SHUTDOWN 3u
+
+typedef struct {
+  uint64_t req;
+  uint64_t ack;
+  uint32_t op;
+  uint32_t _pad0;
+  uint32_t funct;
+  uint32_t _pad1;
+  uint64_t xs1;
+  uint64_t xs2;
+  uint64_t result;
+  uint64_t sync_addr;
+  int32_t err;
+  uint32_t _pad2;
+  uint8_t data[16];
+} bebop_shm_t;
+
+#endif

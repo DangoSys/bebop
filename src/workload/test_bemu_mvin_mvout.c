@@ -2,32 +2,35 @@
  * Test MVIN/MVOUT with Spike-BEMU memory sync.
  * Writes data to a buffer, MVIN to bank, MVOUT to another buffer, then compares.
  */
+#include "bebop_insn.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "bebop_insn.h"
 
-#define CHECK(cond, msg) do { if (!(cond)) { fprintf(stderr, "FAIL: %s\n", msg); exit(1); } } while (0)
+#define CHECK(cond, msg)                                                                           \
+  do {                                                                                             \
+    if (!(cond)) {                                                                                 \
+      fprintf(stderr, "FAIL: %s\n", msg);                                                          \
+      exit(1);                                                                                     \
+    }                                                                                              \
+  } while (0)
 
-#define N_BLOCKS  4
-#define BLOCK_SZ  16
-#define BUF_SZ    (N_BLOCKS * BLOCK_SZ)
+#define N_BLOCKS 4
+#define BLOCK_SZ 16
+#define BUF_SZ (N_BLOCKS * BLOCK_SZ)
 
 static uint8_t src_buf[BUF_SZ] __attribute__((aligned(16)));
 static uint8_t dst_buf[BUF_SZ] __attribute__((aligned(16)));
 
-static uint64_t make_mvin_xs1(unsigned bank_id, uintptr_t mem_addr)
-{
+static uint64_t make_mvin_xs1(unsigned bank_id, uintptr_t mem_addr) {
   return (bank_id & 0x1F) | (((uint64_t)(uint32_t)mem_addr) << 27);
 }
 
-static uint64_t make_mvin_xs2(unsigned depth, unsigned stride)
-{
+static uint64_t make_mvin_xs2(unsigned depth, unsigned stride) {
   return (depth & 0x3FF) | ((stride & 0x7FFFF) << 10);
 }
 
-int main(void)
-{
+int main(void) {
   printf("BEMU MVIN/MVOUT test (memory sync)\n");
 
   for (size_t i = 0; i < BUF_SZ; i++)
@@ -51,7 +54,8 @@ int main(void)
   int cmp = memcmp(src_buf, dst_buf, BUF_SZ);
   if (cmp != 0) {
     fprintf(stderr, "FAIL: MVIN/MVOUT round-trip data mismatch\n");
-    fprintf(stderr, "  src_buf=%p dst_buf=%p (if both > 512KB, check spike extension build/config)\n",
+    fprintf(stderr,
+            "  src_buf=%p dst_buf=%p (if both > 512KB, check spike extension build/config)\n",
             (void *)src_buf, (void *)dst_buf);
     fprintf(stderr, "  first byte: src=0x%02x dst=0x%02x\n", src_buf[0], dst_buf[0]);
     exit(1);

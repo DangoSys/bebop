@@ -24,7 +24,8 @@ nix build
 ```
 cd bebop
 nix develop
-bebop batch
+bebop workload
+bebop spike-test
 ```
 
 ### Run in GUI

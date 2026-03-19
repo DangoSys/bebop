@@ -28,13 +28,12 @@
             pkgs.clang-tools
             pkgs.cmake
             pkgs.ninja
-            self.packages.${system}.default
+            # self.packages.${system}.default
           ] ++ spikeEnv.buildInputs ++ riscvEnv.buildInputs;
 
           shellHook = riscvEnv.shellHook + ''
             export BEBOP_PATH="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-            pre-commit install --install-hooks --hook-type pre-commit
-            echo "bebop dev environment ready"
+            pre-commit install --install-hooks --hook-type pre-commit -c tools/pre-commit-config.yaml
             echo "spike: $(command -v spike)"
             echo "pk: $(command -v pk)"
           '';
