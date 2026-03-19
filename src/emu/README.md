@@ -6,18 +6,11 @@
 
 - **BEMU**（`src/emu`）：Rust 实现的 Buckyball 自定义指令 Golden Model，通过 C API（`bemu_create_interface`、`bemu_handle_custom` 等）对外提供接口。
 - **libbemu.so**：由 `cargo build --release` 生成的动态库，导出上述 C API。
-- **bebop_rocc**：Spike 的 customext 扩展（`thirdparty/spike/customext/bebop_rocc.cc`），在 custom-0 指令命中时通过 **dlopen** 加载 libbemu.so 并调用 `bemu_handle_custom(funct, xs1, xs2)`，将返回值写回 rd。并对 **MVIN/MVOUT** 做内存同步：
+- **bebop_rocc**：Spike 的 customext 扩展（`examples/bebop_rocc.cc`，由 CMake/Ninja 构建为 `libbebop_rocc.so`），在 custom-0 指令命中时通过 **dlopen** 加载 libbemu.so 并调用 `bemu_handle_custom(funct, xs1, xs2)`，将返回值写回 rd。并对 **MVIN/MVOUT** 做内存同步：
   - **MVIN**（funct=24）：执行前按 xs1/xs2 解码的 mem_addr、depth、stride，从 Spike 的 MMU 读取对应 16 字节块，经 `bemu_sync_memory` 写入 BEMU 内存，再执行 BEMU 的 MVIN。
   - **MVOUT**（funct=25）：执行 BEMU 的 MVOUT 后，用 `bemu_read_memory` 从 BEMU 读出对应范围，再经 Spike MMU 写回 Spike 内存。
 
 程序中的自定义指令编码为 RISC-V custom-0（opcode 0x0b），funct7 与 rs1/rs2 传递 BEMU 的 funct、xs1、xs2。这样程序用 load/store 访问的地址与 BEMU 的 MVIN/MVOUT 所用地址一致，Spike 与 BEMU 共享同一份“主存”视图。
-
-## 前置条件
-
-- **Rust**：编译 BEMU（`cargo build --release`）。
-- **RISC-V 工具链**：`riscv64-unknown-elf-gcc` 或 `riscv64-linux-gnu-gcc` 用于编译测试程序；**构建 pk 需 `riscv64-unknown-elf-gcc`**（裸机工具链）。
-- **Spike**：从本仓库 `thirdparty/spike` 构建（已含 bebop_rocc）。
-- **riscv-pk（pk）**：Proxy kernel，Spike 用其加载 ELF。需先构建并放到 Spike 查找路径或通过 `make run PK=/path/to/pk` 指定。
 
 ## 完整流程（按顺序执行）
 
@@ -26,47 +19,33 @@
 在仓库根目录：
 
 ```bash
+nix develop
 cargo build --release
 ```
 
 得到 `target/release/libbemu.so`。
 
-### 步骤 2：构建 Spike（含 bebop_rocc）
 
-在仓库根目录：
-
-```bash
-./scripts/build-spike-bemu.sh
-```
-
-
-### 步骤 3：编译 RISC-V 测试程序
+### 步骤 2：编译 RISC-V 测试程序
 
 ```bash
 cd examples
-make test_bemu_custom
+cmake -S . -B build -G Ninja
+ninja -C build test_bemu_custom
 ```
 
-### 步骤 4：安装 pk（仅首次需要）
-
-在仓库根目录执行：
-
-```bash
-./scripts/build-and-install-pk.sh
-```
-
-### 步骤 5：运行测试
+### 步骤 3：运行测试
 
 ```bash
 cd examples
-make run
+ninja -C build run
 ```
 
 一键跑全部测试（MSET、MVIN/MVOUT、MUL_WARP16、TRANSPOSE、综合）：
 
 ```bash
 cd examples
-make run-all
+ninja -C build run-all
 ```
 
 ## 测试内容
@@ -87,10 +66,7 @@ make run-all
 |-----|------|
 | `src/emu/` | BEMU 实现（Rust） |
 | `src/emu/interface/capi_exports.rs` | BEMU C API 导出 |
-| `thirdparty/spike/customext/bebop_rocc.cc` | Spike RoCC 扩展，custom-0 → BEMU |
-| `thirdparty/spike/customext/customext.mk.in` | 已加入 bebop_rocc.cc |
+| `examples/bebop_rocc.cc` | Spike customext 动态库实现（`libbebop_rocc.so`） |
 | `examples/bebop_insn.h` | 测试程序用 custom-0 编码与封装 |
 | `examples/test_bemu_custom.c` | 调用 MSET 的 C 测试 |
-| `examples/Makefile` | 编译测试程序与 `make run` |
-| `scripts/build-spike-bemu.sh` | 一键构建 libbemu + Spike |
-| `scripts/build-and-install-pk.sh` | 构建 riscv-pk 并安装到 Spike 查找路径（需 riscv64-unknown-elf-gcc） |
+| `examples/CMakeLists.txt` | 编译测试程序与运行目标（`run` / `run-all`） |

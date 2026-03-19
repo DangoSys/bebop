@@ -51,7 +51,7 @@ int main(void)
   int cmp = memcmp(src_buf, dst_buf, BUF_SZ);
   if (cmp != 0) {
     fprintf(stderr, "FAIL: MVIN/MVOUT round-trip data mismatch\n");
-    fprintf(stderr, "  src_buf=%p dst_buf=%p (if both > 512KB, rebuild Spike: ./scripts/build-spike-bemu.sh)\n",
+    fprintf(stderr, "  src_buf=%p dst_buf=%p (if both > 512KB, check spike extension build/config)\n",
             (void *)src_buf, (void *)dst_buf);
     fprintf(stderr, "  first byte: src=0x%02x dst=0x%02x\n", src_buf[0], dst_buf[0]);
     exit(1);
