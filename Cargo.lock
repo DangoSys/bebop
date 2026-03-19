@@ -176,6 +176,8 @@ dependencies = [
  "clap",
  "env_logger",
  "log",
+ "serde",
+ "toml 0.8.2",
 ]
 
 [[package]]

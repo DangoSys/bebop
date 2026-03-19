@@ -60,6 +60,15 @@ ninja -C build run-all
 
 程序中的 MVIN/MVOUT 使用 guest 虚地址（如全局 buffer）；BEMU 内将地址按 512KB 取模，与 Spike 内存同步后语义一致。
 
+## 配置文件
+
+`BEMU` 运行时从 `src/emu/config.toml` 读取配置（TOML 序列化文件）。
+
+- 默认路径：`src/emu/config.toml`
+- 可通过环境变量 `BEMU_CONFIG` 指定自定义路径
+- 读取或解析失败会直接报错退出，不会静默回退默认行为
+- 当前实现使用定长数组，`bank_num / bank_width / bank_lines / matrix_size` 需与硬件常量一致
+
 ## 文件说明
 
 | 路径 | 说明 |

@@ -24,12 +24,16 @@
             rustToolchain
             pkgs.rust-analyzer
             pkgs.cargo-watch
+            pkgs.pre-commit
+            pkgs.clang-tools
             pkgs.cmake
             pkgs.ninja
             self.packages.${system}.default
           ] ++ spikeEnv.buildInputs ++ riscvEnv.buildInputs;
 
           shellHook = riscvEnv.shellHook + ''
+            export BEBOP_PATH="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+            pre-commit install --install-hooks --hook-type pre-commit
             echo "bebop dev environment ready"
             echo "spike: $(command -v spike)"
             echo "pk: $(command -v pk)"
