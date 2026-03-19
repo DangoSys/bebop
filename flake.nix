@@ -15,6 +15,7 @@
         rustToolchain = pkgs.rust-bin.stable.latest.default;
         wasmEnv = import ./scripts/nix/wasm.nix { inherit pkgs rustToolchain; };
         tauriEnv = import ./scripts/nix/tauri.nix { inherit pkgs rustToolchain; };
+        spikeEnv = import ./scripts/nix/spike.nix { inherit pkgs; };
       in
       {
         devShells.default = pkgs.mkShell {
@@ -23,13 +24,11 @@
             pkgs.rust-analyzer
             pkgs.cargo-watch
             self.packages.${system}.default
-          ];
+          ] ++ spikeEnv.buildInputs;
 
           shellHook = ''
             echo "bebop dev environment ready"
-            echo "  cargo build    - build the project"
-            echo "  cargo run -- batch  - print hello world"
-            echo "  cargo run -- -h     - show help"
+            echo "spike: $(command -v spike)"
           '';
         };
 
@@ -51,6 +50,9 @@
           # Only build the CLI binary; tauri/wasm members need extra system libs
           cargoBuildFlags = [ "--package" "bebop" ];
         };
+
+        # Expose spike derivation to allow `nix build .#spike` verification.
+        packages.spike = spikeEnv.spikeDrv;
       }
     );
 }
