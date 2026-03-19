@@ -16,6 +16,7 @@
         wasmEnv = import ./scripts/nix/wasm.nix { inherit pkgs rustToolchain; };
         tauriEnv = import ./scripts/nix/tauri.nix { inherit pkgs rustToolchain; };
         spikeEnv = import ./scripts/nix/spike.nix { inherit pkgs; };
+        riscvEnv = import ./scripts/nix/riscv.nix { inherit pkgs; };
       in
       {
         devShells.default = pkgs.mkShell {
@@ -23,12 +24,15 @@
             rustToolchain
             pkgs.rust-analyzer
             pkgs.cargo-watch
+            pkgs.cmake
+            pkgs.ninja
             self.packages.${system}.default
-          ] ++ spikeEnv.buildInputs;
+          ] ++ spikeEnv.buildInputs ++ riscvEnv.buildInputs;
 
-          shellHook = ''
+          shellHook = riscvEnv.shellHook + ''
             echo "bebop dev environment ready"
             echo "spike: $(command -v spike)"
+            echo "pk: $(command -v pk)"
           '';
         };
 
@@ -53,6 +57,7 @@
 
         # Expose spike derivation to allow `nix build .#spike` verification.
         packages.spike = spikeEnv.spikeDrv;
+        packages.pk = riscvEnv.pkDrv;
       }
     );
 }
