@@ -1,9 +1,8 @@
 /// BEMU C API 导出
-/// 
+///
 /// 这些函数导出为 C 兼容接口，供 Spike (C++) 调用
 /// 使用 #[no_mangle] 确保函数名不被 Rust 编译器修饰
-
-use super::spike_interface::{BemuSpikeInterface, SpikeCallbackParams, SpikeCallbacks};
+use super::spike_interface::{BemuSpikeInterface, SpikeCallbackParams};
 use log::{error, info};
 
 /// C API: 创建 BEMU 接口
@@ -36,10 +35,10 @@ pub unsafe extern "C" fn bemu_handle_custom(
         error!("Null pointer passed to bemu_handle_custom");
         return -1;
     }
-    
+
     let interface = &mut *interface;
     let params = SpikeCallbackParams::new(funct, xs1, xs2);
-    
+
     match interface.handle_custom_instruction(&params) {
         Ok(res) => {
             *result = res;
@@ -64,10 +63,10 @@ pub unsafe extern "C" fn bemu_sync_memory(
         error!("Null pointer passed to bemu_sync_memory");
         return -1;
     }
-    
+
     let interface = &mut *interface;
     let slice = std::slice::from_raw_parts(data, size);
-    
+
     match interface.sync_memory(addr, slice) {
         Ok(()) => 0,
         Err(e) => {
@@ -89,9 +88,9 @@ pub unsafe extern "C" fn bemu_read_memory(
         error!("Null pointer passed to bemu_read_memory");
         return -1;
     }
-    
+
     let interface = &*interface;
-    
+
     match interface.read_memory(addr, size) {
         Ok(bytes) => {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), data, bytes.len().min(size));

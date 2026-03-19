@@ -1,7 +1,5 @@
-/// Bemu 模块入口文件
-/// 定义指令模块结构
-
 pub mod bemu;
-pub mod config;
+pub mod configs;
+pub use configs::config;
 pub mod instructions;
 pub mod interface;
