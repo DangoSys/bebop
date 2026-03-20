@@ -22,6 +22,7 @@ pub const TEST_ELF_NAMES: &[&str] = &[
     "test_bemu_matmul",
     "test_bemu_transpose",
     "test_bemu_integration",
+    "test_vecunit_tiled_matmul",
 ];
 
 fn is_bebop_repo_root(p: &Path) -> bool {

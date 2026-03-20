@@ -15,13 +15,11 @@
   } while (0)
 
 #define N 16
-#define MAT_SZ (N * N * sizeof(uint64_t))
-#define N_BLOCKS (MAT_SZ / 16)
 
-static uint64_t mat_a[N][N] __attribute__((aligned(16)));
-static uint64_t mat_b[N][N] __attribute__((aligned(16)));
-static uint64_t mat_c[N][N] __attribute__((aligned(16)));
-static uint64_t mat_ct[N][N] __attribute__((aligned(16)));
+static int8_t mat_a[N][N] __attribute__((aligned(16)));
+static int8_t mat_b[N][N] __attribute__((aligned(16)));
+static int32_t mat_c[N][N] __attribute__((aligned(16)));
+static int32_t mat_ct[N][N] __attribute__((aligned(16)));
 
 static uint64_t make_mvin_xs1(unsigned bank_id, uintptr_t mem_addr) {
   return (bank_id & 0x1F) | (((uint64_t)(uint32_t)mem_addr) << 27);
@@ -37,7 +35,7 @@ int main(void) {
   for (int i = 0; i < N; i++)
     for (int j = 0; j < N; j++) {
       mat_a[i][j] = (i == j) ? 1 : 0;
-      mat_b[i][j] = (uint64_t)(i * N + j);
+      mat_b[i][j] = (int8_t)(i * N + j);
       mat_c[i][j] = 0;
       mat_ct[i][j] = 0;
     }
@@ -45,15 +43,18 @@ int main(void) {
   uint64_t xs1, xs2, res;
 
   /* Alloc banks 0,1,2,3 */
-  xs2 = N | (N << 5) | (1 << 10);
-  for (int b = 0; b < 4; b++) {
-    res = bemu_custom0(BEMU_MSET, (uint64_t)b, xs2);
-    CHECK(res == BEMU_MSET, "MSET");
-  }
+  res = bemu_custom0(BEMU_MSET, 0, 1 | (1 << 5) | (1 << 10));
+  CHECK(res == BEMU_MSET, "MSET bank0");
+  res = bemu_custom0(BEMU_MSET, 1, 1 | (1 << 5) | (1 << 10));
+  CHECK(res == BEMU_MSET, "MSET bank1");
+  res = bemu_custom0(BEMU_MSET, 2, 1 | (4 << 5) | (1 << 10));
+  CHECK(res == BEMU_MSET, "MSET bank2");
+  res = bemu_custom0(BEMU_MSET, 3, 1 | (4 << 5) | (1 << 10));
+  CHECK(res == BEMU_MSET, "MSET bank3");
 
   /* MVIN A -> bank0, B -> bank1 */
   xs1 = make_mvin_xs1(0, (uintptr_t)mat_a);
-  xs2 = make_mvin_xs2(N_BLOCKS, 1);
+  xs2 = make_mvin_xs2(N, 1);
   res = bemu_custom0(BEMU_MVIN, xs1, xs2);
   CHECK(res == BEMU_MVIN, "MVIN A");
   xs1 = make_mvin_xs1(1, (uintptr_t)mat_b);
@@ -61,14 +62,14 @@ int main(void) {
   CHECK(res == BEMU_MVIN, "MVIN B");
 
   /* C = A * B (I * B = B) -> bank2 */
-  xs1 = 0 | (1 << 5) | (2 << 10);
+  xs1 = 0 | (1 << 8) | (2 << 16);
   xs2 = 16;
   res = bemu_custom0(BEMU_MUL_WARP16, xs1, xs2);
   CHECK(res == BEMU_MUL_WARP16, "MUL_WARP16");
 
   /* MVOUT bank2 -> mat_c */
   xs1 = make_mvin_xs1(2, (uintptr_t)mat_c);
-  xs2 = make_mvin_xs2(N_BLOCKS, 1);
+  xs2 = make_mvin_xs2(N, 1);
   res = bemu_custom0(BEMU_MVOUT, xs1, xs2);
   CHECK(res == BEMU_MVOUT, "MVOUT C");
 
@@ -77,14 +78,14 @@ int main(void) {
       CHECK(mat_c[i][j] == mat_b[i][j], "C != B after I*B");
 
   /* TRANSPOSE bank2 -> bank3 */
-  xs1 = 2 | (3 << 10);
+  xs1 = 2 | (3 << 16);
   xs2 = 16;
   res = bemu_custom0(BEMU_TRANSPOSE, xs1, xs2);
   CHECK(res == BEMU_TRANSPOSE, "TRANSPOSE");
 
   /* MVOUT bank3 -> mat_ct */
   xs1 = make_mvin_xs1(3, (uintptr_t)mat_ct);
-  xs2 = make_mvin_xs2(N_BLOCKS, 1);
+  xs2 = make_mvin_xs2(N, 1);
   res = bemu_custom0(BEMU_MVOUT, xs1, xs2);
   CHECK(res == BEMU_MVOUT, "MVOUT Ct");
 

@@ -46,8 +46,8 @@ impl Bemu {
             23 => mset::execute_mset(xs1, xs2, &mut self.bank_configs, &mut self.banks),
             24 => mvin::execute_mvin(xs1, xs2, &self.memory, &mut self.banks, &self.bank_configs),
             25 => mvout::execute_mvout(xs1, xs2, &mut self.memory, &self.banks, &self.bank_configs),
-            32 => matmul::execute_mul_warp16(xs1, xs2, &mut self.banks),
-            34 => transpose::execute_transpose(xs1, xs2, &mut self.banks),
+            32 => matmul::execute_mul_warp16(xs1, xs2, &mut self.banks, &self.bank_configs),
+            34 => transpose::execute_transpose(xs1, xs2, &mut self.banks, &self.bank_configs),
             _ => return None,
         };
         Some(Self::encode_result(funct, ret))

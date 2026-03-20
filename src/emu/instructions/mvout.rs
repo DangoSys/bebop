@@ -23,7 +23,7 @@ pub fn execute_mvout(
     bank_configs: &[BankConfig],
 ) -> u64 {
     // 解码 xs1：提取 bank_id 和 mem_addr
-    let bank_id = xs1 & 0x1F; // bits 0-4
+    let bank_id = xs1 & 0xFF; // bits 0-7 (BB_BANK0)
     let mem_addr = (xs1 >> 27) & 0xFFFFFFFF; // bits 27-58 (32 位地址)
 
     // 解码 xs2：提取 depth 和 stride
@@ -45,42 +45,38 @@ pub fn execute_mvout(
         return 0;
     }
 
-    // 从 bank 读取数据写入内存
-    // 每次读取 16 字节（2 个 u64），stride 也表示 16 字节的倍数
+    // 每行字节数由 MSET 的 cols 决定：cols * 16B
+    let cols = bank_configs[bank_id as usize].cols;
+    let line_blocks = if cols == 0 { 1 } else { cols as usize };
+    let line_bytes = line_blocks * 16;
+
+    // 从 bank 读取数据写入内存。
+    // stride 以 16B block 为单位，按 line_blocks 扩展到整行跨度。
     let actual_stride = if stride == 0 { 1 } else { stride };
     for i in 0..depth {
-        // 从 bank 读取 16 字节（2 个 u64）
-        let bank_offset = (i * 16) as usize;
-        if bank_offset + 16 > BANK_SIZE {
-            break;
+        let bank_offset = (i as usize) * line_bytes;
+        if bank_offset + line_bytes > BANK_SIZE {
+            error!(
+                "MVOUT: bank_offset out of range: bank_id={}, bank_offset={}, line_bytes={}, depth={}, stride={}",
+                bank_id, bank_offset, line_bytes, depth, stride
+            );
+            return 1;
         }
-        // 读取第一个 u64
-        let value_low = u64::from_le_bytes(
-            banks[bank_id as usize][bank_offset..bank_offset + 8]
-                .try_into()
-                .unwrap(),
-        );
-        // 读取第二个 u64
-        let value_high = u64::from_le_bytes(
-            banks[bank_id as usize][bank_offset + 8..bank_offset + 16]
-                .try_into()
-                .unwrap(),
-        );
-
-        // 写入内存（每次写入 16 字节，地址间隔为 16 字节 * stride）
-        let addr = mem_addr + (i * 16 * actual_stride);
-        write_u64_to_memory(memory, addr, value_low);
-        write_u64_to_memory(memory, addr + 8, value_high);
+        let addr = mem_addr + (i * 16 * actual_stride * line_blocks as u64);
+        for j in 0..line_bytes {
+            write_u8_to_memory(
+                memory,
+                addr + j as u64,
+                banks[bank_id as usize][bank_offset + j],
+            );
+        }
     }
 
     0
 }
 
-/// 写入 u64 到内存，地址按 memory.len() 取模
-fn write_u64_to_memory(memory: &mut [u8], addr: u64, value: u64) {
+/// 写入 u8 到内存，地址按 memory.len() 取模
+fn write_u8_to_memory(memory: &mut [u8], addr: u64, value: u8) {
     let len = memory.len();
-    let bytes = value.to_le_bytes();
-    for (i, &byte) in bytes.iter().enumerate() {
-        memory[((addr as usize) + i) % len] = byte;
-    }
+    memory[(addr as usize) % len] = value;
 }
