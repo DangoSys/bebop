@@ -21,7 +21,7 @@ pub fn execute_mset(
     banks: &mut [Vec<u8>],
 ) -> u64 {
     // 解码 xs1：提取 bank_id (低 5 位)
-    let bank_id = xs1 & 0x1F;
+    let bank_id = xs1 & 0xFF;
 
     // 解码 xs2：按照宏定义提取 row, col, alloc
     let row = xs2 & 0x1F; // bits 0-4

@@ -15,12 +15,10 @@
   } while (0)
 
 #define N 16
-#define MAT_SZ (N * N * sizeof(uint64_t))
-#define N_BLOCKS (MAT_SZ / 16)
 
-static uint64_t mat_a[N][N] __attribute__((aligned(16)));
-static uint64_t mat_b[N][N] __attribute__((aligned(16)));
-static uint64_t mat_c[N][N] __attribute__((aligned(16)));
+static int8_t mat_a[N][N] __attribute__((aligned(16)));
+static int8_t mat_b[N][N] __attribute__((aligned(16)));
+static int32_t mat_c[N][N] __attribute__((aligned(16)));
 
 static uint64_t make_mvin_xs1(unsigned bank_id, uintptr_t mem_addr) {
   return (bank_id & 0x1F) | (((uint64_t)(uint32_t)mem_addr) << 27);
@@ -42,21 +40,22 @@ int main(void) {
 
   uint64_t xs1, xs2, res;
 
+  // vecunit bank layout: op banks cols=1, acc bank cols=4
   xs1 = 0;
-  xs2 = N | (N << 5) | (1 << 10);
+  xs2 = 1 | (1 << 5) | (1 << 10);
   res = bemu_custom0(BEMU_MSET, xs1, xs2);
   CHECK(res == BEMU_MSET, "MSET bank0");
   xs1 = 1;
-  xs2 = N | (N << 5) | (1 << 10);
+  xs2 = 1 | (1 << 5) | (1 << 10);
   res = bemu_custom0(BEMU_MSET, xs1, xs2);
   CHECK(res == BEMU_MSET, "MSET bank1");
   xs1 = 2;
-  xs2 = N | (N << 5) | (1 << 10);
+  xs2 = 1 | (4 << 5) | (1 << 10);
   res = bemu_custom0(BEMU_MSET, xs1, xs2);
   CHECK(res == BEMU_MSET, "MSET bank2");
 
   xs1 = make_mvin_xs1(0, (uintptr_t)mat_a);
-  xs2 = make_mvin_xs2(N_BLOCKS, 1);
+  xs2 = make_mvin_xs2(N, 1);
   res = bemu_custom0(BEMU_MVIN, xs1, xs2);
   CHECK(res == BEMU_MVIN, "MVIN mat_a -> bank0");
 
@@ -64,19 +63,19 @@ int main(void) {
   res = bemu_custom0(BEMU_MVIN, xs1, xs2);
   CHECK(res == BEMU_MVIN, "MVIN mat_b -> bank1");
 
-  xs1 = 0 | (1 << 5) | (2 << 10);
+  xs1 = 0 | (1 << 8) | (2 << 16);
   xs2 = 16;
   res = bemu_custom0(BEMU_MUL_WARP16, xs1, xs2);
   CHECK(res == BEMU_MUL_WARP16, "MUL_WARP16");
 
   xs1 = make_mvin_xs1(2, (uintptr_t)mat_c);
-  xs2 = make_mvin_xs2(N_BLOCKS, 1);
+  xs2 = make_mvin_xs2(N, 1);
   res = bemu_custom0(BEMU_MVOUT, xs1, xs2);
   CHECK(res == BEMU_MVOUT, "MVOUT bank2 -> mat_c");
 
   for (int i = 0; i < N; i++)
     for (int j = 0; j < N; j++) {
-      uint64_t expect = (i == j) ? 2 : 0;
+      int32_t expect = (i == j) ? 2 : 0;
       CHECK(mat_c[i][j] == expect, "MUL_WARP16 result mismatch");
     }
 

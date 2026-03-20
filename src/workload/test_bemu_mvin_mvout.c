@@ -38,7 +38,8 @@ int main(void) {
   memset(dst_buf, 0, BUF_SZ);
 
   uint64_t xs1 = 0;
-  uint64_t xs2 = 4 | (4 << 5) | (1 << 10);
+  // vecunit layout: cols=1 => 16B per row; this test has 4 rows.
+  uint64_t xs2 = 4 | (1 << 5) | (1 << 10);
   uint64_t res = bemu_custom0(BEMU_MSET, xs1, xs2);
   CHECK(res == BEMU_MSET, "MSET bank0");
 

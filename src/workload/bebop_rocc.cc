@@ -17,6 +17,7 @@ static_assert(sizeof(bebop_shm_t) <= BEBOP_SHM_SIZE);
 #include "riscv/rocc.h"
 
 namespace {
+constexpr uint32_t kMset = 23;
 constexpr uint32_t kMvin = 24;
 constexpr uint32_t kMvout = 25;
 constexpr uint64_t kBlockSz = 16;
@@ -92,10 +93,20 @@ public:
     }
     uint64_t out = shm_->result;
 
+    if (insn.funct == kMset) {
+      uint32_t bank_id = static_cast<uint32_t>(xs1 & 0xffULL);
+      uint8_t cols = static_cast<uint8_t>((xs2 >> 5) & 0x1fULL);
+      bank_cols_[bank_id] = cols;
+    }
+
     if (insn.funct == kMvout) {
       sync_out(proc, xs1, xs2);
     }
     return out;
+  }
+
+  reg_t custom3(processor_t *proc, rocc_insn_t insn, reg_t xs1, reg_t xs2) override {
+    return custom0(proc, insn, xs1, xs2);
   }
 
 private:
@@ -126,19 +137,27 @@ private:
       throw std::runtime_error("Spike MMU is null");
     }
 
+    uint32_t bank_id = static_cast<uint32_t>(xs1 & 0xffULL);
+    uint32_t line_blocks =
+        bank_cols_[bank_id] == 0 ? 1u : static_cast<uint32_t>(bank_cols_[bank_id]);
+    uint64_t stride = args.stride == 0 ? 1ULL : static_cast<uint64_t>(args.stride);
     std::array<uint8_t, kBlockSz> buf{};
     for (uint32_t i = 0; i < args.depth; ++i) {
-      uint64_t addr = args.mem_addr + static_cast<uint64_t>(i) * args.stride * kBlockSz;
-      for (uint64_t j = 0; j < kBlockSz; ++j) {
-        buf[j] = mmu->load<uint8_t>(addr + j);
-      }
-      std::memcpy(shm_->data, buf.data(), buf.size());
-      shm_->op = BEBOP_OP_SYNC;
-      shm_->sync_addr = addr;
-      shm_->err = 0;
-      rpc_submit(shm_);
-      if (shm_->err != 0) {
-        throw std::runtime_error("bebop_shm OP_SYNC failed");
+      uint64_t row_base =
+          args.mem_addr + static_cast<uint64_t>(i) * stride * line_blocks * kBlockSz;
+      for (uint32_t b = 0; b < line_blocks; ++b) {
+        uint64_t addr = row_base + static_cast<uint64_t>(b) * kBlockSz;
+        for (uint64_t j = 0; j < kBlockSz; ++j) {
+          buf[j] = mmu->load<uint8_t>(addr + j);
+        }
+        std::memcpy(shm_->data, buf.data(), buf.size());
+        shm_->op = BEBOP_OP_SYNC;
+        shm_->sync_addr = addr;
+        shm_->err = 0;
+        rpc_submit(shm_);
+        if (shm_->err != 0) {
+          throw std::runtime_error("bebop_shm OP_SYNC failed");
+        }
       }
     }
   }
@@ -150,24 +169,33 @@ private:
       throw std::runtime_error("Spike MMU is null");
     }
 
+    uint32_t bank_id = static_cast<uint32_t>(xs1 & 0xffULL);
+    uint32_t line_blocks =
+        bank_cols_[bank_id] == 0 ? 1u : static_cast<uint32_t>(bank_cols_[bank_id]);
+    uint64_t stride = args.stride == 0 ? 1ULL : static_cast<uint64_t>(args.stride);
     std::array<uint8_t, kBlockSz> buf{};
     for (uint32_t i = 0; i < args.depth; ++i) {
-      uint64_t addr = args.mem_addr + static_cast<uint64_t>(i) * args.stride * kBlockSz;
-      shm_->op = BEBOP_OP_READ;
-      shm_->sync_addr = addr;
-      shm_->err = 0;
-      rpc_submit(shm_);
-      if (shm_->err != 0) {
-        throw std::runtime_error("bebop_shm OP_READ failed");
-      }
-      std::memcpy(buf.data(), shm_->data, buf.size());
-      for (uint64_t j = 0; j < kBlockSz; ++j) {
-        mmu->store<uint8_t>(addr + j, buf[j]);
+      uint64_t row_base =
+          args.mem_addr + static_cast<uint64_t>(i) * stride * line_blocks * kBlockSz;
+      for (uint32_t b = 0; b < line_blocks; ++b) {
+        uint64_t addr = row_base + static_cast<uint64_t>(b) * kBlockSz;
+        shm_->op = BEBOP_OP_READ;
+        shm_->sync_addr = addr;
+        shm_->err = 0;
+        rpc_submit(shm_);
+        if (shm_->err != 0) {
+          throw std::runtime_error("bebop_shm OP_READ failed");
+        }
+        std::memcpy(buf.data(), shm_->data, buf.size());
+        for (uint64_t j = 0; j < kBlockSz; ++j) {
+          mmu->store<uint8_t>(addr + j, buf[j]);
+        }
       }
     }
   }
 
   bebop_shm_t *shm_ = nullptr;
+  std::array<uint8_t, 256> bank_cols_{{0}};
 };
 
 REGISTER_EXTENSION(bebop_rocc, []() { return new bebop_rocc_t(); })

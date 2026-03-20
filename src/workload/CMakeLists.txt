@@ -43,6 +43,7 @@ set(TESTS
   test_bemu_matmul
   test_bemu_transpose
   test_bemu_integration
+  test_vecunit_tiled_matmul
 )
 
 foreach(t IN LISTS TESTS)

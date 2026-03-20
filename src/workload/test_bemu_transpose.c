@@ -14,11 +14,9 @@
   } while (0)
 
 #define N 16
-#define MAT_SZ (N * N * sizeof(uint64_t))
-#define N_BLOCKS (MAT_SZ / 16)
 
-static uint64_t mat_src[N][N] __attribute__((aligned(16)));
-static uint64_t mat_dst[N][N] __attribute__((aligned(16)));
+static int8_t mat_src[N][N] __attribute__((aligned(16)));
+static int8_t mat_dst[N][N] __attribute__((aligned(16)));
 
 static uint64_t make_mvin_xs1(unsigned bank_id, uintptr_t mem_addr) {
   return (bank_id & 0x1F) | (((uint64_t)(uint32_t)mem_addr) << 27);
@@ -33,37 +31,37 @@ int main(void) {
 
   for (int i = 0; i < N; i++)
     for (int j = 0; j < N; j++) {
-      mat_src[i][j] = (uint64_t)(i * N + j);
+      mat_src[i][j] = (int8_t)(i * N + j);
       mat_dst[i][j] = 0;
     }
 
   uint64_t xs1 = 0;
-  uint64_t xs2 = N | (N << 5) | (1 << 10);
+  uint64_t xs2 = 1 | (1 << 5) | (1 << 10);
   uint64_t res = bemu_custom0(BEMU_MSET, xs1, xs2);
   CHECK(res == BEMU_MSET, "MSET bank0");
   xs1 = 1;
-  xs2 = N | (N << 5) | (1 << 10);
+  xs2 = 1 | (1 << 5) | (1 << 10);
   res = bemu_custom0(BEMU_MSET, xs1, xs2);
   CHECK(res == BEMU_MSET, "MSET bank1");
 
   xs1 = make_mvin_xs1(0, (uintptr_t)mat_src);
-  xs2 = make_mvin_xs2(N_BLOCKS, 1);
+  xs2 = make_mvin_xs2(N, 1);
   res = bemu_custom0(BEMU_MVIN, xs1, xs2);
   CHECK(res == BEMU_MVIN, "MVIN -> bank0");
 
-  xs1 = 0 | (1 << 10);
+  xs1 = 0 | (1 << 16);
   xs2 = 16;
   res = bemu_custom0(BEMU_TRANSPOSE, xs1, xs2);
   CHECK(res == BEMU_TRANSPOSE, "TRANSPOSE");
 
   xs1 = make_mvin_xs1(1, (uintptr_t)mat_dst);
-  xs2 = make_mvin_xs2(N_BLOCKS, 1);
+  xs2 = make_mvin_xs2(N, 1);
   res = bemu_custom0(BEMU_MVOUT, xs1, xs2);
   CHECK(res == BEMU_MVOUT, "MVOUT bank1 -> mat_dst");
 
   for (int i = 0; i < N; i++)
     for (int j = 0; j < N; j++)
-      CHECK(mat_dst[i][j] == (uint64_t)(j * N + i), "TRANSPOSE result mismatch");
+      CHECK(mat_dst[i][j] == (int8_t)(j * N + i), "TRANSPOSE result mismatch");
 
   printf("TRANSPOSE OK\n");
   return 0;
