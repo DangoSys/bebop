@@ -1,7 +1,13 @@
-use super::super::bank::{BankConfig, BANK_NUM, BANK_SIZE};
-use super::decode::{rs1_b0, rs1_b2, rs1_iter};
+use super::super::bank::{BankConfig, BankMap, BANK_NUM, BANK_SIZE};
+use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
 
-pub fn exec(xs1: u64, xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u64 {
+pub fn exec(
+    xs1: u64,
+    xs2: u64,
+    banks: &mut [Vec<u8>],
+    cfgs: &[BankConfig],
+    bank_map: &BankMap,
+) -> u64 {
     let src = rs1_b0(xs1);
     let dst = rs1_b2(xs1);
     let depth = rs1_iter(xs1) as usize;
@@ -19,6 +25,8 @@ pub fn exec(xs1: u64, xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u
             sc.cols, dc.cols
         );
     }
+    let ps = pbank(bank_map, src);
+    let pd = pbank(bank_map, dst);
     let scale = f32::from_bits((xs2 & 0xffff_ffff) as u32);
     for i in 0..depth {
         let src_base = i * 64;
@@ -28,9 +36,9 @@ pub fn exec(xs1: u64, xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u
         }
         for j in 0..16 {
             let off = src_base + j * 4;
-            let v = i32::from_le_bytes(banks[src as usize][off..off + 4].try_into().unwrap());
+            let v = i32::from_le_bytes(banks[ps][off..off + 4].try_into().unwrap());
             let q = ((v as f32) * scale).round().clamp(-128.0, 127.0) as i8;
-            banks[dst as usize][dst_base + j] = q as u8;
+            banks[pd][dst_base + j] = q as u8;
         }
     }
     0

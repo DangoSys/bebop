@@ -1,7 +1,7 @@
-use super::super::bank::{BankConfig, BANK_NUM, BANK_SIZE};
-use super::decode::{rs1_b0, rs1_b2, rs1_iter};
+use super::super::bank::{BankConfig, BankMap, BANK_NUM, BANK_SIZE};
+use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
 
-pub fn exec(xs1: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u64 {
+pub fn exec(xs1: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig], bank_map: &BankMap) -> u64 {
     let src = rs1_b0(xs1);
     let dst = rs1_b2(xs1);
     let depth = rs1_iter(xs1) as usize;
@@ -13,6 +13,8 @@ pub fn exec(xs1: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u64 {
     if !sc.allocated || !dc.allocated {
         panic!("relu: bank not allocated");
     }
+    let ps = pbank(bank_map, src);
+    let pd = pbank(bank_map, dst);
     if sc.cols == 1 && dc.cols == 1 {
         for i in 0..depth {
             let base = i * 16;
@@ -20,8 +22,8 @@ pub fn exec(xs1: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u64 {
                 panic!("relu: out of range");
             }
             for j in 0..16 {
-                let v = banks[src as usize][base + j] as i8;
-                banks[dst as usize][base + j] = if v < 0 { 0 } else { v as u8 };
+                let v = banks[ps][base + j] as i8;
+                banks[pd][base + j] = if v < 0 { 0 } else { v as u8 };
             }
         }
         return 0;
@@ -34,9 +36,9 @@ pub fn exec(xs1: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u64 {
             }
             for j in 0..16 {
                 let off = base + j * 4;
-                let v = i32::from_le_bytes(banks[src as usize][off..off + 4].try_into().unwrap());
+                let v = i32::from_le_bytes(banks[ps][off..off + 4].try_into().unwrap());
                 let o = if v < 0 { 0 } else { v };
-                banks[dst as usize][off..off + 4].copy_from_slice(&o.to_le_bytes());
+                banks[pd][off..off + 4].copy_from_slice(&o.to_le_bytes());
             }
         }
         return 0;

@@ -1,8 +1,14 @@
-use super::super::bank::{BankConfig, BANK_NUM};
+use super::super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::bank_matrix::{read_i32_nn, read_i8_nn, write_i32_nn};
-use super::decode::{rs1_b0, rs1_b1, rs1_b2, rs1_iter};
+use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
 
-pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u64 {
+pub fn exec(
+    xs1: u64,
+    _xs2: u64,
+    banks: &mut [Vec<u8>],
+    cfgs: &[BankConfig],
+    bank_map: &BankMap,
+) -> u64 {
     let op_a = rs1_b0(xs1);
     let op_b = rs1_b1(xs1);
     let wr = rs1_b2(xs1);
@@ -20,9 +26,12 @@ pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> 
         panic!("gemmini_compute_accumulated: bad iter");
     }
 
-    let a = read_i8_nn(banks, op_a, n);
-    let b = read_i8_nn(banks, op_b, n);
-    let mut c = read_i32_nn(banks, wr, n);
+    let pa = pbank(bank_map, op_a);
+    let pb = pbank(bank_map, op_b);
+    let pw = pbank(bank_map, wr);
+    let a = read_i8_nn(banks, pa, n);
+    let b = read_i8_nn(banks, pb, n);
+    let mut c = read_i32_nn(banks, pw, n);
     for i in 0..n {
         for j in 0..n {
             for k in 0..n {
@@ -30,6 +39,6 @@ pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> 
             }
         }
     }
-    write_i32_nn(banks, wr, &c, n);
+    write_i32_nn(banks, pw, &c, n);
     0
 }

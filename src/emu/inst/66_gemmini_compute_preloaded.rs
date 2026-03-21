@@ -1,9 +1,15 @@
-use super::super::bank::{BankConfig, BANK_NUM};
+use super::super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::bank_matrix::{read_i32_nn, read_i8_nn, write_i32_nn};
-use super::decode::{rs1_b0, rs1_b1, rs1_b2, rs1_iter};
+use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
 use super::gemmini_state::gemini;
 
-pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u64 {
+pub fn exec(
+    xs1: u64,
+    _xs2: u64,
+    banks: &mut [Vec<u8>],
+    cfgs: &[BankConfig],
+    bank_map: &BankMap,
+) -> u64 {
     let op_a = rs1_b0(xs1);
     let op_b = rs1_b1(xs1);
     let wr = rs1_b2(xs1);
@@ -21,6 +27,9 @@ pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> 
         panic!("gemmini_compute_preloaded: bad iter");
     }
 
+    let pa = pbank(bank_map, op_a);
+    let pb = pbank(bank_map, op_b);
+    let pw = pbank(bank_map, wr);
     let gm = gemini().lock().unwrap();
     let df = gm.cfg.dataflow;
     let ws_b = gm.ws_b.clone();
@@ -28,8 +37,8 @@ pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> 
 
     if df == 1 {
         let b = ws_b.expect("gemmini_compute_preloaded: WS missing preload");
-        let a = read_i8_nn(banks, op_a, n);
-        let d = read_i32_nn(banks, op_b, n);
+        let a = read_i8_nn(banks, pa, n);
+        let d = read_i32_nn(banks, pb, n);
         let mut c = vec![vec![0i32; n]; n];
         for i in 0..n {
             for j in 0..n {
@@ -40,12 +49,12 @@ pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> 
                 c[i][j] = acc;
             }
         }
-        write_i32_nn(banks, wr, &c, n);
+        write_i32_nn(banks, pw, &c, n);
     } else {
         // OS: C = sum_k a[k][i]*b[k][j] + C_old (A stored as mat_a_t)
-        let a = read_i8_nn(banks, op_a, n);
-        let b = read_i8_nn(banks, op_b, n);
-        let mut c = read_i32_nn(banks, wr, n);
+        let a = read_i8_nn(banks, pa, n);
+        let b = read_i8_nn(banks, pb, n);
+        let mut c = read_i32_nn(banks, pw, n);
         for i in 0..n {
             for j in 0..n {
                 let mut acc = c[i][j];
@@ -55,7 +64,7 @@ pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> 
                 c[i][j] = acc;
             }
         }
-        write_i32_nn(banks, wr, &c, n);
+        write_i32_nn(banks, pw, &c, n);
     }
     0
 }
