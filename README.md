@@ -25,6 +25,7 @@ nix build
 cd bebop
 nix develop
 bebop spike-test /path/to/pk-tests
+bebop spike-test /path/to/pk-tests --step   # log 128-bit bank hash after each RoCC insn
 ```
 
 ### Run in GUI

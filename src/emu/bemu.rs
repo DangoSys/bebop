@@ -85,6 +85,23 @@ impl Bemu {
             .map(|i| self.memory[((addr as usize) + i) % len])
             .collect()
     }
+
+    /// Deterministic 128-bit hash of all bank bytes (hex string, 32 chars).
+    pub fn banks_hash128_hex(&self) -> String {
+        let mut h0: u64 = 0x6c62272e07bb0142;
+        let mut h1: u64 = 0x62b821756295c58d;
+        const P0: u64 = 0x0000_0100_0000_01b3;
+        const P1: u64 = 0x9e37_79b1_85eb_ca87;
+        for bank in &self.banks {
+            for &b in bank {
+                h0 ^= b as u64;
+                h0 = h0.wrapping_mul(P0);
+                h1 ^= (b as u64).wrapping_add(0x9e37_79b9);
+                h1 = h1.rotate_left(7).wrapping_mul(P1);
+            }
+        }
+        format!("{h0:016x}{h1:016x}")
+    }
 }
 
 impl Default for Bemu {

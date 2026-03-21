@@ -90,7 +90,7 @@ pub fn build_workload() -> Result<(), String> {
     Ok(())
 }
 
-pub fn spike_tests(elf: PathBuf) -> Result<(), String> {
+pub fn spike_tests(elf: PathBuf, step: bool) -> Result<(), String> {
     let elf = elf.canonicalize().map_err(|e| format!("elf path: {e}"))?;
     if !elf.is_file() {
         return Err(format!("elf is not a file: {}", elf.display()));
@@ -104,7 +104,7 @@ pub fn spike_tests(elf: PathBuf) -> Result<(), String> {
     let pk = resolve_on_path("pk")?;
     let spike_lib = spike_lib_dir(&spike)?;
     let ld = ld_library_path_spike(&spike_lib, &rocc_dir);
-    run_spike_pk(&spike, &pk, &elf, &ld)
+    run_spike_pk(&spike, &pk, &elf, &ld, step)
 }
 
 fn ld_library_path_spike(spike_lib: &Path, workload_build: &Path) -> String {
@@ -128,7 +128,13 @@ pub fn worker_shm(name: String) -> Result<(), String> {
     shm::run_worker(&cs)
 }
 
-fn run_spike_pk(spike: &Path, pk: &Path, elf: &Path, ld_library_path: &str) -> Result<(), String> {
+fn run_spike_pk(
+    spike: &Path,
+    pk: &Path,
+    elf: &Path,
+    ld_library_path: &str,
+    step: bool,
+) -> Result<(), String> {
     let seq = SPIKE_SHM_SEQ.fetch_add(1, Ordering::Relaxed);
     let name = CString::new(format!("/bebop_spike_{}_{}", std::process::id(), seq))
         .map_err(|_| "spike shm: name contains NUL".to_string())?;
@@ -144,6 +150,7 @@ fn run_spike_pk(spike: &Path, pk: &Path, elf: &Path, ld_library_path: &str) -> R
     let mut worker = Command::new(&exe)
         .arg("worker-shm")
         .arg(nm)
+        .env("BEBOP_STEP", if step { "1" } else { "0" })
         .spawn()
         .map_err(|e| format!("spawn worker: {e}"))?;
 
@@ -164,6 +171,7 @@ fn run_spike_pk(spike: &Path, pk: &Path, elf: &Path, ld_library_path: &str) -> R
         .arg(elf)
         .env("BEBOP_SHM_NAME", nm)
         .env("LD_LIBRARY_PATH", ld_library_path)
+        .env("BEBOP_STEP", if step { "1" } else { "0" })
         .status();
 
     let st = match spike_status {
