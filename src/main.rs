@@ -2,8 +2,6 @@ mod bebop;
 mod cli;
 mod emu;
 mod shm;
-mod workload;
-
 use std::env;
 
 use clap::Parser;

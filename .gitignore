@@ -9,15 +9,9 @@ pkg/
 result/
 result
 
-# Native / Spike / example build artifacts
+# Native / Spike / workload build artifacts
 *.o
 *.a
 *.so
 *.dylib
 *.dll
-
-examples/test_bemu_custom
-examples/test_bemu_mvin_mvout
-examples/test_bemu_matmul
-examples/test_bemu_transpose
-examples/test_bemu_integration

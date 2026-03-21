@@ -1,6 +1,6 @@
 use crate::emu::bemu::Bemu;
 use crate::emu::config::BemuStats;
-use log::{debug, info};
+use log::debug;
 
 pub type SpikeResult = Result<u64, SpikeError>;
 
@@ -98,7 +98,6 @@ impl BemuSpikeInterface {
     pub fn reset_stats(&mut self) {
         self.bemu.reset_stats();
         self.instruction_count = 0;
-        info!("BEMU statistics reset");
     }
 }
 

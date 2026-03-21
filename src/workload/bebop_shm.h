@@ -10,6 +10,7 @@
 #define BEBOP_OP_SYNC 1u
 #define BEBOP_OP_READ 2u
 #define BEBOP_OP_SHUTDOWN 3u
+#define BEBOP_OP_DECODE 4u
 
 typedef struct {
   uint64_t req;
@@ -25,6 +26,12 @@ typedef struct {
   int32_t err;
   uint32_t _pad2;
   uint8_t data[16];
+  uint32_t sync_flags;
+  uint32_t line_blocks;
+  uint32_t depth;
+  uint32_t _pad3;
+  uint64_t mem_addr;
+  uint64_t stride;
 } bebop_shm_t;
 
 #endif

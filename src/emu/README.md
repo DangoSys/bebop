@@ -13,47 +13,26 @@
 
 ## 完整流程（按顺序执行）
 
-### 方式 A：`bebop` CLI（推荐）
-
-在仓库根目录（需 `spike`、`pk`、RISC-V 交叉编译器在 `PATH` 中，例如 `nix develop`）。先 **`cargo build --release`** 得到 `./target/release/bebop`。
 
 ```bash
 cargo build --release
-./target/release/bebop workload
-./target/release/bebop spike-test
-./target/release/bebop spike-test --all
+./target/release/bebop build
+./target/release/bebop spike-test /path/to/your-test-linux
 ```
 
-- **`cargo build --release`**：bebop CLI、`libbemu.so` 等 Rust workspace。
-- **`bebop workload`**：仅对 **`src/workload`** 执行 **`cmake` + `ninja`**（RISC-V ELF 与 `libbebop_rocc.so`）。
-- **`bebop spike-test`**：不自动构建；缺产物时会报错并提示先执行 **`bebop workload`**。
-
-### 方式 B：只构建 workload、不跑测试
-
-```bash
-cmake -S src/workload -B src/workload/build -G Ninja
-ninja -C src/workload/build
-```
-
-（需要 bebop CLI 时在仓库根执行 **`cargo build --release`**。）
-
-跑 Spike 测试请用 **`bebop spike-test`** / **`bebop spike-test --all`**。
+- **`cargo build --release`**：bebop CLI、`libbemu.so` 等。
+- **`bebop build`**：对 **`src/workload`** 执行 **`cmake` + `ninja`**，生成 **`src/workload/build/libbebop_rocc.so`**（CMake 需能 `find_program(spike)`）。
+- **`bebop spike-test <ELF>`**：传入已构建好的 RISC-V Linux 测例可执行文件的完整路径；缺 **`libbebop_rocc.so`** 时会提示先执行 **`bebop build`**。
 
 ## 测试内容
 
-| 测试程序 | 覆盖指令 | 说明 |
-|----------|----------|------|
-| `test_bemu_custom` | MSET | 分配/释放 bank，检查返回值 |
-| `test_bemu_mvin_mvout` | MSET, MVIN, MVOUT | 写 buffer → MVIN → bank → MVOUT → 另一 buffer，比对数据 |
-| `test_bemu_matmul` | MSET, MVIN, MUL_WARP16, MVOUT | I×2I=2I 矩阵乘，校验结果 |
-| `test_bemu_transpose` | MSET, MVIN, TRANSPOSE, MVOUT | 16×16 矩阵转置，校验 |
-| `test_bemu_integration` | 全部 | MSET→MVIN(A,B)→MUL_WARP16→MVOUT(C)→TRANSPOSE→MVOUT(Ct)，校验 C=B、Ct=B^T |
+Spike 侧用 **`bebop spike-test <ELF>`**，`<ELF>` 为你自行编译的测例（例如 bb-tests `CTest/toy` 的 **`*-linux`**）。
 
 ## 配置文件
 
-`BEMU` 运行时从 `src/emu/config.toml` 读取配置。
+`BEMU` 运行时从 **`BEBOP_DIR`** 下的 `src/emu/configs/config.toml` 读取配置。
 
-- 默认路径：`src/emu/config.toml`
+- 默认：设置 **`BEBOP_DIR`** 为 bebop 仓库根后，路径为 `src/emu/configs/config.toml`
 - 可通过环境变量 `BEMU_CONFIG` 指定自定义路径
 - 读取或解析失败会直接报错退出，不会静默回退默认行为
 
@@ -64,4 +43,4 @@ ninja -C src/workload/build
 | `src/emu/` | BEMU 实现（Rust） |
 | `src/emu/interface/capi_exports.rs` | C API（仍可供其他宿主 `dlopen`） |
 | `src/shm/` | POSIX shm、`worker-shm`、与 `bebop_shm.h` 对齐的布局 |
-| `src/workload/` | RISC-V 测试 C 程序、`bebop_rocc.cc`、`bebop_shm.h`、`bebop_insn.h`、`CMakeLists.txt` |
+| `src/workload/` | `bebop_rocc.cc`、`bebop_shm.h`、`CMakeLists.txt` |

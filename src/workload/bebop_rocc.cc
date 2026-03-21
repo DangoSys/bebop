@@ -17,24 +17,9 @@ static_assert(sizeof(bebop_shm_t) <= BEBOP_SHM_SIZE);
 #include "riscv/rocc.h"
 
 namespace {
-constexpr uint32_t kMset = 23;
-constexpr uint32_t kMvin = 24;
-constexpr uint32_t kMvout = 25;
 constexpr uint64_t kBlockSz = 16;
-
-struct mvin_args_t {
-  uint64_t mem_addr;
-  uint32_t depth;
-  uint32_t stride;
-};
-
-static mvin_args_t parse_mem_args(uint64_t xs1, uint64_t xs2) {
-  mvin_args_t args{};
-  args.mem_addr = (xs1 >> 27) & 0xffffffffULL;
-  args.depth = static_cast<uint32_t>(xs2 & 0x3ffULL);
-  args.stride = static_cast<uint32_t>((xs2 >> 10) & 0x7ffffULL);
-  return args;
-}
+constexpr uint32_t kSyncIn = 1;
+constexpr uint32_t kSyncOut = 2;
 
 static void rpc_wait_idle(bebop_shm_t *s) {
   for (;;) {
@@ -77,9 +62,9 @@ public:
 
   reg_t custom0(processor_t *proc, rocc_insn_t insn, reg_t xs1, reg_t xs2) override {
     init();
-
-    if (insn.funct == kMvin) {
-      sync_in(proc, xs1, xs2);
+    decode_plan(insn, xs1, xs2);
+    if (shm_->sync_flags & kSyncIn) {
+      sync_in(proc);
     }
 
     shm_->op = BEBOP_OP_HANDLE;
@@ -93,14 +78,8 @@ public:
     }
     uint64_t out = shm_->result;
 
-    if (insn.funct == kMset) {
-      uint32_t bank_id = static_cast<uint32_t>(xs1 & 0xffULL);
-      uint8_t cols = static_cast<uint8_t>((xs2 >> 5) & 0x1fULL);
-      bank_cols_[bank_id] = cols;
-    }
-
-    if (insn.funct == kMvout) {
-      sync_out(proc, xs1, xs2);
+    if (shm_->sync_flags & kSyncOut) {
+      sync_out(proc);
     }
     return out;
   }
@@ -110,6 +89,18 @@ public:
   }
 
 private:
+  void decode_plan(rocc_insn_t insn, uint64_t xs1, uint64_t xs2) {
+    shm_->op = BEBOP_OP_DECODE;
+    shm_->funct = insn.funct;
+    shm_->xs1 = xs1;
+    shm_->xs2 = xs2;
+    shm_->err = 0;
+    rpc_submit(shm_);
+    if (shm_->err != 0) {
+      throw std::runtime_error("bebop_shm OP_DECODE failed");
+    }
+  }
+
   void init() {
     if (shm_) {
       return;
@@ -130,21 +121,19 @@ private:
     shm_ = static_cast<bebop_shm_t *>(p);
   }
 
-  void sync_in(processor_t *proc, uint64_t xs1, uint64_t xs2) {
-    auto args = parse_mem_args(xs1, xs2);
+  void sync_in(processor_t *proc) {
     auto *mmu = proc->get_mmu();
     if (!mmu) {
       throw std::runtime_error("Spike MMU is null");
     }
 
-    uint32_t bank_id = static_cast<uint32_t>(xs1 & 0xffULL);
-    uint32_t line_blocks =
-        bank_cols_[bank_id] == 0 ? 1u : static_cast<uint32_t>(bank_cols_[bank_id]);
-    uint64_t stride = args.stride == 0 ? 1ULL : static_cast<uint64_t>(args.stride);
+    uint32_t line_blocks = shm_->line_blocks;
+    uint32_t depth = shm_->depth;
+    uint64_t mem_addr = shm_->mem_addr;
+    uint64_t stride = shm_->stride;
     std::array<uint8_t, kBlockSz> buf{};
-    for (uint32_t i = 0; i < args.depth; ++i) {
-      uint64_t row_base =
-          args.mem_addr + static_cast<uint64_t>(i) * stride * line_blocks * kBlockSz;
+    for (uint32_t i = 0; i < depth; ++i) {
+      uint64_t row_base = mem_addr + static_cast<uint64_t>(i) * stride * line_blocks * kBlockSz;
       for (uint32_t b = 0; b < line_blocks; ++b) {
         uint64_t addr = row_base + static_cast<uint64_t>(b) * kBlockSz;
         for (uint64_t j = 0; j < kBlockSz; ++j) {
@@ -162,21 +151,19 @@ private:
     }
   }
 
-  void sync_out(processor_t *proc, uint64_t xs1, uint64_t xs2) {
-    auto args = parse_mem_args(xs1, xs2);
+  void sync_out(processor_t *proc) {
     auto *mmu = proc->get_mmu();
     if (!mmu) {
       throw std::runtime_error("Spike MMU is null");
     }
 
-    uint32_t bank_id = static_cast<uint32_t>(xs1 & 0xffULL);
-    uint32_t line_blocks =
-        bank_cols_[bank_id] == 0 ? 1u : static_cast<uint32_t>(bank_cols_[bank_id]);
-    uint64_t stride = args.stride == 0 ? 1ULL : static_cast<uint64_t>(args.stride);
+    uint32_t line_blocks = shm_->line_blocks;
+    uint32_t depth = shm_->depth;
+    uint64_t mem_addr = shm_->mem_addr;
+    uint64_t stride = shm_->stride;
     std::array<uint8_t, kBlockSz> buf{};
-    for (uint32_t i = 0; i < args.depth; ++i) {
-      uint64_t row_base =
-          args.mem_addr + static_cast<uint64_t>(i) * stride * line_blocks * kBlockSz;
+    for (uint32_t i = 0; i < depth; ++i) {
+      uint64_t row_base = mem_addr + static_cast<uint64_t>(i) * stride * line_blocks * kBlockSz;
       for (uint32_t b = 0; b < line_blocks; ++b) {
         uint64_t addr = row_base + static_cast<uint64_t>(b) * kBlockSz;
         shm_->op = BEBOP_OP_READ;
@@ -195,7 +182,6 @@ private:
   }
 
   bebop_shm_t *shm_ = nullptr;
-  std::array<uint8_t, 256> bank_cols_{{0}};
 };
 
 REGISTER_EXTENSION(bebop_rocc, []() { return new bebop_rocc_t(); })

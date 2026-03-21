@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 
 use crate::emu::bemu::Bemu;
 
-use super::layout::{BEBOP_SHM_SIZE, OP_HANDLE, OP_READ, OP_SHUTDOWN, OP_SYNC};
+use super::layout::{BEBOP_SHM_SIZE, OP_DECODE, OP_HANDLE, OP_READ, OP_SHUTDOWN, OP_SYNC};
 use super::posix::ShmMap;
 
 pub fn run(name: &CString) -> Result<(), String> {
@@ -38,6 +38,20 @@ pub fn run(name: &CString) -> Result<(), String> {
                 let out = bemu.execute(funct, xs1, xs2);
                 unsafe {
                     (*s).result = out;
+                    (*s).err = 0;
+                }
+            }
+            OP_DECODE => {
+                let funct = unsafe { (*s).funct };
+                let xs1 = unsafe { (*s).xs1 };
+                let xs2 = unsafe { (*s).xs2 };
+                let p = bemu.decode_sync_plan(funct, xs1, xs2);
+                unsafe {
+                    (*s).sync_flags = p.flags;
+                    (*s).line_blocks = p.line_blocks;
+                    (*s).depth = p.depth;
+                    (*s).mem_addr = p.mem_addr;
+                    (*s).stride = p.stride;
                     (*s).err = 0;
                 }
             }
