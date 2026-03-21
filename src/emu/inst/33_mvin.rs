@@ -1,7 +1,14 @@
-use super::super::bank::{mem_read, BankConfig, BANK_NUM, BANK_SIZE};
-use super::decode::{rs1_b0, rs1_iter, xs2_mem_stride};
+use super::super::bank::{mem_read, BankConfig, BankMap, BANK_NUM, BANK_SIZE};
+use super::decode::{pbank, rs1_b0, rs1_iter, xs2_mem_stride};
 
-pub fn exec(xs1: u64, xs2: u64, memory: &[u8], banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u64 {
+pub fn exec(
+    xs1: u64,
+    xs2: u64,
+    memory: &[u8],
+    banks: &mut [Vec<u8>],
+    cfgs: &[BankConfig],
+    bank_map: &BankMap,
+) -> u64 {
     let bank_id = rs1_b0(xs1);
     let depth = rs1_iter(xs1);
     let (mem_addr, stride) = xs2_mem_stride(xs2);
@@ -12,6 +19,7 @@ pub fn exec(xs1: u64, xs2: u64, memory: &[u8], banks: &mut [Vec<u8>], cfgs: &[Ba
     if !cfgs[bi].allocated {
         panic!("mvin: bank {bank_id} not allocated");
     }
+    let p = pbank(bank_map, bank_id);
     let cols = cfgs[bi].cols;
     let line_blocks = if cols == 0 { 1 } else { cols as usize };
     let line_bytes = line_blocks * 16;
@@ -25,7 +33,7 @@ pub fn exec(xs1: u64, xs2: u64, memory: &[u8], banks: &mut [Vec<u8>], cfgs: &[Ba
             );
         }
         for j in 0..line_bytes {
-            banks[bi][bank_offset + j] = mem_read(memory, addr + j as u64);
+            banks[p][bank_offset + j] = mem_read(memory, addr + j as u64);
         }
     }
     0

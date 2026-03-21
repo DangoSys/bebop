@@ -1,9 +1,15 @@
-use super::super::bank::{BankConfig, BANK_NUM};
+use super::super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::bank_matrix::{read_i8_nn, write_i32_nn};
-use super::decode::{rs1_b0, rs1_b1, rs1_b2, rs1_iter};
+use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
 
 /// BFP matmul: same as cpu_matmul — C[i][j] = sum_k A[i][k]*B[k][j].
-pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u64 {
+pub fn exec(
+    xs1: u64,
+    _xs2: u64,
+    banks: &mut [Vec<u8>],
+    cfgs: &[BankConfig],
+    bank_map: &BankMap,
+) -> u64 {
     let op1 = rs1_b0(xs1);
     let op2 = rs1_b1(xs1);
     let wr = rs1_b2(xs1);
@@ -24,8 +30,11 @@ pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> 
         panic!("bfp: bad iter");
     }
 
-    let a = read_i8_nn(banks, op1, n);
-    let b = read_i8_nn(banks, op2, n);
+    let p1 = pbank(bank_map, op1);
+    let p2 = pbank(bank_map, op2);
+    let pw = pbank(bank_map, wr);
+    let a = read_i8_nn(banks, p1, n);
+    let b = read_i8_nn(banks, p2, n);
     let mut c = vec![vec![0i32; n]; n];
     for i in 0..n {
         for j in 0..n {
@@ -36,6 +45,6 @@ pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> 
             c[i][j] = acc;
         }
     }
-    write_i32_nn(banks, wr, &c, n);
+    write_i32_nn(banks, pw, &c, n);
     0
 }

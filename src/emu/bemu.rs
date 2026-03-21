@@ -1,4 +1,4 @@
-use super::bank::{BankConfig, BANK_NUM};
+use super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::configs::config::{BemuStats, EmuConfig};
 use super::inst::decode::SyncPlan;
 use super::inst::decode::{self};
@@ -8,6 +8,7 @@ pub struct Bemu {
     banks: Vec<Vec<u8>>,
     stats: BemuStats,
     bank_configs: [BankConfig; BANK_NUM],
+    bank_map: BankMap,
 }
 
 impl Bemu {
@@ -20,6 +21,7 @@ impl Bemu {
                 .collect(),
             stats: BemuStats::default(),
             bank_configs: [BankConfig::default(); BANK_NUM],
+            bank_map: BankMap::new(cfg.bank_num),
         }
     }
 
@@ -49,6 +51,7 @@ impl Bemu {
             &mut self.memory,
             &mut self.banks,
             &mut self.bank_configs,
+            &mut self.bank_map,
         ) {
             Some(v) => v,
             None => panic!("Bemu: unknown funct={funct}"),

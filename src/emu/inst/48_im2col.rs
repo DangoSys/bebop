@@ -1,8 +1,14 @@
-use super::super::bank::{BankConfig, BANK_NUM};
-use super::decode::{rs1_b0, rs1_b2};
+use super::super::bank::{BankConfig, BankMap, BANK_NUM};
+use super::decode::{pbank, rs1_b0, rs1_b2};
 
 /// Row-major input A[M][K] in bank (after mvin), output flattened im2col windows to wr bank.
-pub fn exec(xs1: u64, xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u64 {
+pub fn exec(
+    xs1: u64,
+    xs2: u64,
+    banks: &mut [Vec<u8>],
+    cfgs: &[BankConfig],
+    bank_map: &BankMap,
+) -> u64 {
     let op1 = rs1_b0(xs1);
     let wr = rs1_b2(xs1);
     if op1 >= BANK_NUM as u64 || wr >= BANK_NUM as u64 {
@@ -35,14 +41,14 @@ pub fn exec(xs1: u64, xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u
         panic!("im2col: invalid start window");
     }
 
-    let oi = op1 as usize;
-    let wi = wr as usize;
-    let (srcb, dstb): (&[u8], &mut [u8]) = if oi < wi {
-        let (l, r) = banks.split_at_mut(wi);
-        (&l[oi], &mut r[0])
+    let po = pbank(bank_map, op1);
+    let pw = pbank(bank_map, wr);
+    let (srcb, dstb): (&[u8], &mut [u8]) = if po < pw {
+        let (l, r) = banks.split_at_mut(pw);
+        (&l[po], &mut r[0])
     } else {
-        let (l, r) = banks.split_at_mut(oi);
-        (&r[0], &mut l[wi])
+        let (l, r) = banks.split_at_mut(po);
+        (&r[0], &mut l[pw])
     };
 
     let mut out = 0usize;

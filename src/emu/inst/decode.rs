@@ -1,6 +1,6 @@
 //! ISA decode — funct7 and rs1/rs2 fields match `bb-tests/workloads/lib/bbhw/isa/isa.h`
 //! (`FIELD`, `BB_BANK0`..`BB_BANK2`, `BB_ITER`).
-use super::super::bank::{BankConfig, BANK_NUM};
+use super::super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::{
     f00_fence, f01_barrier, f02_gemmini_config, f03_gemmini_flush, f04_bdb_counter, f16_mvout,
     f32_mset, f33_mvin, f48_im2col, f49_transpose, f50_relu, f51_quant, f52_dequant,
@@ -93,6 +93,16 @@ pub fn xs2_mset(xs2: u64) -> (u64, u64, u64) {
     (row, col, alloc)
 }
 
+/// 指令中的 bank 字段为 **vbank_id**；访问 `banks` 前解析为物理槽下标。
+#[inline]
+pub fn pbank(bm: &BankMap, vbank: u64) -> usize {
+    if vbank >= BANK_NUM as u64 {
+        panic!("pbank: invalid vbank_id {vbank}");
+    }
+    bm.resolve(vbank as u32)
+        .unwrap_or_else(|| panic!("pbank: vbank {vbank} not mapped"))
+}
+
 pub fn build_sync_plan(funct: u32, xs1: u64, xs2: u64, cfgs: &[BankConfig]) -> SyncPlan {
     let mut p = SyncPlan::default();
     if funct != FUNCT_MVIN && funct != FUNCT_MVOUT {
@@ -130,6 +140,7 @@ pub fn execute_known(
     memory: &mut [u8],
     banks: &mut [Vec<u8>],
     cfgs: &mut [BankConfig],
+    bank_map: &mut BankMap,
 ) -> Option<u64> {
     let ret = match funct {
         FUNCT_FENCE => f00_fence::exec(),
@@ -137,23 +148,23 @@ pub fn execute_known(
         FUNCT_GEMMINI_CONFIG => f02_gemmini_config::exec(xs2),
         FUNCT_GEMMINI_FLUSH => f03_gemmini_flush::exec(),
         FUNCT_BDB_COUNTER => f04_bdb_counter::exec(),
-        FUNCT_MSET => f32_mset::exec(xs1, xs2, cfgs, banks),
-        FUNCT_MVIN => f33_mvin::exec(xs1, xs2, memory, banks, cfgs),
-        FUNCT_MVOUT => f16_mvout::exec(xs1, xs2, memory, banks, cfgs),
-        FUNCT_IM2COL => f48_im2col::exec(xs1, xs2, banks, cfgs),
-        FUNCT_MUL_WARP16 => f64_mul_warp16::exec(xs1, xs2, banks, cfgs),
-        FUNCT_TRANSPOSE => f49_transpose::exec(xs1, xs2, banks, cfgs),
-        FUNCT_RELU => f50_relu::exec(xs1, banks, cfgs),
-        FUNCT_QUANT => f51_quant::exec(xs1, xs2, banks, cfgs),
-        FUNCT_DEQUANT => f52_dequant::exec(xs1, xs2, banks, cfgs),
-        FUNCT_GEMMINI_PRELOAD => f53_gemmini_preload::exec(xs1, xs2, banks, cfgs),
+        FUNCT_MSET => f32_mset::exec(xs1, xs2, cfgs, banks, bank_map),
+        FUNCT_MVIN => f33_mvin::exec(xs1, xs2, memory, banks, cfgs, bank_map),
+        FUNCT_MVOUT => f16_mvout::exec(xs1, xs2, memory, banks, cfgs, bank_map),
+        FUNCT_IM2COL => f48_im2col::exec(xs1, xs2, banks, cfgs, bank_map),
+        FUNCT_MUL_WARP16 => f64_mul_warp16::exec(xs1, xs2, banks, cfgs, bank_map),
+        FUNCT_TRANSPOSE => f49_transpose::exec(xs1, xs2, banks, cfgs, bank_map),
+        FUNCT_RELU => f50_relu::exec(xs1, banks, cfgs, bank_map),
+        FUNCT_QUANT => f51_quant::exec(xs1, xs2, banks, cfgs, bank_map),
+        FUNCT_DEQUANT => f52_dequant::exec(xs1, xs2, banks, cfgs, bank_map),
+        FUNCT_GEMMINI_PRELOAD => f53_gemmini_preload::exec(xs1, xs2, banks, cfgs, bank_map),
         FUNCT_BDB_BACKDOOR => f54_bdb_backdoor::exec(),
-        FUNCT_BFP => f65_bfp::exec(xs1, xs2, banks, cfgs),
+        FUNCT_BFP => f65_bfp::exec(xs1, xs2, banks, cfgs, bank_map),
         FUNCT_GEMMINI_COMPUTE_PRELOADED => {
-            f66_gemmini_compute_preloaded::exec(xs1, xs2, banks, cfgs)
+            f66_gemmini_compute_preloaded::exec(xs1, xs2, banks, cfgs, bank_map)
         }
         FUNCT_GEMMINI_COMPUTE_ACCUMULATED => {
-            f67_gemmini_compute_accumulated::exec(xs1, xs2, banks, cfgs)
+            f67_gemmini_compute_accumulated::exec(xs1, xs2, banks, cfgs, bank_map)
         }
         FUNCT_GEMMINI_LOOP_WS_CONFIG_BOUNDS
         | FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_A
