@@ -1,5 +1,6 @@
 //! BEMU sidecar: services RPCs from Spike `bebop_rocc` over shared memory.
 
+use std::env;
 use std::ffi::CString;
 use std::sync::atomic::Ordering;
 
@@ -13,6 +14,8 @@ pub fn run(name: &CString) -> Result<(), String> {
         .map_err(|e| format!("worker shm attach: {e}"))?;
     let s = map.raw_bebop();
     let mut bemu = Bemu::new();
+    let step = env::var("BEBOP_STEP").ok().as_deref() == Some("1");
+    let mut step_idx: u64 = 0;
     loop {
         let r = unsafe { (*s).req.load(Ordering::Acquire) };
         let a = unsafe { (*s).ack.load(Ordering::Acquire) };
@@ -36,6 +39,14 @@ pub fn run(name: &CString) -> Result<(), String> {
                 let xs1 = unsafe { (*s).xs1 };
                 let xs2 = unsafe { (*s).xs2 };
                 let out = bemu.execute(funct, xs1, xs2);
+                if step {
+                    step_idx = step_idx.wrapping_add(1);
+                    let h = bemu.banks_hash128_hex();
+                    println!(
+                        "step={} funct={} xs1=0x{:x} xs2=0x{:x} out=0x{:x} bank_hash128={}",
+                        step_idx, funct, xs1, xs2, out, h
+                    );
+                }
                 unsafe {
                     (*s).result = out;
                     (*s).err = 0;
