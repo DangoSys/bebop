@@ -1,3 +1,4 @@
+pub mod bank_matrix;
 pub mod decode;
 #[path = "00_fence.rs"]
 pub mod f00_fence;
@@ -41,3 +42,4 @@ pub mod f67_gemmini_compute_accumulated;
 pub mod f80_gemmini_loop_ws;
 #[path = "96_gemmini_loop_conv_ws.rs"]
 pub mod f96_gemmini_loop_conv_ws;
+pub mod gemmini_state;
