@@ -24,8 +24,7 @@ nix build
 ```
 cd bebop
 nix develop
-bebop workload
-bebop spike-test
+bebop spike-test /path/to/pk-tests
 ```
 
 ### Run in GUI

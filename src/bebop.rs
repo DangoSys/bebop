@@ -1,5 +1,5 @@
 //! Spike 仿真与 BEMU 侧入口：`spike-test`、worker-shm。
-//! CLI 见 [`crate::cli`]；workload 构建见 [`crate::workload`]。
+//! CLI 见 [`crate::cli`]。
 
 use std::env;
 use std::ffi::CString;
@@ -10,7 +10,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use log::{debug, info};
 
 use crate::shm::{self, ShmMap};
-use crate::workload;
 
 const SPIKE_EXT: &str = "--extension=bebop_rocc";
 
@@ -41,38 +40,71 @@ fn spike_lib_dir(spike_exe: &Path) -> Result<PathBuf, String> {
     Ok(root.join("lib"))
 }
 
-/// Run Spike + pk on default or all workload ELFs（需已 `bebop workload`）。
-pub fn spike_tests(all: bool) -> Result<(), String> {
-    let build = workload::build_dir();
+/// 从 `bebop` 可执行路径向上找含 `src/workload/CMakeLists.txt` 的目录（bebop crate 根）。
+fn bebop_crate_root() -> Result<PathBuf, String> {
+    let exe = env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    let exe = exe.canonicalize().map_err(|e| format!("bebop exe: {e}"))?;
+    let mut dir = exe.parent().ok_or("bebop exe has no parent")?;
+    loop {
+        if dir.join("src/workload/CMakeLists.txt").is_file() {
+            return Ok(dir.to_path_buf());
+        }
+        dir = dir.parent().ok_or_else(|| {
+            format!(
+                "bebop crate root not found (need src/workload/CMakeLists.txt) starting from {}",
+                exe.display()
+            )
+        })?;
+    }
+}
+
+fn path_rocc_so() -> Result<PathBuf, String> {
+    let p = bebop_crate_root()?.join("src/workload/build/libbebop_rocc.so");
+    if !p.is_file() {
+        return Err(format!("missing {} — run `bebop build`", p.display()));
+    }
+    p.canonicalize().map_err(|e| format!("rocc path: {e}"))
+}
+
+pub fn build_workload() -> Result<(), String> {
+    let root = bebop_crate_root()?;
+    let wl = root.join("src/workload");
+    let out = root.join("src/workload/build");
+    let wl_s = wl.to_str().ok_or("workload path is not UTF-8")?;
+    let out_s = out.to_str().ok_or("build path is not UTF-8")?;
+    info!("cmake: {} -> {}", wl.display(), out.display());
+    let st = Command::new("cmake")
+        .args(["-S", wl_s, "-B", out_s, "-G", "Ninja"])
+        .status()
+        .map_err(|e| format!("cmake: {e}"))?;
+    if !st.success() {
+        return Err("cmake failed".into());
+    }
+    let st = Command::new("ninja")
+        .args(["-C", out_s, "bebop_rocc"])
+        .status()
+        .map_err(|e| format!("ninja: {e}"))?;
+    if !st.success() {
+        return Err("ninja failed".into());
+    }
+    Ok(())
+}
+
+pub fn spike_tests(elf: PathBuf) -> Result<(), String> {
+    let elf = elf.canonicalize().map_err(|e| format!("elf path: {e}"))?;
+    if !elf.is_file() {
+        return Err(format!("elf is not a file: {}", elf.display()));
+    }
+    let rocc_so = path_rocc_so()?;
+    let rocc_dir = rocc_so
+        .parent()
+        .ok_or("rocc path has no parent")?
+        .to_path_buf();
     let spike = resolve_on_path("spike")?;
     let pk = resolve_on_path("pk")?;
     let spike_lib = spike_lib_dir(&spike)?;
-    let rocc = build.join("libbebop_rocc.so");
-    if !rocc.is_file() {
-        return Err(format!(
-            "missing {} — set BEBOP_DIR and run `bebop workload` (or use `cargo build` binary from this repo)",
-            rocc.display()
-        ));
-    }
-
-    let ld = ld_library_path_spike(&spike_lib, &build);
-    let list: &[&str] = if all {
-        workload::TEST_ELF_NAMES
-    } else {
-        &workload::TEST_ELF_NAMES[..1]
-    };
-
-    for exe in list {
-        let elf = build.join(exe);
-        if !elf.is_file() {
-            return Err(format!(
-                "missing {} — set BEBOP_DIR and run `bebop workload` (or use `cargo build` binary from this repo)",
-                elf.display()
-            ));
-        }
-        run_spike_pk(&spike, &pk, &elf, &ld)?;
-    }
-    Ok(())
+    let ld = ld_library_path_spike(&spike_lib, &rocc_dir);
+    run_spike_pk(&spike, &pk, &elf, &ld)
 }
 
 fn ld_library_path_spike(spike_lib: &Path, workload_build: &Path) -> String {

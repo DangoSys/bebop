@@ -8,6 +8,7 @@ pub const OP_HANDLE: u32 = 0;
 pub const OP_SYNC: u32 = 1;
 pub const OP_READ: u32 = 2;
 pub const OP_SHUTDOWN: u32 = 3;
+pub const OP_DECODE: u32 = 4;
 
 #[repr(C)]
 pub struct BebopShm {
@@ -24,6 +25,12 @@ pub struct BebopShm {
     pub err: i32,
     pub _pad2: u32,
     pub data: [u8; 16],
+    pub sync_flags: u32,
+    pub line_blocks: u32,
+    pub depth: u32,
+    pub _pad3: u32,
+    pub mem_addr: u64,
+    pub stride: u64,
 }
 
 const _: () = assert!(size_of::<BebopShm>() <= BEBOP_SHM_SIZE);

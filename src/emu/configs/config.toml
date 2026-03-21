@@ -1,4 +1,3 @@
 bank_num = 32
 bank_width = 128
 bank_lines = 1024
-matrix_size = 16

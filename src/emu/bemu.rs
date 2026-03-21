@@ -1,10 +1,7 @@
-use super::configs::config::{BankConfig, BemuStats, EmuConfig, BANK_NUM};
-use super::instructions::matmul;
-use super::instructions::mset;
-use super::instructions::mvin;
-use super::instructions::mvout;
-use super::instructions::transpose;
-use log::{debug, error, info};
+use super::bank::{BankConfig, BANK_NUM};
+use super::configs::config::{BemuStats, EmuConfig};
+use super::inst::decode::SyncPlan;
+use super::inst::decode::{self};
 
 pub struct Bemu {
     memory: Vec<u8>,
@@ -16,12 +13,6 @@ pub struct Bemu {
 impl Bemu {
     pub fn new() -> Self {
         let cfg = EmuConfig::load().unwrap_or_else(|e| panic!("BEMU config load failed: {e}"));
-        info!(
-            "Creating Bemu (Golden Model)\n  Config: {} banks x {} bytes ({}KB total)",
-            cfg.bank_num,
-            cfg.bank_size(),
-            cfg.total_memory_size() / 1024
-        );
         Self {
             memory: vec![0; cfg.total_memory_size()],
             banks: (0..cfg.bank_num)
@@ -41,18 +32,6 @@ impl Bemu {
         }
     }
 
-    fn execute_known(&mut self, funct: u32, xs1: u64, xs2: u64) -> Option<u64> {
-        let ret = match funct {
-            23 => mset::execute_mset(xs1, xs2, &mut self.bank_configs, &mut self.banks),
-            24 => mvin::execute_mvin(xs1, xs2, &self.memory, &mut self.banks, &self.bank_configs),
-            25 => mvout::execute_mvout(xs1, xs2, &mut self.memory, &self.banks, &self.bank_configs),
-            32 => matmul::execute_mul_warp16(xs1, xs2, &mut self.banks, &self.bank_configs),
-            34 => transpose::execute_transpose(xs1, xs2, &mut self.banks, &self.bank_configs),
-            _ => return None,
-        };
-        Some(Self::encode_result(funct, ret))
-    }
-
     pub fn set_verbose(&mut self, verbose: bool) {
         if verbose {
             log::set_max_level(log::LevelFilter::Debug);
@@ -63,21 +42,22 @@ impl Bemu {
 
     pub fn execute(&mut self, funct: u32, xs1: u64, xs2: u64) -> u64 {
         self.stats.instructions_executed += 1;
-        debug!(
-            "Bemu executing: funct={}, xs1=0x{:x}, xs2=0x{:x}",
-            funct, xs1, xs2
-        );
-
-        let result = match self.execute_known(funct, xs1, xs2) {
+        let ret = match decode::execute_known(
+            funct,
+            xs1,
+            xs2,
+            &mut self.memory,
+            &mut self.banks,
+            &mut self.bank_configs,
+        ) {
             Some(v) => v,
-            None => {
-                error!("Bemu: Unknown funct={}", funct);
-                u64::MAX
-            }
+            None => panic!("Bemu: unknown funct={funct}"),
         };
+        Self::encode_result(funct, ret)
+    }
 
-        debug!("Bemu result: 0x{:x}", result);
-        result
+    pub fn decode_sync_plan(&self, funct: u32, xs1: u64, xs2: u64) -> SyncPlan {
+        decode::build_sync_plan(funct, xs1, xs2, &self.bank_configs)
     }
 
     pub fn get_stats(&self) -> &BemuStats {

@@ -1,8 +1,10 @@
-//! CLI：clap 定义与命令分发（仿真在 [`crate::bebop`]，workload 在 [`crate::workload`]）。
+//! CLI：clap 定义与命令分发（仿真在 [`crate::bebop`]）。
+
+use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use crate::{bebop, shm, workload};
+use crate::{bebop, shm};
 
 #[derive(Parser)]
 #[command(name = "bebop", about = "Bebop BEMU CLI")]
@@ -21,13 +23,10 @@ pub enum Commands {
         #[arg(long, default_value_t = 4096)]
         size: usize,
     },
-    /// `cmake` + `ninja`（`src/workload`：RISC-V ELF + `libbebop_rocc.so`）。
-    Workload,
-    /// Run Spike + pk（需已 `cargo build --release` 且 `bebop workload`）。
-    SpikeTest {
-        #[arg(long, default_value_t = false)]
-        all: bool,
-    },
+    /// `cmake` + `ninja` → `src/workload/build/libbebop_rocc.so`（需本机有 `spike`、`cmake`、`ninja`）。
+    Build,
+    /// Run Spike + pk：`elf` 为测例路径；RoCC 库为 `src/workload/build/libbebop_rocc.so`（先 `bebop build`）。
+    SpikeTest { elf: PathBuf },
     #[command(hide = true, name = "worker-shm")]
     WorkerShm { name: String },
 }
@@ -35,8 +34,8 @@ pub enum Commands {
 pub fn dispatch(cli: Cli) -> Result<(), String> {
     match cli.command {
         Commands::ShmSmoke { size } => shm::run_smoke(size),
-        Commands::Workload => workload::cmake_ninja(),
-        Commands::SpikeTest { all } => bebop::spike_tests(all),
+        Commands::Build => bebop::build_workload(),
+        Commands::SpikeTest { elf } => bebop::spike_tests(elf),
         Commands::WorkerShm { name } => bebop::worker_shm(name),
     }
 }
