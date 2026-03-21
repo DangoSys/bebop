@@ -134,31 +134,35 @@ pub fn execute_known(
     let ret = match funct {
         FUNCT_FENCE => f00_fence::exec(),
         FUNCT_BARRIER => f01_barrier::exec(),
-        FUNCT_GEMMINI_CONFIG => f02_gemmini_config::exec(),
+        FUNCT_GEMMINI_CONFIG => f02_gemmini_config::exec(xs2),
         FUNCT_GEMMINI_FLUSH => f03_gemmini_flush::exec(),
         FUNCT_BDB_COUNTER => f04_bdb_counter::exec(),
         FUNCT_MSET => f32_mset::exec(xs1, xs2, cfgs, banks),
         FUNCT_MVIN => f33_mvin::exec(xs1, xs2, memory, banks, cfgs),
         FUNCT_MVOUT => f16_mvout::exec(xs1, xs2, memory, banks, cfgs),
-        FUNCT_IM2COL => f48_im2col::exec(),
+        FUNCT_IM2COL => f48_im2col::exec(xs1, xs2, banks, cfgs),
         FUNCT_MUL_WARP16 => f64_mul_warp16::exec(xs1, xs2, banks, cfgs),
         FUNCT_TRANSPOSE => f49_transpose::exec(xs1, xs2, banks, cfgs),
         FUNCT_RELU => f50_relu::exec(xs1, banks, cfgs),
         FUNCT_QUANT => f51_quant::exec(xs1, xs2, banks, cfgs),
         FUNCT_DEQUANT => f52_dequant::exec(xs1, xs2, banks, cfgs),
-        FUNCT_GEMMINI_PRELOAD => f53_gemmini_preload::exec(),
+        FUNCT_GEMMINI_PRELOAD => f53_gemmini_preload::exec(xs1, xs2, banks, cfgs),
         FUNCT_BDB_BACKDOOR => f54_bdb_backdoor::exec(),
-        FUNCT_BFP => f65_bfp::exec(),
-        FUNCT_GEMMINI_COMPUTE_PRELOADED => f66_gemmini_compute_preloaded::exec(),
-        FUNCT_GEMMINI_COMPUTE_ACCUMULATED => f67_gemmini_compute_accumulated::exec(),
+        FUNCT_BFP => f65_bfp::exec(xs1, xs2, banks, cfgs),
+        FUNCT_GEMMINI_COMPUTE_PRELOADED => {
+            f66_gemmini_compute_preloaded::exec(xs1, xs2, banks, cfgs)
+        }
+        FUNCT_GEMMINI_COMPUTE_ACCUMULATED => {
+            f67_gemmini_compute_accumulated::exec(xs1, xs2, banks, cfgs)
+        }
         FUNCT_GEMMINI_LOOP_WS_CONFIG_BOUNDS
         | FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_A
         | FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_B
         | FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_D
         | FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_C
         | FUNCT_GEMMINI_LOOP_WS_CONFIG_STRIDES_AB
-        | FUNCT_GEMMINI_LOOP_WS_CONFIG_STRIDES_DC => f80_gemmini_loop_ws::exec_cfg(),
-        FUNCT_GEMMINI_LOOP_WS => f80_gemmini_loop_ws::exec_loop(),
+        | FUNCT_GEMMINI_LOOP_WS_CONFIG_STRIDES_DC => f80_gemmini_loop_ws::exec_cfg(funct, xs2),
+        FUNCT_GEMMINI_LOOP_WS => f80_gemmini_loop_ws::exec_loop(memory),
         FUNCT_GEMMINI_LOOP_CONV_WS_CONFIG_1
         | FUNCT_GEMMINI_LOOP_CONV_WS_CONFIG_2
         | FUNCT_GEMMINI_LOOP_CONV_WS_CONFIG_3
@@ -167,8 +171,8 @@ pub fn execute_known(
         | FUNCT_GEMMINI_LOOP_CONV_WS_CONFIG_6
         | FUNCT_GEMMINI_LOOP_CONV_WS_CONFIG_7
         | FUNCT_GEMMINI_LOOP_CONV_WS_CONFIG_8
-        | FUNCT_GEMMINI_LOOP_CONV_WS_CONFIG_9 => f96_gemmini_loop_conv_ws::exec_cfg(),
-        FUNCT_GEMMINI_LOOP_CONV_WS => f96_gemmini_loop_conv_ws::exec_loop(),
+        | FUNCT_GEMMINI_LOOP_CONV_WS_CONFIG_9 => f96_gemmini_loop_conv_ws::exec_cfg(funct, xs2),
+        FUNCT_GEMMINI_LOOP_CONV_WS => f96_gemmini_loop_conv_ws::exec_loop(memory),
         _ => return None,
     };
     Some(ret)

@@ -1,5 +1,10 @@
-use super::super::bank::{BankConfig, BANK_NUM, MATRIX_SIZE};
+use super::super::bank::{BankConfig, BANK_NUM};
+use super::bank_matrix::{read_i32_16x16, read_i8_k_rows, write_i32_16x16};
 use super::decode::{rs1_b0, rs1_b1, rs1_b2, rs1_iter};
+
+/// Output tile M×N; inner sum length K = iter (VecBall mesh is 16-wide).
+const WARP_M: usize = 16;
+const WARP_N: usize = 16;
 
 pub fn exec(xs1: u64, xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u64 {
     let op1 = rs1_b0(xs1);
@@ -16,49 +21,26 @@ pub fn exec(xs1: u64, xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig]) -> u
     if c1 != 1 || c2 != 1 || cw != 4 {
         panic!("mul_warp16: unsupported bank layout op1_cols={c1} op2_cols={c2} wr_cols={cw}");
     }
-    let n = (iter.min(MATRIX_SIZE as u64)) as usize;
-    let a_t = read_i8(banks, op1, n);
-    let b = read_i8(banks, op2, n);
-    let mut c = read_i32(banks, wr, n);
-    for i in 0..n {
-        for j in 0..n {
+    let kin = iter as usize;
+    if kin == 0 {
+        panic!("mul_warp16: iter must be > 0");
+    }
+    let need = kin * 16;
+    if need > banks[op1 as usize].len() || need > banks[op2 as usize].len() {
+        panic!("mul_warp16: iter too large for bank");
+    }
+    let a_t = read_i8_k_rows(banks, op1, kin, WARP_N);
+    let b = read_i8_k_rows(banks, op2, kin, WARP_N);
+    let mut c = read_i32_16x16(banks, wr);
+    for i in 0..WARP_M {
+        for j in 0..WARP_N {
             let mut acc = c[i][j];
-            for k in 0..n {
-                acc = acc.wrapping_add((a_t[k][i] as i32).wrapping_mul(b[k][j] as i32));
+            for t in 0..kin {
+                acc = acc.wrapping_add((a_t[t][i] as i32).wrapping_mul(b[t][j] as i32));
             }
             c[i][j] = acc;
         }
     }
-    write_i32(banks, wr, &c, n);
+    write_i32_16x16(banks, wr, &c);
     0
-}
-
-fn read_i8(banks: &[Vec<u8>], id: u64, n: usize) -> [[i8; MATRIX_SIZE]; MATRIX_SIZE] {
-    let mut m = [[0i8; MATRIX_SIZE]; MATRIX_SIZE];
-    for i in 0..n {
-        for j in 0..n {
-            m[i][j] = banks[id as usize][i * 16 + j] as i8;
-        }
-    }
-    m
-}
-
-fn read_i32(banks: &[Vec<u8>], id: u64, n: usize) -> [[i32; MATRIX_SIZE]; MATRIX_SIZE] {
-    let mut m = [[0i32; MATRIX_SIZE]; MATRIX_SIZE];
-    for i in 0..n {
-        for j in 0..n {
-            let off = i * 64 + j * 4;
-            m[i][j] = i32::from_le_bytes(banks[id as usize][off..off + 4].try_into().unwrap());
-        }
-    }
-    m
-}
-
-fn write_i32(banks: &mut [Vec<u8>], id: u64, m: &[[i32; MATRIX_SIZE]; MATRIX_SIZE], n: usize) {
-    for i in 0..n {
-        for j in 0..n {
-            let off = i * 64 + j * 4;
-            banks[id as usize][off..off + 4].copy_from_slice(&m[i][j].to_le_bytes());
-        }
-    }
 }
