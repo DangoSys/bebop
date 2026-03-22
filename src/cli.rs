@@ -23,9 +23,8 @@ pub enum Commands {
         #[arg(long, default_value_t = 4096)]
         size: usize,
     },
-    /// `cmake` + `ninja` → `src/workload/build/libbebop_rocc.so`（需本机有 `spike`、`cmake`、`ninja`）。
     Build,
-    /// Run Spike + pk：`elf` 为测例路径；RoCC 库为 `src/workload/build/libbebop_rocc.so`（先 `bebop build`）。
+    /// Run Spike + pk：`elf` is the path to the ELF file.
     SpikeTest {
         elf: PathBuf,
         /// After each RoCC custom instruction: print bank state hash (64-bit per bank).
@@ -33,7 +32,9 @@ pub enum Commands {
         step: bool,
     },
     #[command(hide = true, name = "worker-shm")]
-    WorkerShm { name: String },
+    WorkerShm {
+        name: String,
+    },
 }
 
 pub fn dispatch(cli: Cli) -> Result<(), String> {

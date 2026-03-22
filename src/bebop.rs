@@ -164,7 +164,17 @@ fn run_spike_pk(
         nm
     );
     info!("spike: {}", elf.display());
+    if log::log_enabled!(log::Level::Debug) {
+        debug!(
+            "spike cmd: {} {} {} {}",
+            spike.display(),
+            SPIKE_EXT,
+            pk.display(),
+            elf.display()
+        );
+    }
 
+    // Inherit stdout/stderr so pk + guest `puts` / printf reach the terminal (piped+output() swallows it).
     let spike_status = Command::new(spike)
         .arg(SPIKE_EXT)
         .arg(pk)
@@ -192,7 +202,10 @@ fn run_spike_pk(
         return Err(format!("worker exited with {:?}", wst.code()));
     }
     if !st.success() {
-        return Err(format!("spike exited with {:?}", st.code()));
+        return Err(format!(
+            "spike exited with {:?} (see spike/pk output above; pk often uses this as main's return code)",
+            st.code()
+        ));
     }
     Ok(())
 }
