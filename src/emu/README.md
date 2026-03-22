@@ -7,7 +7,7 @@
 - **BEMU**（`src/emu`）：Rust golden model；在 **`bebop worker-shm`** 子进程里跑（与 Spike 并行），直接调用 `Bemu::execute` / `write_memory` / `read_memory`。
 - **共享内存布局**（须与 C++ 一致）：[`src/workload/bebop_shm.h`](../workload/bebop_shm.h) 与 [`src/shm/layout.rs`](../shm/layout.rs)。控制字段含 `req` / `ack`（C++ 侧用 `std::atomic_ref`），操作码：`HANDLE` / `SYNC` / `READ` / `SHUTDOWN`。
 - **`bebop_rocc`**（[`src/workload/bebop_rocc.cc`](../workload/bebop_rocc.cc) → `libbebop_rocc.so`）：在 custom-0 路径上 `mmap` 环境变量 **`BEBOP_SHM_NAME`** 指向的段，通过 `req`/`ack` 与 worker 同步；**MVIN** 仍从 Spike MMU 读块，经 **`OP_SYNC`** 写入 BEMU；**MVOUT** 经 **`OP_READ`** 取回再写 MMU；普通指令走 **`OP_HANDLE`**。
-- **`bebop spike-test`**：CLI 在 [`src/cli.rs`](../cli.rs)；仿真流程在 [`src/bebop.rs`](../bebop.rs)（创建 shm → `spawn` **`worker-shm`** → 设置 `BEBOP_SHM_NAME` 与 `LD_LIBRARY_PATH` 后启动 `spike --extension=bebop_rocc pk <elf>` → **`rpc_shutdown`** → `shm_unlink`）。**`--step`**：每条 **RoCC 自定义指令**（`OP_HANDLE`）执行后，worker 打印全 bank 内容的 **128-bit** 哈希（`bank_hash128`，32 个 hex 字符）；非 RoCC 的 RISC‑V 指令不在此粒度内。
+- **`bebop spike-test`**：CLI 在 [`src/cli.rs`](../cli.rs)；仿真流程在 [`src/bebop.rs`](../bebop.rs)（创建 shm → `spawn` **`worker-shm`** → 设置 `BEBOP_SHM_NAME` 与 `LD_LIBRARY_PATH` 后启动 `spike --extension=bebop_rocc pk <elf>` → **`rpc_shutdown`** → `shm_unlink`）。**`--step`**：每条 **RoCC 自定义指令**（`OP_HANDLE`）执行后，worker 为 **已 MSET 分配** 的 bank 各打印一个 **128-bit** 哈希（`b0=<32hex> …`）。**`BEBOP_STEP_BANKS=all`** 时打印全部 bank。仍可用 `Bemu::banks_hash128_hex` 得到全体 bank 按顺序串联后的单一摘要。非 RoCC 的 RISC‑V 指令不在此粒度内。
 
 程序中的自定义指令为 RISC-V custom-0；funct7 / rs1 / rs2 对应 BEMU 的 funct、xs1、xs2。MVIN/MVOUT 使用 guest 虚地址；BEMU 内地址按 512KB 取模，与 Spike 同步后语义一致。
 

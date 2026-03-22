@@ -3,6 +3,29 @@ use super::configs::config::{BemuStats, EmuConfig};
 use super::inst::decode::SyncPlan;
 use super::inst::decode::{self};
 
+const H128_0: u64 = 0x6c62272e07bb0142;
+const H128_1: u64 = 0x62b821756295c58d;
+const H128_P0: u64 = 0x0000_0100_0000_01b3;
+const H128_P1: u64 = 0x9e37_79b1_85eb_ca87;
+
+#[inline]
+fn hash128_mix(h0: &mut u64, h1: &mut u64, b: u8) {
+    *h0 ^= b as u64;
+    *h0 = h0.wrapping_mul(H128_P0);
+    *h1 ^= (b as u64).wrapping_add(0x9e37_79b9);
+    *h1 = h1.rotate_left(7).wrapping_mul(H128_P1);
+}
+
+/// One 128-bit digest (32 hex chars) for an arbitrary byte slice (e.g. one bank).
+pub fn bank_slice_hash128_hex(data: &[u8]) -> String {
+    let mut h0 = H128_0;
+    let mut h1 = H128_1;
+    for &b in data {
+        hash128_mix(&mut h0, &mut h1, b);
+    }
+    format!("{h0:016x}{h1:016x}")
+}
+
 pub struct Bemu {
     memory: Vec<u8>,
     banks: Vec<Vec<u8>>,
@@ -63,6 +86,11 @@ impl Bemu {
         decode::build_sync_plan(funct, xs1, xs2, &self.bank_configs)
     }
 
+    #[inline]
+    pub fn bank_allocated(&self, i: usize) -> bool {
+        i < BANK_NUM && self.bank_configs[i].allocated
+    }
+
     pub fn get_stats(&self) -> &BemuStats {
         &self.stats
     }
@@ -86,18 +114,22 @@ impl Bemu {
             .collect()
     }
 
-    /// Deterministic 128-bit hash of all bank bytes (hex string, 32 chars).
+    /// One 128-bit hash per bank (same algorithm as [`Self::banks_hash128_hex`] per byte order).
+    pub fn bank_hashes128_hex(&self) -> Vec<String> {
+        self.banks
+            .iter()
+            .map(|b| bank_slice_hash128_hex(b))
+            .collect()
+    }
+
+    /// Single 128-bit hash over all bank bytes in order (all banks concatenated).
+    #[allow(dead_code)] // optional API for tools / future CLI; step log uses per-bank only
     pub fn banks_hash128_hex(&self) -> String {
-        let mut h0: u64 = 0x6c62272e07bb0142;
-        let mut h1: u64 = 0x62b821756295c58d;
-        const P0: u64 = 0x0000_0100_0000_01b3;
-        const P1: u64 = 0x9e37_79b1_85eb_ca87;
+        let mut h0 = H128_0;
+        let mut h1 = H128_1;
         for bank in &self.banks {
             for &b in bank {
-                h0 ^= b as u64;
-                h0 = h0.wrapping_mul(P0);
-                h1 ^= (b as u64).wrapping_add(0x9e37_79b9);
-                h1 = h1.rotate_left(7).wrapping_mul(P1);
+                hash128_mix(&mut h0, &mut h1, b);
             }
         }
         format!("{h0:016x}{h1:016x}")

@@ -15,6 +15,8 @@ pub fn run(name: &CString) -> Result<(), String> {
     let s = map.raw_bebop();
     let mut bemu = Bemu::new();
     let step = env::var("BEBOP_STEP").ok().as_deref() == Some("1");
+    // Default: only MSET-allocated banks. Set BEBOP_STEP_BANKS=all to print every bank.
+    let step_banks_all = env::var("BEBOP_STEP_BANKS").ok().as_deref() == Some("all");
     let mut step_idx: u64 = 0;
     loop {
         let r = unsafe { (*s).req.load(Ordering::Acquire) };
@@ -41,10 +43,21 @@ pub fn run(name: &CString) -> Result<(), String> {
                 let out = bemu.execute(funct, xs1, xs2);
                 if step {
                     step_idx = step_idx.wrapping_add(1);
-                    let h = bemu.banks_hash128_hex();
+                    let hs = bemu.bank_hashes128_hex();
+                    let parts: Vec<String> = hs
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| step_banks_all || bemu.bank_allocated(*i))
+                        .map(|(i, h)| format!("b{i}={h}"))
+                        .collect();
                     println!(
-                        "step={} funct={} xs1=0x{:x} xs2=0x{:x} out=0x{:x} bank_hash128={}",
-                        step_idx, funct, xs1, xs2, out, h
+                        "step={} funct={} xs1=0x{:x} xs2=0x{:x} out=0x{:x} {}",
+                        step_idx,
+                        funct,
+                        xs1,
+                        xs2,
+                        out,
+                        parts.join(" ")
                     );
                 }
                 unsafe {
