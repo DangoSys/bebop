@@ -3,27 +3,23 @@ use super::configs::config::{BemuStats, EmuConfig};
 use super::inst::decode::SyncPlan;
 use super::inst::decode::{self};
 
-const H128_0: u64 = 0x6c62272e07bb0142;
-const H128_1: u64 = 0x62b821756295c58d;
-const H128_P0: u64 = 0x0000_0100_0000_01b3;
-const H128_P1: u64 = 0x9e37_79b1_85eb_ca87;
+// FNV-1a 64-bit (non-crypto fingerprint)
+const FNV64_OFFSET: u64 = 14695981039346656037;
+const FNV64_PRIME: u64 = 1099511628211;
 
 #[inline]
-fn hash128_mix(h0: &mut u64, h1: &mut u64, b: u8) {
-    *h0 ^= b as u64;
-    *h0 = h0.wrapping_mul(H128_P0);
-    *h1 ^= (b as u64).wrapping_add(0x9e37_79b9);
-    *h1 = h1.rotate_left(7).wrapping_mul(H128_P1);
+fn fnv1a64_mix(h: &mut u64, b: u8) {
+    *h ^= b as u64;
+    *h = h.wrapping_mul(FNV64_PRIME);
 }
 
-/// One 128-bit digest (32 hex chars) for an arbitrary byte slice (e.g. one bank).
-pub fn bank_slice_hash128_hex(data: &[u8]) -> String {
-    let mut h0 = H128_0;
-    let mut h1 = H128_1;
+/// One 64-bit digest (16 hex chars) for an arbitrary byte slice (e.g. one bank).
+pub fn bank_slice_hash64_hex(data: &[u8]) -> String {
+    let mut h = FNV64_OFFSET;
     for &b in data {
-        hash128_mix(&mut h0, &mut h1, b);
+        fnv1a64_mix(&mut h, b);
     }
-    format!("{h0:016x}{h1:016x}")
+    format!("{h:016x}")
 }
 
 pub struct Bemu {
@@ -114,25 +110,24 @@ impl Bemu {
             .collect()
     }
 
-    /// One 128-bit hash per bank (same algorithm as [`Self::banks_hash128_hex`] per byte order).
-    pub fn bank_hashes128_hex(&self) -> Vec<String> {
+    /// One 64-bit hash per bank (same algorithm as [`Self::banks_hash64_hex`] byte order).
+    pub fn bank_hashes64_hex(&self) -> Vec<String> {
         self.banks
             .iter()
-            .map(|b| bank_slice_hash128_hex(b))
+            .map(|b| bank_slice_hash64_hex(b))
             .collect()
     }
 
-    /// Single 128-bit hash over all bank bytes in order (all banks concatenated).
+    /// Single 64-bit hash over all bank bytes in order (all banks concatenated).
     #[allow(dead_code)] // optional API for tools / future CLI; step log uses per-bank only
-    pub fn banks_hash128_hex(&self) -> String {
-        let mut h0 = H128_0;
-        let mut h1 = H128_1;
+    pub fn banks_hash64_hex(&self) -> String {
+        let mut h = FNV64_OFFSET;
         for bank in &self.banks {
             for &b in bank {
-                hash128_mix(&mut h0, &mut h1, b);
+                fnv1a64_mix(&mut h, b);
             }
         }
-        format!("{h0:016x}{h1:016x}")
+        format!("{h:016x}")
     }
 }
 

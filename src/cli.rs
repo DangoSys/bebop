@@ -28,7 +28,7 @@ pub enum Commands {
     /// Run Spike + pk：`elf` 为测例路径；RoCC 库为 `src/workload/build/libbebop_rocc.so`（先 `bebop build`）。
     SpikeTest {
         elf: PathBuf,
-        /// After each RoCC custom instruction: print bank state hash (128-bit).
+        /// After each RoCC custom instruction: print bank state hash (64-bit per bank).
         #[arg(long, default_value_t = false)]
         step: bool,
     },

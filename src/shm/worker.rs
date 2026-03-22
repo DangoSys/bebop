@@ -43,7 +43,7 @@ pub fn run(name: &CString) -> Result<(), String> {
                 let out = bemu.execute(funct, xs1, xs2);
                 if step {
                     step_idx = step_idx.wrapping_add(1);
-                    let hs = bemu.bank_hashes128_hex();
+                    let hs = bemu.bank_hashes64_hex();
                     let parts: Vec<String> = hs
                         .iter()
                         .enumerate()
