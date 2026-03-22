@@ -25,7 +25,8 @@ nix build
 cd bebop
 nix develop
 bebop spike-test /path/to/pk-tests
-bebop spike-test /path/to/pk-tests --step   # log 128-bit bank hash after each RoCC insn
+bebop spike-test /path/to/pk-tests --step   # per allocated bank 128-bit hash after each RoCC insn
+# BEBOP_STEP_BANKS=all    # optional: print every bank (default: allocated only)
 ```
 
 ### Run in GUI
