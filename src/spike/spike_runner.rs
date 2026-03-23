@@ -12,42 +12,44 @@ const SPIKE_EXT: &str = "--extension=bebop_rocc";
 
 static SPIKE_SHM_SEQ: AtomicU64 = AtomicU64::new(0);
 
-fn resolve_on_path(cmd: &str) -> Result<PathBuf, String> {
+fn which(cmd: &str) -> Result<PathBuf, String> {
     let out = Command::new("sh")
         .args(["-c", &format!("command -v {cmd}")])
         .output()
-        .map_err(|e| format!("failed to run sh for command -v {cmd}: {e}"))?;
+        .map_err(|e| format!("which {cmd}: {e}"))?;
     if !out.status.success() {
-        return Err(format!("'{cmd}' not found in PATH (run `nix develop`?)"));
+        return Err(format!("{cmd} not in PATH"));
     }
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if s.is_empty() {
-        return Err(format!("'{cmd}' not found in PATH"));
+        return Err(format!("{cmd} not in PATH"));
     }
     Ok(PathBuf::from(s))
 }
 
 fn spike_lib_dir(spike_exe: &Path) -> Result<PathBuf, String> {
-    let bin_dir = spike_exe
+    let bin = spike_exe
         .parent()
-        .ok_or_else(|| "spike path has no parent".to_string())?;
-    let root = bin_dir
+        .ok_or_else(|| "spike: no parent dir".to_string())?;
+    let root = bin
         .parent()
-        .ok_or_else(|| "spike install layout unexpected".to_string())?;
+        .ok_or_else(|| "spike: install layout has no lib dir".to_string())?;
     Ok(root.join("lib"))
 }
 
 fn bebop_crate_root() -> Result<PathBuf, String> {
     let exe = env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
-    let exe = exe.canonicalize().map_err(|e| format!("bebop exe: {e}"))?;
-    let mut dir = exe.parent().ok_or("bebop exe has no parent")?;
+    let exe = exe
+        .canonicalize()
+        .map_err(|e| format!("canonicalize exe: {e}"))?;
+    let mut dir = exe.parent().ok_or("exe has no parent")?;
     loop {
-        if dir.join("src/workload/CMakeLists.txt").is_file() {
+        if dir.join("src/spike/CMakeLists.txt").is_file() {
             return Ok(dir.to_path_buf());
         }
         dir = dir.parent().ok_or_else(|| {
             format!(
-                "bebop crate root not found (need src/workload/CMakeLists.txt) starting from {}",
+                "bebop root not found (need src/spike/CMakeLists.txt), exe={}",
                 exe.display()
             )
         })?;
@@ -55,47 +57,39 @@ fn bebop_crate_root() -> Result<PathBuf, String> {
 }
 
 fn path_rocc_so() -> Result<PathBuf, String> {
-    let p = bebop_crate_root()?.join("src/workload/build/libbebop_rocc.so");
+    let p = bebop_crate_root()?.join("src/spike/build/libbebop_rocc.so");
     if !p.is_file() {
-        return Err(format!("missing {} — run `bebop build`", p.display()));
+        return Err(format!("missing {}", p.display()));
     }
-    p.canonicalize().map_err(|e| format!("rocc path: {e}"))
+    p.canonicalize()
+        .map_err(|e| format!("canonicalize rocc so: {e}"))
+}
+
+fn ld_for_spike(spike_lib: &Path, rocc_dir: &Path) -> String {
+    format!("{}:{}", spike_lib.display(), rocc_dir.display())
 }
 
 pub fn spike_tests(elf: PathBuf, step: bool) -> Result<(), String> {
-    let elf = elf.canonicalize().map_err(|e| format!("elf path: {e}"))?;
+    let elf = elf.canonicalize().map_err(|e| format!("elf: {e}"))?;
     if !elf.is_file() {
-        return Err(format!("elf is not a file: {}", elf.display()));
+        return Err(format!("not a file: {}", elf.display()));
     }
     let rocc_so = path_rocc_so()?;
     let rocc_dir = rocc_so
         .parent()
-        .ok_or("rocc path has no parent")?
+        .ok_or("rocc so has no parent")?
         .to_path_buf();
-    let spike = resolve_on_path("spike")?;
-    let pk = resolve_on_path("pk")?;
+    let spike = which("spike")?;
+    let pk = which("pk")?;
     let spike_lib = spike_lib_dir(&spike)?;
-    let ld = ld_library_path_spike(&spike_lib, &rocc_dir);
+    let ld = ld_for_spike(&spike_lib, &rocc_dir);
     run_spike_pk(&spike, &pk, &elf, &ld, step)
 }
 
-fn ld_library_path_spike(spike_lib: &Path, workload_build: &Path) -> String {
-    let mut parts = vec![
-        spike_lib.display().to_string(),
-        workload_build.display().to_string(),
-    ];
-    if let Ok(prev) = env::var("LD_LIBRARY_PATH") {
-        if !prev.is_empty() {
-            parts.push(prev);
-        }
-    }
-    parts.join(":")
-}
-
 pub fn worker_shm(name: String) -> Result<(), String> {
-    let cs = CString::new(name).map_err(|_| "worker-shm: name contains NUL".to_string())?;
+    let cs = CString::new(name).map_err(|_| "worker-shm: name has NUL")?;
     if !cs.as_bytes().starts_with(b"/") {
-        return Err("worker-shm: POSIX shm name must start with '/'".into());
+        return Err("worker-shm: name must start with '/'".into());
     }
     shm::run_worker(&cs)
 }
@@ -109,14 +103,12 @@ fn run_spike_pk(
 ) -> Result<(), String> {
     let seq = SPIKE_SHM_SEQ.fetch_add(1, Ordering::Relaxed);
     let name = CString::new(format!("/bebop_spike_{}_{}", std::process::id(), seq))
-        .map_err(|_| "spike shm: name contains NUL".to_string())?;
+        .map_err(|_| "shm name has NUL")?;
 
     let mut map = ShmMap::create_new(&name, shm::BEBOP_SHM_SIZE, false)
-        .map_err(|e| format!("spike shm: create {e}"))?;
+        .map_err(|e| format!("shm create: {e}"))?;
 
-    let nm = name
-        .to_str()
-        .map_err(|_| "spike shm: name is not valid UTF-8".to_string())?;
+    let nm = name.to_str().map_err(|_| "shm name is not UTF-8")?;
     let exe = env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
 
     let mut worker = Command::new(&exe)
@@ -136,15 +128,6 @@ fn run_spike_pk(
         nm
     );
     info!("spike: {}", elf.display());
-    if log::log_enabled!(log::Level::Debug) {
-        debug!(
-            "spike cmd: {} {} {} {}",
-            spike.display(),
-            SPIKE_EXT,
-            pk.display(),
-            elf.display()
-        );
-    }
 
     let spike_status = Command::new(spike)
         .arg(SPIKE_EXT)
@@ -161,7 +144,7 @@ fn run_spike_pk(
             let _ = worker.kill();
             let _ = worker.wait();
             map.set_unlink_on_drop(true);
-            return Err(format!("failed to spawn spike: {e}"));
+            return Err(format!("spawn spike: {e}"));
         }
     };
 
@@ -170,13 +153,10 @@ fn run_spike_pk(
     let wst = worker.wait().map_err(|e| format!("worker wait: {e}"))?;
     map.set_unlink_on_drop(true);
     if !wst.success() {
-        return Err(format!("worker exited with {:?}", wst.code()));
+        return Err(format!("worker exited {:?}", wst.code()));
     }
     if !st.success() {
-        return Err(format!(
-      "spike exited with {:?} (see spike/pk output above; pk often uses this as main's return code)",
-      st.code()
-    ));
+        return Err(format!("spike exited {:?}", st.code()));
     }
     Ok(())
 }

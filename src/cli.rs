@@ -1,11 +1,10 @@
-//! CLI：clap 定义与命令分发（仿真在 [`crate::bebop`]）。
+//! CLI：clap 定义与命令分发（Spike 仿真在 [`crate::spike::spike_runner`]）。
 
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
 use crate::emu::experiment::bank_rename;
-use crate::shm;
 use crate::spike::spike_runner;
 
 #[derive(Parser)]
@@ -20,11 +19,6 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    #[command(hide = true)]
-    ShmSmoke {
-        #[arg(long, default_value_t = 4096)]
-        size: usize,
-    },
     /// Run Spike + pk：`elf` is the path to the ELF file.
     SpikeTest {
         elf: PathBuf,
@@ -48,7 +42,6 @@ pub enum Commands {
 
 pub fn dispatch(cli: Cli) -> Result<(), String> {
     match cli.command {
-        Commands::ShmSmoke { size } => shm::run_smoke(size),
         Commands::SpikeTest { elf, step } => spike_runner::spike_tests(elf, step),
         Commands::BankRename {
             log,

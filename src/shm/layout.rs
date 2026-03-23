@@ -1,4 +1,4 @@
-//! Must match `src/workload/bebop_shm.h` (same field layout as this module).
+//! Must match `src/spike/bebop_shm.h` (same field layout as this module).
 
 use std::mem::size_of;
 use std::sync::atomic::{AtomicU64, Ordering};
