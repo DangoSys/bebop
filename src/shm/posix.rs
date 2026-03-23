@@ -129,10 +129,6 @@ impl ShmMap {
         self.ptr.as_ptr().cast::<BebopShm>()
     }
 
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr().cast::<u8>(), self.len) }
-    }
-
     pub fn set_unlink_on_drop(&mut self, v: bool) {
         self.unlink_on_drop = v;
     }
@@ -146,22 +142,5 @@ impl Drop for ShmMap {
                 panic!("posix shm_unlink: {}", Errno::last());
             }
         }
-    }
-}
-
-/// Smoke test helper: create, unlink on drop.
-pub struct PosixShm {
-    inner: ShmMap,
-}
-
-impl PosixShm {
-    pub fn create_exclusive(name: &CStr, len: usize) -> Result<Self, PosixShmErr> {
-        Ok(Self {
-            inner: ShmMap::create_new(name, len, true)?,
-        })
-    }
-
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        self.inner.as_mut_slice()
     }
 }
