@@ -2,6 +2,11 @@ use super::super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::bank_matrix::{read_i32_nn, read_i8_nn, write_i32_nn};
 use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
 
+pub fn latency(xs1: u64, _xs2: u64) -> u64 {
+    let n = rs1_iter(xs1).max(1).min(64);
+    n.saturating_mul(n).saturating_mul(n) / 4 + n.saturating_mul(n)
+}
+
 pub fn exec(
     xs1: u64,
     _xs2: u64,

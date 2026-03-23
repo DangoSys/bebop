@@ -1,7 +1,7 @@
-mod bebop;
 mod cli;
 mod emu;
 mod shm;
+mod spike;
 use std::env;
 
 use clap::Parser;

@@ -1,6 +1,10 @@
 use super::super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::decode::{rs1_b0, xs2_mset};
 
+pub fn latency(_xs1: u64, _xs2: u64) -> u64 {
+    1
+}
+
 pub fn exec(
     xs1: u64,
     xs2: u64,

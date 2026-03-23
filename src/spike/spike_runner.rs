@@ -1,6 +1,3 @@
-//! Spike 仿真与 BEMU 侧入口：`spike-test`、worker-shm。
-//! CLI 见 [`crate::cli`]。
-
 use std::env;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
@@ -40,7 +37,6 @@ fn spike_lib_dir(spike_exe: &Path) -> Result<PathBuf, String> {
     Ok(root.join("lib"))
 }
 
-/// 从 `bebop` 可执行路径向上找含 `src/workload/CMakeLists.txt` 的目录（bebop crate 根）。
 fn bebop_crate_root() -> Result<PathBuf, String> {
     let exe = env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     let exe = exe.canonicalize().map_err(|e| format!("bebop exe: {e}"))?;
@@ -64,30 +60,6 @@ fn path_rocc_so() -> Result<PathBuf, String> {
         return Err(format!("missing {} — run `bebop build`", p.display()));
     }
     p.canonicalize().map_err(|e| format!("rocc path: {e}"))
-}
-
-pub fn build_workload() -> Result<(), String> {
-    let root = bebop_crate_root()?;
-    let wl = root.join("src/workload");
-    let out = root.join("src/workload/build");
-    let wl_s = wl.to_str().ok_or("workload path is not UTF-8")?;
-    let out_s = out.to_str().ok_or("build path is not UTF-8")?;
-    info!("cmake: {} -> {}", wl.display(), out.display());
-    let st = Command::new("cmake")
-        .args(["-S", wl_s, "-B", out_s, "-G", "Ninja"])
-        .status()
-        .map_err(|e| format!("cmake: {e}"))?;
-    if !st.success() {
-        return Err("cmake failed".into());
-    }
-    let st = Command::new("ninja")
-        .args(["-C", out_s, "bebop_rocc"])
-        .status()
-        .map_err(|e| format!("ninja: {e}"))?;
-    if !st.success() {
-        return Err("ninja failed".into());
-    }
-    Ok(())
 }
 
 pub fn spike_tests(elf: PathBuf, step: bool) -> Result<(), String> {
@@ -174,7 +146,6 @@ fn run_spike_pk(
         );
     }
 
-    // Inherit stdout/stderr so pk + guest `puts` / printf reach the terminal (piped+output() swallows it).
     let spike_status = Command::new(spike)
         .arg(SPIKE_EXT)
         .arg(pk)
@@ -203,9 +174,9 @@ fn run_spike_pk(
     }
     if !st.success() {
         return Err(format!(
-            "spike exited with {:?} (see spike/pk output above; pk often uses this as main's return code)",
-            st.code()
-        ));
+      "spike exited with {:?} (see spike/pk output above; pk often uses this as main's return code)",
+      st.code()
+    ));
     }
     Ok(())
 }

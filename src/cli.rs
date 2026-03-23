@@ -4,7 +4,9 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use crate::{bebop, shm};
+use crate::emu::experiment::bank_rename;
+use crate::shm;
+use crate::spike::spike_runner;
 
 #[derive(Parser)]
 #[command(name = "bebop", about = "Bebop BEMU CLI")]
@@ -23,7 +25,6 @@ pub enum Commands {
         #[arg(long, default_value_t = 4096)]
         size: usize,
     },
-    Build,
     /// Run Spike + pk：`elf` is the path to the ELF file.
     SpikeTest {
         elf: PathBuf,
@@ -31,17 +32,29 @@ pub enum Commands {
         #[arg(long, default_value_t = false)]
         step: bool,
     },
-    #[command(hide = true, name = "worker-shm")]
-    WorkerShm {
-        name: String,
+    /// Parse `step=` lines from `spike-test --step` output; compare NoRename vs WriteAlias scoreboard.
+    #[command(name = "bank-rename")]
+    BankRename {
+        #[arg(short, long)]
+        log: PathBuf,
+        #[arg(long, default_value_t = false)]
+        bemu_latency: bool,
+        #[arg(short, long, default_value = "1")]
+        latency: Vec<u64>,
     },
+    #[command(hide = true, name = "worker-shm")]
+    WorkerShm { name: String },
 }
 
 pub fn dispatch(cli: Cli) -> Result<(), String> {
     match cli.command {
         Commands::ShmSmoke { size } => shm::run_smoke(size),
-        Commands::Build => bebop::build_workload(),
-        Commands::SpikeTest { elf, step } => bebop::spike_tests(elf, step),
-        Commands::WorkerShm { name } => bebop::worker_shm(name),
+        Commands::SpikeTest { elf, step } => spike_runner::spike_tests(elf, step),
+        Commands::BankRename {
+            log,
+            bemu_latency,
+            latency,
+        } => bank_rename::run_rocc_step(log, bemu_latency, latency),
+        Commands::WorkerShm { name } => spike_runner::worker_shm(name),
     }
 }

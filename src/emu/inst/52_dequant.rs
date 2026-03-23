@@ -1,6 +1,10 @@
 use super::super::bank::{BankConfig, BankMap, BANK_NUM, BANK_SIZE};
 use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
 
+pub fn latency(xs1: u64, _xs2: u64) -> u64 {
+    rs1_iter(xs1).max(1)
+}
+
 pub fn exec(
     xs1: u64,
     xs2: u64,

@@ -1,6 +1,28 @@
 use super::super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::decode::{pbank, rs1_b0, rs1_b2};
 
+pub fn latency(_xs1: u64, xs2: u64) -> u64 {
+    let kcol = (xs2 & 0xF) as u64;
+    let krow = ((xs2 >> 4) & 0xF) as u64;
+    let incol = ((xs2 >> 8) & 0x1F) as u64;
+    let inrow = ((xs2 >> 13) & 0x3FF) as u64;
+    let startcol = ((xs2 >> 23) & 0x1F) as u64;
+    let startrow = ((xs2 >> 28) & 0x3FF) as u64;
+    if kcol == 0 || krow == 0 || incol == 0 || inrow == 0 {
+        return 16;
+    }
+    if incol < kcol || inrow < krow {
+        return 16;
+    }
+    let row_end = inrow - krow;
+    let col_end = incol - kcol;
+    if startrow > row_end || startcol > col_end {
+        return 16;
+    }
+    let nwin = (row_end - startrow + 1).saturating_mul(col_end - startcol + 1);
+    nwin.saturating_mul(krow).saturating_mul(kcol).max(16)
+}
+
 /// Row-major input A[M][K] in bank (after mvin), output flattened im2col windows to wr bank.
 pub fn exec(
     xs1: u64,

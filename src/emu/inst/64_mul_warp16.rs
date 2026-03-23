@@ -2,6 +2,11 @@ use super::super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::bank_matrix::{read_i32_16x16, read_i8_k_rows, write_i32_16x16};
 use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
 
+pub fn latency(xs1: u64, _xs2: u64) -> u64 {
+    let kin = rs1_iter(xs1).max(1);
+    kin.saturating_mul(16)
+}
+
 /// Output tile M×N; inner sum length K = iter (VecBall mesh is 16-wide).
 const WARP_M: usize = 16;
 const WARP_N: usize = 16;
