@@ -1,6 +1,11 @@
 use super::super::bank::{BankConfig, BankMap, BANK_NUM, MATRIX_SIZE};
 use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
 
+pub fn latency(xs1: u64, _xs2: u64) -> u64 {
+    let k = rs1_iter(xs1).max(1).min(64);
+    k.saturating_mul(k)
+}
+
 /// Row-major A[M][K] (M=16 lanes) after mvin → Aᵀ[K][M] row-major at dst.
 const TRANSPOSE_M: usize = 16;
 

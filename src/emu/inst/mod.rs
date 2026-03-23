@@ -1,5 +1,6 @@
 pub mod bank_matrix;
 pub mod decode;
+pub mod exec_latency;
 #[path = "00_fence.rs"]
 pub mod f00_fence;
 #[path = "01_barrier.rs"]

@@ -5,6 +5,7 @@ use std::ffi::CString;
 use std::sync::atomic::Ordering;
 
 use crate::emu::bemu::Bemu;
+use crate::emu::inst::exec_latency::cycles_after_issue;
 
 use super::layout::{BEBOP_SHM_SIZE, OP_DECODE, OP_HANDLE, OP_READ, OP_SHUTDOWN, OP_SYNC};
 use super::posix::ShmMap;
@@ -41,6 +42,7 @@ pub fn run(name: &CString) -> Result<(), String> {
                 let xs1 = unsafe { (*s).xs1 };
                 let xs2 = unsafe { (*s).xs2 };
                 let out = bemu.execute(funct, xs1, xs2);
+                let lat_cycles = cycles_after_issue(funct, xs1, xs2);
                 if step {
                     step_idx = step_idx.wrapping_add(1);
                     let hs = bemu.bank_hashes64_hex();
@@ -51,12 +53,13 @@ pub fn run(name: &CString) -> Result<(), String> {
                         .map(|(i, h)| format!("b{i}={h}"))
                         .collect();
                     println!(
-                        "step={} funct={} xs1=0x{:x} xs2=0x{:x} out=0x{:x} {}",
+                        "step={} funct={} xs1=0x{:x} xs2=0x{:x} out=0x{:x} lat={} {}",
                         step_idx,
                         funct,
                         xs1,
                         xs2,
                         out,
+                        lat_cycles,
                         parts.join(" ")
                     );
                 }

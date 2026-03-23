@@ -7,3 +7,7 @@ pub fn exec(xs2: u64) -> u64 {
     g.cfg.b_transpose = ((xs2 >> 8) & 1) != 0;
     0
 }
+
+pub fn latency(_xs1: u64, _xs2: u64) -> u64 {
+    1
+}
