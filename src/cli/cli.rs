@@ -38,12 +38,20 @@ pub enum Commands {
     //
     //===----------------------------------------------------------------------===//
     #[command(hide = true, name = "bemu-tests")]
-    BemuTests,
+    BemuTests {
+        #[arg(long, hide = true, default_value_t = false)]
+        step: bool,
+        #[arg(long, hide = true, default_value_t = false)]
+        diff_all_banks: bool,
+    },
 }
 
 pub fn dispatch(cli: Cli) -> Result<(), String> {
     match cli.command {
         Commands::SpikeTest { elf, step } => spike::runner::spike_tests(elf, step),
-        Commands::BemuTests => emu::bemu_tests(),
+        Commands::BemuTests {
+            step,
+            diff_all_banks,
+        } => emu::bemu_tests(step, diff_all_banks),
     }
 }

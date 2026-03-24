@@ -11,7 +11,6 @@
 #define BEBOP_OP_MEM_REQ 3u
 #define BEBOP_OP_MEM_RESP 4u
 
-#define BEBOP_CMD_DECODE 1u
 #define BEBOP_CMD_HANDLE 2u
 #define BEBOP_CMD_SHUTDOWN 255u
 
@@ -19,8 +18,6 @@
 #define BEBOP_MEM_READ 2u
 
 typedef struct {
-  uint64_t req;
-  uint64_t ack;
   uint32_t op;
   uint32_t sender_id;
   uint32_t receiver_id;
@@ -43,6 +40,17 @@ typedef struct {
   uint32_t _pad1;
   uint64_t mem_addr;
   uint64_t stride;
+} bebop_msg_t;
+
+typedef struct {
+  uint64_t req;
+  uint64_t ack;
+  bebop_msg_t msg;
+} bebop_lane_t;
+
+typedef struct {
+  bebop_lane_t cmd;
+  bebop_lane_t mem;
 } bebop_shm_t;
 
 #endif

@@ -9,7 +9,6 @@ pub const OP_CMD_RESP: u32 = 2;
 pub const OP_MEM_REQ: u32 = 3;
 pub const OP_MEM_RESP: u32 = 4;
 
-pub const CMD_DECODE: u32 = 1;
 pub const CMD_HANDLE: u32 = 2;
 pub const CMD_SHUTDOWN: u32 = 255;
 
@@ -17,9 +16,8 @@ pub const MEM_WRITE: u32 = 1;
 pub const MEM_READ: u32 = 2;
 
 #[repr(C)]
-pub struct BebopShm {
-    pub req: AtomicU64,
-    pub ack: AtomicU64,
+#[derive(Clone, Copy)]
+pub struct BebopMsg {
     pub op: u32,
     pub sender_id: u32,
     pub receiver_id: u32,
@@ -44,9 +42,22 @@ pub struct BebopShm {
     pub stride: u64,
 }
 
+#[repr(C)]
+pub struct BebopLane {
+    pub req: AtomicU64,
+    pub ack: AtomicU64,
+    pub msg: BebopMsg,
+}
+
+#[repr(C)]
+pub struct BebopShm {
+    pub cmd: BebopLane,
+    pub mem: BebopLane,
+}
+
 const _: () = assert!(size_of::<BebopShm>() <= BEBOP_SHM_SIZE);
 
-pub fn wait_idle(s: &BebopShm) {
+pub fn wait_idle(s: &BebopLane) {
     loop {
         let r = s.req.load(Ordering::Acquire);
         let a = s.ack.load(Ordering::Acquire);
@@ -57,7 +68,7 @@ pub fn wait_idle(s: &BebopShm) {
     }
 }
 
-pub fn wait_done(s: &BebopShm) {
+pub fn wait_done(s: &BebopLane) {
     let r = s.req.load(Ordering::Acquire);
     while s.ack.load(Ordering::Acquire) != r {
         std::thread::yield_now();
@@ -65,15 +76,16 @@ pub fn wait_done(s: &BebopShm) {
 }
 
 pub fn rpc_shutdown(s: &BebopShm) {
-    wait_idle(s);
+    let cmd = &s.cmd;
+    wait_idle(cmd);
     unsafe {
-        let p = s as *const BebopShm as *mut BebopShm;
-        (*p).op = OP_CMD_REQ;
-        (*p).sender_id = 0;
-        (*p).receiver_id = 0;
-        (*p).cmd_code = CMD_SHUTDOWN;
-        (*p).err = 0;
+        let p = cmd as *const BebopLane as *mut BebopLane;
+        (*p).msg.op = OP_CMD_REQ;
+        (*p).msg.sender_id = 0;
+        (*p).msg.receiver_id = 0;
+        (*p).msg.cmd_code = CMD_SHUTDOWN;
+        (*p).msg.err = 0;
     }
-    s.req.fetch_add(1, Ordering::AcqRel);
-    wait_done(s);
+    cmd.req.fetch_add(1, Ordering::AcqRel);
+    wait_done(cmd);
 }

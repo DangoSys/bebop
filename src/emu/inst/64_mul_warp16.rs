@@ -1,5 +1,5 @@
 use super::super::bank::{BankConfig, BankMap, BANK_NUM};
-use super::bank_matrix::{read_i32_16x16, read_i8_k_rows, write_i32_16x16};
+use super::bank_matrix::{read_i32_16x16, write_i32_16x16};
 use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
 
 pub fn latency(xs1: u64, _xs2: u64) -> u64 {
@@ -39,18 +39,28 @@ pub fn exec(
     if kin == 0 {
         panic!("mul_warp16: iter must be > 0");
     }
-    let need = kin * 16;
-    if need > banks[p1].len() || need > banks[p2].len() {
+    if kin == 0 || kin % 16 != 0 {
+        panic!("mul_warp16: iter must be non-zero and multiple of 16");
+    }
+    let need_b = kin * 16;
+    let a_lines_per_row = kin / 16;
+    let need_a = WARP_M * a_lines_per_row * 16;
+    if need_a > banks[p1].len() || need_b > banks[p2].len() {
         panic!("mul_warp16: iter too large for bank");
     }
-    let a_t = read_i8_k_rows(banks, p1, kin, WARP_N);
-    let b = read_i8_k_rows(banks, p2, kin, WARP_N);
+    let a_mem = &banks[p1];
+    let b_mem = &banks[p2];
     let mut c = read_i32_16x16(banks, pw);
     for i in 0..WARP_M {
         for j in 0..WARP_N {
             let mut acc = c[i][j];
-            for t in 0..kin {
-                acc = acc.wrapping_add((a_t[t][i] as i32).wrapping_mul(b[t][j] as i32));
+            for k in 0..kin {
+                let a_line = i * a_lines_per_row + (k / 16);
+                let a_off = a_line * 16 + (k % 16);
+                let b_off = k * 16 + j;
+                let a = a_mem[a_off] as i8 as i32;
+                let b = b_mem[b_off] as i8 as i32;
+                acc = acc.wrapping_add(a.wrapping_mul(b));
             }
             c[i][j] = acc;
         }

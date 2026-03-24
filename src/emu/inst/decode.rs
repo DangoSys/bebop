@@ -45,17 +45,6 @@ pub const FUNCT_GEMMINI_LOOP_CONV_WS_CONFIG_7: u32 = 102;
 pub const FUNCT_GEMMINI_LOOP_CONV_WS_CONFIG_8: u32 = 103;
 pub const FUNCT_GEMMINI_LOOP_CONV_WS_CONFIG_9: u32 = 104;
 pub const FUNCT_GEMMINI_LOOP_CONV_WS: u32 = 105;
-pub const SYNC_IN: u32 = 1;
-pub const SYNC_OUT: u32 = 2;
-
-#[derive(Default, Clone, Copy, Debug)]
-pub struct SyncPlan {
-    pub flags: u32,
-    pub mem_addr: u64,
-    pub depth: u32,
-    pub stride: u64,
-    pub line_blocks: u32,
-}
 
 #[inline]
 pub fn rs1_b0(xs1: u64) -> u64 {
@@ -103,41 +92,13 @@ pub fn pbank(bm: &BankMap, vbank: u64) -> usize {
         .unwrap_or_else(|| panic!("pbank: vbank {vbank} not mapped"))
 }
 
-pub fn build_sync_plan(funct: u32, xs1: u64, xs2: u64, cfgs: &[BankConfig]) -> SyncPlan {
-    let mut p = SyncPlan::default();
-    if funct != FUNCT_MVIN && funct != FUNCT_MVOUT {
-        return p;
-    }
-    let bank_id = rs1_b0(xs1);
-    if bank_id >= BANK_NUM as u64 {
-        panic!("decode: invalid bank_id {bank_id}");
-    }
-    let c = cfgs[bank_id as usize];
-    if !c.allocated {
-        panic!("decode: bank {bank_id} not allocated");
-    }
-    let (mem_addr, stride_raw) = xs2_mem_stride(xs2);
-    let depth = rs1_iter(xs1);
-    if depth > u32::MAX as u64 {
-        panic!("decode: depth overflow {depth}");
-    }
-    p.mem_addr = mem_addr;
-    p.depth = depth as u32;
-    p.stride = if stride_raw == 0 { 1 } else { stride_raw };
-    p.line_blocks = if c.cols == 0 { 1 } else { c.cols as u32 };
-    p.flags = if funct == FUNCT_MVIN {
-        SYNC_IN
-    } else {
-        SYNC_OUT
-    };
-    p
-}
-
 pub fn execute_known(
     funct: u32,
     xs1: u64,
     xs2: u64,
     memory: &mut [u8],
+    mem_read16: &mut dyn FnMut(u64) -> [u8; 16],
+    mem_write16: &mut dyn FnMut(u64, [u8; 16]),
     banks: &mut [Vec<u8>],
     cfgs: &mut [BankConfig],
     bank_map: &mut BankMap,
@@ -149,8 +110,8 @@ pub fn execute_known(
         FUNCT_GEMMINI_FLUSH => f03_gemmini_flush::exec(),
         FUNCT_BDB_COUNTER => f04_bdb_counter::exec(),
         FUNCT_MSET => f32_mset::exec(xs1, xs2, cfgs, banks, bank_map),
-        FUNCT_MVIN => f33_mvin::exec(xs1, xs2, memory, banks, cfgs, bank_map),
-        FUNCT_MVOUT => f16_mvout::exec(xs1, xs2, memory, banks, cfgs, bank_map),
+        FUNCT_MVIN => f33_mvin::exec(xs1, xs2, mem_read16, banks, cfgs, bank_map),
+        FUNCT_MVOUT => f16_mvout::exec(xs1, xs2, mem_write16, banks, cfgs, bank_map),
         FUNCT_IM2COL => f48_im2col::exec(xs1, xs2, banks, cfgs, bank_map),
         FUNCT_MUL_WARP16 => f64_mul_warp16::exec(xs1, xs2, banks, cfgs, bank_map),
         FUNCT_TRANSPOSE => f49_transpose::exec(xs1, xs2, banks, cfgs, bank_map),

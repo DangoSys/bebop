@@ -59,12 +59,16 @@ fn run_spike_pk(
     // step 3. Spawn the BEMU worker process.
     // It's a bebop command: bebop bemu-tests
     let bebop_exe = path::path_current_bebop_bin()?;
-    let mut worker = Command::new(&bebop_exe)
+    let mut worker_cmd = Command::new(&bebop_exe);
+    worker_cmd
         .arg("bemu-tests")
         .arg("--node-file")
         .arg(&node_file)
-        .env("BEBOP_SHM_NAME", nm)
-        .env("BEBOP_STEP", step_mode)
+        .env("BEBOP_SHM_NAME", nm);
+    if step {
+        worker_cmd.arg("--step");
+    }
+    let mut worker = worker_cmd
         .spawn()
         .map_err(|e| format!("spawn worker: {e}"))?;
     node::add_child_pid(worker.id() as i32)?;
