@@ -4,11 +4,11 @@ use std::env;
 use std::ffi::CString;
 use std::sync::atomic::Ordering;
 
-use crate::emu::bemu::Bemu;
-use crate::emu::inst::exec_latency::cycles_after_issue;
+use crate::shm::layout::{BEBOP_SHM_SIZE, OP_DECODE, OP_HANDLE, OP_READ, OP_SHUTDOWN, OP_SYNC};
+use crate::shm::ShmMap;
 
-use super::layout::{BEBOP_SHM_SIZE, OP_DECODE, OP_HANDLE, OP_READ, OP_SHUTDOWN, OP_SYNC};
-use super::posix::ShmMap;
+use super::bemu::Bemu;
+use super::inst::exec_latency::cycles_after_issue;
 
 pub fn run(name: &CString) -> Result<(), String> {
     let map = ShmMap::attach(name.as_c_str(), BEBOP_SHM_SIZE)

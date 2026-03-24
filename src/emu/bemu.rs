@@ -1,26 +1,7 @@
 use super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::configs::config::{BemuStats, EmuConfig};
-use super::inst::decode::SyncPlan;
-use super::inst::decode::{self};
-
-// FNV-1a 64-bit (non-crypto fingerprint)
-const FNV64_OFFSET: u64 = 14695981039346656037;
-const FNV64_PRIME: u64 = 1099511628211;
-
-#[inline]
-fn fnv1a64_mix(h: &mut u64, b: u8) {
-    *h ^= b as u64;
-    *h = h.wrapping_mul(FNV64_PRIME);
-}
-
-/// One 64-bit digest (16 hex chars) for an arbitrary byte slice (e.g. one bank).
-pub fn bank_slice_hash64_hex(data: &[u8]) -> String {
-    let mut h = FNV64_OFFSET;
-    for &b in data {
-        fnv1a64_mix(&mut h, b);
-    }
-    format!("{h:016x}")
-}
+use super::diff::hash::bank_hash64;
+use super::inst::decode::{self, SyncPlan};
 
 pub struct Bemu {
     memory: Vec<u8>,
@@ -96,38 +77,44 @@ impl Bemu {
     }
 
     pub fn write_memory(&mut self, addr: u64, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
         let len = self.memory.len();
-        for (i, &byte) in data.iter().enumerate() {
-            let idx = ((addr as usize) + i) % len;
-            self.memory[idx] = byte;
+        let base = addr as usize % len;
+        let mut di = 0usize;
+        while di < data.len() {
+            let pos = (base + di) % len;
+            let take = (len - pos).min(data.len() - di);
+            self.memory[pos..pos + take].copy_from_slice(&data[di..di + take]);
+            di += take;
         }
     }
 
     pub fn read_memory(&self, addr: u64, size: usize) -> Vec<u8> {
-        let len = self.memory.len();
-        (0..size)
-            .map(|i| self.memory[((addr as usize) + i) % len])
-            .collect()
-    }
-
-    /// One 64-bit hash per bank (same algorithm as [`Self::banks_hash64_hex`] byte order).
-    pub fn bank_hashes64_hex(&self) -> Vec<String> {
-        self.banks
-            .iter()
-            .map(|b| bank_slice_hash64_hex(b))
-            .collect()
-    }
-
-    /// Single 64-bit hash over all bank bytes in order (all banks concatenated).
-    #[allow(dead_code)] // optional API for tools / future CLI; step log uses per-bank only
-    pub fn banks_hash64_hex(&self) -> String {
-        let mut h = FNV64_OFFSET;
-        for bank in &self.banks {
-            for &b in bank {
-                fnv1a64_mix(&mut h, b);
-            }
+        if size == 0 {
+            return Vec::new();
         }
-        format!("{h:016x}")
+        let len = self.memory.len();
+        let base = addr as usize % len;
+        let mut out = Vec::with_capacity(size);
+        let mut got = 0usize;
+        while got < size {
+            let pos = (base + got) % len;
+            let take = (len - pos).min(size - got);
+            out.extend_from_slice(&self.memory[pos..pos + take]);
+            got += take;
+        }
+        out
+    }
+
+    /// One 64-bit hash per bank (16 hex chars each, [`DefaultHasher`](std::collections::hash_map::DefaultHasher)).
+    pub fn bank_hashes64_hex(&self) -> Vec<String> {
+        let mut out = Vec::with_capacity(self.banks.len());
+        for b in &self.banks {
+            out.push(bank_hash64(b));
+        }
+        out
     }
 }
 
