@@ -1,8 +1,6 @@
-#include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
-#include <cstring>
 #include <stdexcept>
 
 #include <fcntl.h>
@@ -18,10 +16,8 @@ static_assert(sizeof(bebop_shm_t) <= BEBOP_SHM_SIZE);
 
 namespace {
 constexpr uint64_t kBlockSz = 16;
-constexpr uint32_t kSyncIn = 1;
-constexpr uint32_t kSyncOut = 2;
 
-static void rpc_wait_idle(bebop_shm_t *s) {
+static void rpc_wait_idle(bebop_lane_t *s) {
   for (;;) {
     uint64_t r = std::atomic_ref(s->req).load(std::memory_order_acquire);
     uint64_t a = std::atomic_ref(s->ack).load(std::memory_order_acquire);
@@ -30,19 +26,6 @@ static void rpc_wait_idle(bebop_shm_t *s) {
     }
     sched_yield();
   }
-}
-
-static void rpc_wait_done(bebop_shm_t *s) {
-  uint64_t r = std::atomic_ref(s->req).load(std::memory_order_acquire);
-  while (std::atomic_ref(s->ack).load(std::memory_order_acquire) != r) {
-    sched_yield();
-  }
-}
-
-static void rpc_submit(bebop_shm_t *s) {
-  rpc_wait_idle(s);
-  std::atomic_ref(s->req).fetch_add(1, std::memory_order_acq_rel);
-  rpc_wait_done(s);
 }
 
 } // namespace
@@ -62,30 +45,29 @@ public:
 
   reg_t custom0(processor_t *proc, rocc_insn_t insn, reg_t xs1, reg_t xs2) override {
     init();
-    decode_plan(insn, xs1, xs2);
-    if (shm_->sync_flags & kSyncIn) {
-      sync_in(proc);
+    auto *cmd = &shm_->cmd;
+    // step 1. submit command to NPU cmd lane
+    rpc_wait_idle(cmd);
+    cmd->msg.op = BEBOP_OP_CMD_REQ;
+    cmd->msg.sender_id = self_id_;
+    cmd->msg.receiver_id = 0;
+    cmd->msg.cmd_code = BEBOP_CMD_HANDLE;
+    cmd->msg.msg_id = ++msg_seq_;
+    cmd->msg.funct = insn.funct;
+    cmd->msg.xs1 = xs1;
+    cmd->msg.xs2 = xs2;
+    cmd->msg.err = 0;
+    std::atomic_ref(cmd->req).fetch_add(1, std::memory_order_acq_rel);
+    uint64_t target = std::atomic_ref(cmd->req).load(std::memory_order_acquire);
+    // step 2. block on cmd response, but keep serving mem lane requests
+    while (std::atomic_ref(cmd->ack).load(std::memory_order_acquire) != target) {
+      service_mem_req(proc);
+      sched_yield();
     }
-
-    shm_->op = BEBOP_OP_CMD_REQ;
-    shm_->sender_id = self_id_;
-    shm_->receiver_id = 0;
-    shm_->cmd_code = BEBOP_CMD_HANDLE;
-    shm_->msg_id = ++msg_seq_;
-    shm_->funct = insn.funct;
-    shm_->xs1 = xs1;
-    shm_->xs2 = xs2;
-    shm_->err = 0;
-    rpc_submit(shm_);
-    if (shm_->op != BEBOP_OP_CMD_RESP || shm_->err != 0) {
+    if (cmd->msg.op != BEBOP_OP_CMD_RESP || cmd->msg.err != 0) {
       throw std::runtime_error("bebop_shm CMD_HANDLE failed");
     }
-    uint64_t out = shm_->result;
-
-    if (shm_->sync_flags & kSyncOut) {
-      sync_out(proc);
-    }
-    return out;
+    return cmd->msg.result;
   }
 
   reg_t custom3(processor_t *proc, rocc_insn_t insn, reg_t xs1, reg_t xs2) override {
@@ -93,20 +75,49 @@ public:
   }
 
 private:
-  void decode_plan(rocc_insn_t insn, uint64_t xs1, uint64_t xs2) {
-    shm_->op = BEBOP_OP_CMD_REQ;
-    shm_->sender_id = self_id_;
-    shm_->receiver_id = 0;
-    shm_->cmd_code = BEBOP_CMD_DECODE;
-    shm_->msg_id = ++msg_seq_;
-    shm_->funct = insn.funct;
-    shm_->xs1 = xs1;
-    shm_->xs2 = xs2;
-    shm_->err = 0;
-    rpc_submit(shm_);
-    if (shm_->op != BEBOP_OP_CMD_RESP || shm_->err != 0) {
-      throw std::runtime_error("bebop_shm CMD_DECODE failed");
+  void service_mem_req(processor_t *proc) {
+    auto *mem = &shm_->mem;
+    // NPU can issue mem requests while Spike is waiting for cmd unlock.
+    uint64_t r = std::atomic_ref(mem->req).load(std::memory_order_acquire);
+    uint64_t a = std::atomic_ref(mem->ack).load(std::memory_order_acquire);
+    if (r == a) {
+      return;
     }
+    if (r != a + 1) {
+      throw std::runtime_error("bebop_shm invalid mem req/ack");
+    }
+    auto *mmu = proc->get_mmu();
+    if (!mmu) {
+      throw std::runtime_error("Spike MMU is null");
+    }
+    if (mem->msg.op != BEBOP_OP_MEM_REQ) {
+      throw std::runtime_error("bebop_shm invalid mem op");
+    }
+    if (mem->msg.size != kBlockSz) {
+      throw std::runtime_error("bebop_shm invalid mem size");
+    }
+    try {
+      if (mem->msg.mem_rw == BEBOP_MEM_READ) {
+        for (uint64_t j = 0; j < kBlockSz; ++j) {
+          mem->msg.data[j] = mmu->load<uint8_t>(mem->msg.addr + j);
+        }
+        mem->msg.err = 0;
+      } else if (mem->msg.mem_rw == BEBOP_MEM_WRITE) {
+        for (uint64_t j = 0; j < kBlockSz; ++j) {
+          mmu->store<uint8_t>(mem->msg.addr + j, mem->msg.data[j]);
+        }
+        mem->msg.err = 0;
+      } else {
+        mem->msg.err = -1;
+      }
+    } catch (...) {
+      mem->msg.err = -1;
+    }
+    mem->msg.op = BEBOP_OP_MEM_RESP;
+    mem->msg.size = kBlockSz;
+    mem->msg.receiver_id = mem->msg.sender_id;
+    mem->msg.sender_id = self_id_;
+    std::atomic_ref(mem->ack).store(r, std::memory_order_release);
   }
 
   void init() {
@@ -134,76 +145,6 @@ private:
     self_id_ = static_cast<uint32_t>(std::strtoul(self, nullptr, 10));
     if (self_id_ == 0) {
       throw std::runtime_error("invalid BEBOP_NODE_ID");
-    }
-  }
-
-  void sync_in(processor_t *proc) {
-    auto *mmu = proc->get_mmu();
-    if (!mmu) {
-      throw std::runtime_error("Spike MMU is null");
-    }
-
-    uint32_t line_blocks = shm_->line_blocks;
-    uint32_t depth = shm_->depth;
-    uint64_t mem_addr = shm_->mem_addr;
-    uint64_t stride = shm_->stride;
-    std::array<uint8_t, kBlockSz> buf{};
-    for (uint32_t i = 0; i < depth; ++i) {
-      uint64_t row_base = mem_addr + static_cast<uint64_t>(i) * stride * line_blocks * kBlockSz;
-      for (uint32_t b = 0; b < line_blocks; ++b) {
-        uint64_t addr = row_base + static_cast<uint64_t>(b) * kBlockSz;
-        for (uint64_t j = 0; j < kBlockSz; ++j) {
-          buf[j] = mmu->load<uint8_t>(addr + j);
-        }
-        std::memcpy(shm_->data, buf.data(), buf.size());
-        shm_->op = BEBOP_OP_MEM_REQ;
-        shm_->sender_id = self_id_;
-        shm_->receiver_id = 0;
-        shm_->mem_rw = BEBOP_MEM_WRITE;
-        shm_->size = kBlockSz;
-        shm_->msg_id = ++msg_seq_;
-        shm_->addr = addr;
-        shm_->err = 0;
-        rpc_submit(shm_);
-        if (shm_->op != BEBOP_OP_MEM_RESP || shm_->err != 0) {
-          throw std::runtime_error("bebop_shm MEM_WRITE failed");
-        }
-      }
-    }
-  }
-
-  void sync_out(processor_t *proc) {
-    auto *mmu = proc->get_mmu();
-    if (!mmu) {
-      throw std::runtime_error("Spike MMU is null");
-    }
-
-    uint32_t line_blocks = shm_->line_blocks;
-    uint32_t depth = shm_->depth;
-    uint64_t mem_addr = shm_->mem_addr;
-    uint64_t stride = shm_->stride;
-    std::array<uint8_t, kBlockSz> buf{};
-    for (uint32_t i = 0; i < depth; ++i) {
-      uint64_t row_base = mem_addr + static_cast<uint64_t>(i) * stride * line_blocks * kBlockSz;
-      for (uint32_t b = 0; b < line_blocks; ++b) {
-        uint64_t addr = row_base + static_cast<uint64_t>(b) * kBlockSz;
-        shm_->op = BEBOP_OP_MEM_REQ;
-        shm_->sender_id = self_id_;
-        shm_->receiver_id = 0;
-        shm_->mem_rw = BEBOP_MEM_READ;
-        shm_->size = kBlockSz;
-        shm_->msg_id = ++msg_seq_;
-        shm_->addr = addr;
-        shm_->err = 0;
-        rpc_submit(shm_);
-        if (shm_->op != BEBOP_OP_MEM_RESP || shm_->err != 0) {
-          throw std::runtime_error("bebop_shm MEM_READ failed");
-        }
-        std::memcpy(buf.data(), shm_->data, buf.size());
-        for (uint64_t j = 0; j < kBlockSz; ++j) {
-          mmu->store<uint8_t>(addr + j, buf[j]);
-        }
-      }
     }
   }
 
