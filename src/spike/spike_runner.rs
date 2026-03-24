@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use log::{debug, info};
 
+use crate::emu;
 use crate::shm::{self, ShmMap};
 
 const SPIKE_EXT: &str = "--extension=bebop_rocc";
@@ -91,7 +92,7 @@ pub fn worker_shm(name: String) -> Result<(), String> {
     if !cs.as_bytes().starts_with(b"/") {
         return Err("worker-shm: name must start with '/'".into());
     }
-    shm::run_worker(&cs)
+    emu::run_worker(&cs)
 }
 
 fn run_spike_pk(
