@@ -10,6 +10,14 @@ use crate::shm::ShmMap;
 use super::bemu::Bemu;
 use super::inst::exec_latency::cycles_after_issue;
 
+pub fn worker_shm(name: String) -> Result<(), String> {
+    let cs = CString::new(name).map_err(|_| "worker-shm: name has NUL")?;
+    if !cs.as_bytes().starts_with(b"/") {
+        return Err("worker-shm: name must start with '/'".into());
+    }
+    run(&cs)
+}
+
 pub fn run(name: &CString) -> Result<(), String> {
     let map = ShmMap::attach(name.as_c_str(), BEBOP_SHM_SIZE)
         .map_err(|e| format!("worker shm attach: {e}"))?;
