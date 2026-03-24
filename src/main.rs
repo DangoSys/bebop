@@ -2,19 +2,22 @@ mod cli;
 mod emu;
 mod shm;
 mod spike;
-use std::env;
+mod utils;
 
+use crate::cli::cli::{dispatch, Cli};
+use crate::utils::log::init_log;
 use clap::Parser;
 
 fn main() {
-    let cli = cli::Cli::parse();
-    // `worker-shm` is a separate process: it never sees `-v` on argv. Put level in env so child inherits.
-    if cli.verbose && env::var_os("RUST_LOG").is_none() {
-        env::set_var("RUST_LOG", "info");
-    }
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("off")).init();
+    //===----------------------------------------------------------------------===//
+    //
+    // All commands come through here to CLI, then start the execution.
+    //
+    //===----------------------------------------------------------------------===//
+    let cli = Cli::parse();
+    init_log(cli.verbose);
 
-    if let Err(e) = cli::dispatch(cli) {
+    if let Err(e) = dispatch(cli) {
         eprintln!("error: {e}");
         std::process::exit(1);
     }

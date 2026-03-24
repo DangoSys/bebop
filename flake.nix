@@ -15,7 +15,10 @@
         rustToolchain = pkgs.rust-bin.stable.latest.default;
         wasmEnv = import ./scripts/nix/wasm.nix { inherit pkgs rustToolchain; };
         tauriEnv = import ./scripts/nix/tauri.nix { inherit pkgs rustToolchain; };
-        spikeEnv = import ./scripts/nix/spike.nix { inherit pkgs; };
+        spikeEnv = import ./scripts/nix/spike.nix {
+          inherit pkgs;
+          bebopSrc = ./.;
+        };
         riscvEnv = import ./scripts/nix/riscv.nix { inherit pkgs; };
 
         bebopCli = pkgs.rustPlatform.buildRustPackage {
@@ -25,6 +28,17 @@
           cargoLock.lockFile = ./Cargo.lock;
           # Only build the CLI binary; tauri/wasm members need extra system libs
           cargoBuildFlags = [ "--package" "bebop" ];
+          buildInputs = [ spikeEnv.spikeDrv ] ++ riscvEnv.buildInputs;
+        };
+
+        bebopPkg = pkgs.symlinkJoin {
+          name = "bebop-with-rocc";
+          paths = [ bebopCli spikeEnv.bebopRoccDrv ];
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          postBuild = ''
+            wrapProgram $out/bin/bebop \
+              --set BEBOP_ROCC_SO ${spikeEnv.bebopRoccDrv}/lib/libbebop_rocc.so
+          '';
         };
       in
       {
@@ -37,7 +51,7 @@
             pkgs.clang-tools
             pkgs.cmake
             pkgs.ninja
-            bebopCli
+            bebopPkg
           ] ++ spikeEnv.buildInputs ++ riscvEnv.buildInputs;
 
           shellHook = riscvEnv.shellHook + ''
@@ -59,10 +73,11 @@
           shellHook = tauriEnv.shellHook;
         };
 
-        packages.default = bebopCli;
+        packages.default = bebopPkg;
 
         # Expose spike derivation to allow `nix build .#spike` verification.
         packages.spike = spikeEnv.spikeDrv;
+        packages.rocc = spikeEnv.bebopRoccDrv;
         packages.pk = riscvEnv.pkDrv;
       }
     );

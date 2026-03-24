@@ -1,0 +1,45 @@
+//! CLI：clap 定义与命令分发（Spike 仿真在 [`crate::spike::runner`]）。
+
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
+
+use crate::emu;
+use crate::spike::runner;
+
+#[derive(Parser)]
+#[command(name = "bebop", about = "Bebop BEMU CLI")]
+pub struct Cli {
+    /// Enable INFO logs (and for spike-test, the BEMU worker child inherits via RUST_LOG).
+    #[arg(short, long, default_value_t = false)]
+    pub verbose: bool,
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Run Spike in spike mode. Run `bebop spike-test -h` to see more details.
+    SpikeTest {
+        elf: PathBuf,
+        /// After each RoCC custom instruction: print bank state hash (64-bit per bank).
+        #[arg(long, default_value_t = false)]
+        step: bool,
+    },
+
+    //===----------------------------------------------------------------------===//
+    //
+    // The functions below are not exposed to the CLI.
+    // They are used internally by the CLI.
+    //
+    //===----------------------------------------------------------------------===//
+    #[command(hide = true, name = "worker-shm")]
+    WorkerShm { name: String },
+}
+
+pub fn dispatch(cli: Cli) -> Result<(), String> {
+    match cli.command {
+        Commands::SpikeTest { elf, step } => runner::spike_tests(elf, step),
+        Commands::WorkerShm { name } => emu::worker_shm(name),
+    }
+}
