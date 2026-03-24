@@ -4,11 +4,21 @@ use std::path::Path;
 
 use super::super::bank::{BANK_LINES, BANK_NUM, BANK_WIDTH};
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EmuMode {
+    #[default]
+    Iss,
+    Fss,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EmuConfig {
     pub bank_num: usize,
     pub bank_width: usize,
     pub bank_lines: usize,
+    #[serde(default)]
+    pub emu_mode: EmuMode,
 }
 
 impl EmuConfig {
@@ -56,9 +66,4 @@ impl EmuConfig {
         }
         Ok(())
     }
-}
-
-#[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
-pub struct BemuStats {
-    pub instructions_executed: u64,
 }
