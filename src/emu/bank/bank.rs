@@ -54,12 +54,12 @@ pub struct BankConfig {
     pub cols: u64,
 }
 
-#[inline]
-pub fn mem_read(mem: &[u8], addr: u64) -> u8 {
-    mem[(addr as usize) % mem.len()]
-}
+// #[inline]
+// pub fn mem_read(mem: &[u8], addr: u64) -> u8 {
+//     mem[(addr as usize) % mem.len()]
+// }
 
-#[inline]
-pub fn mem_write(mem: &mut [u8], addr: u64, v: u8) {
-    mem[(addr as usize) % mem.len()] = v;
-}
+// #[inline]
+// pub fn mem_write(mem: &mut [u8], addr: u64, v: u8) {
+//     mem[(addr as usize) % mem.len()] = v;
+// }

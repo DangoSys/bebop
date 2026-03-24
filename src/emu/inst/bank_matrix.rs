@@ -19,16 +19,16 @@ pub fn read_i8_nn(banks: &[Vec<u8>], p: usize, n: usize) -> Vec<Vec<i8>> {
 }
 
 /// `rows` 行 × `width` 列，列数 ≤ 16，行步长 [`I8_ROW_STRIDE`]（如 mul_warp16 的 K×16）。
-pub fn read_i8_k_rows(banks: &[Vec<u8>], p: usize, rows: usize, width: usize) -> Vec<Vec<i8>> {
-    let m = &banks[p];
-    let mut out = vec![vec![0i8; width]; rows];
-    for i in 0..rows {
-        for j in 0..width {
-            out[i][j] = m[i * I8_ROW_STRIDE + j] as i8;
-        }
-    }
-    out
-}
+// pub fn read_i8_k_rows(banks: &[Vec<u8>], p: usize, rows: usize, width: usize) -> Vec<Vec<i8>> {
+//     let m = &banks[p];
+//     let mut out = vec![vec![0i8; width]; rows];
+//     for i in 0..rows {
+//         for j in 0..width {
+//             out[i][j] = m[i * I8_ROW_STRIDE + j] as i8;
+//         }
+//     }
+//     out
+// }
 
 /// n×n int32 累加 bank（`i * ACC_ROW_STRIDE + j * 4`）。
 pub fn read_i32_nn(banks: &[Vec<u8>], p: usize, n: usize) -> Vec<Vec<i32>> {

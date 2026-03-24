@@ -7,6 +7,13 @@ use crate::shm::protocol::OpResp;
 
 const MEM_BLK: usize = 16;
 
+//===----------------------------------------------------------------------===//
+//
+// Under ISS (Instruction Set Simulator) Mode, we simulate only the function.
+// All the instructions are issued in order and executed step by step.
+//
+//===----------------------------------------------------------------------===//
+
 pub fn execute_inst(
     funct: u32,
     xs1: u64,
