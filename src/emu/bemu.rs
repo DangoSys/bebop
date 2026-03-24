@@ -1,12 +1,19 @@
 use super::bank::{BankConfig, BankMap, BANK_NUM};
-use super::configs::config::{BemuStats, EmuConfig};
-use super::diff::hash::bank_hash64;
+use super::configs::config::EmuConfig;
+use super::diff::hash::bank_hash;
 use super::inst::decode::{self, SyncPlan};
+use super::iss::iss;
+use crate::shm::protocol::{OpReq, OpResp};
+
+pub struct StepCfg {
+    pub on: bool,
+    pub all_banks: bool,
+    pub idx: u64,
+}
 
 pub struct Bemu {
     memory: Vec<u8>,
     banks: Vec<Vec<u8>>,
-    stats: BemuStats,
     bank_configs: [BankConfig; BANK_NUM],
     bank_map: BankMap,
 }
@@ -19,32 +26,13 @@ impl Bemu {
             banks: (0..cfg.bank_num)
                 .map(|_| vec![0; cfg.bank_size()])
                 .collect(),
-            stats: BemuStats::default(),
             bank_configs: [BankConfig::default(); BANK_NUM],
             bank_map: BankMap::new(cfg.bank_num),
         }
     }
 
-    #[inline]
-    fn encode_result(funct: u32, ret: u64) -> u64 {
-        if ret == 0 {
-            funct as u64
-        } else {
-            0
-        }
-    }
-
-    pub fn set_verbose(&mut self, verbose: bool) {
-        if verbose {
-            log::set_max_level(log::LevelFilter::Debug);
-        } else {
-            log::set_max_level(log::LevelFilter::Info);
-        }
-    }
-
     pub fn execute(&mut self, funct: u32, xs1: u64, xs2: u64) -> u64 {
-        self.stats.instructions_executed += 1;
-        let ret = match decode::execute_known(
+        iss::execute_inst(
             funct,
             xs1,
             xs2,
@@ -52,28 +40,61 @@ impl Bemu {
             &mut self.banks,
             &mut self.bank_configs,
             &mut self.bank_map,
-        ) {
-            Some(v) => v,
-            None => panic!("Bemu: unknown funct={funct}"),
-        };
-        Self::encode_result(funct, ret)
+        )
+    }
+
+    pub fn handle_op(&mut self, req: OpReq, step: &mut StepCfg) -> OpResp {
+        match req {
+            OpReq::CmdShutdown => OpResp::done(),
+            OpReq::CmdHandle { funct, xs1, xs2 } => self.handle_op_handle(funct, xs1, xs2, step),
+            OpReq::CmdDecode { funct, xs1, xs2 } => self.handle_op_decode(funct, xs1, xs2),
+            OpReq::MemWrite { addr, data } => self.handle_op_sync(addr, data),
+            OpReq::MemRead { addr } => self.handle_op_read(addr),
+            OpReq::Unknown { op, cmd, rw } => {
+                let _ = (op, cmd, rw);
+                OpResp::err(-1)
+            }
+        }
+    }
+
+    fn handle_op_handle(&mut self, funct: u32, xs1: u64, xs2: u64, step: &mut StepCfg) -> OpResp {
+        let out = self.execute(funct, xs1, xs2);
+        if step.on {
+            step.idx = step.idx.wrapping_add(1);
+            let banks = bank_hash(&self.banks, &self.bank_configs, step.all_banks);
+            println!(
+                "step={} funct={} xs1=0x{:x} xs2=0x{:x} out=0x{:x} {}",
+                step.idx, funct, xs1, xs2, out, banks
+            );
+        }
+
+        let mut resp = OpResp::ok();
+        resp.result = Some(out);
+        resp
+    }
+
+    fn handle_op_decode(&self, funct: u32, xs1: u64, xs2: u64) -> OpResp {
+        let mut resp = OpResp::ok();
+        resp.plan = Some(self.decode_sync_plan(funct, xs1, xs2));
+        resp
+    }
+
+    fn handle_op_sync(&mut self, addr: u64, data: [u8; 16]) -> OpResp {
+        self.write_memory(addr, &data);
+        OpResp::ok()
+    }
+
+    fn handle_op_read(&self, addr: u64) -> OpResp {
+        let bytes = self.read_memory(addr, 16);
+        let mut data = [0u8; 16];
+        data.copy_from_slice(&bytes[..16]);
+        let mut resp = OpResp::ok();
+        resp.data = Some(data);
+        resp
     }
 
     pub fn decode_sync_plan(&self, funct: u32, xs1: u64, xs2: u64) -> SyncPlan {
         decode::build_sync_plan(funct, xs1, xs2, &self.bank_configs)
-    }
-
-    #[inline]
-    pub fn bank_allocated(&self, i: usize) -> bool {
-        i < BANK_NUM && self.bank_configs[i].allocated
-    }
-
-    pub fn get_stats(&self) -> &BemuStats {
-        &self.stats
-    }
-
-    pub fn reset_stats(&mut self) {
-        self.stats = BemuStats::default();
     }
 
     pub fn write_memory(&mut self, addr: u64, data: &[u8]) {
@@ -104,15 +125,6 @@ impl Bemu {
             let take = (len - pos).min(size - got);
             out.extend_from_slice(&self.memory[pos..pos + take]);
             got += take;
-        }
-        out
-    }
-
-    /// One 64-bit hash per bank (16 hex chars each, [`DefaultHasher`](std::collections::hash_map::DefaultHasher)).
-    pub fn bank_hashes64_hex(&self) -> Vec<String> {
-        let mut out = Vec::with_capacity(self.banks.len());
-        for b in &self.banks {
-            out.push(bank_hash64(b));
         }
         out
     }

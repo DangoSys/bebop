@@ -2,6 +2,7 @@
 
 pub mod layout;
 pub mod posix;
+pub mod protocol;
 
 pub use layout::{rpc_shutdown, BEBOP_SHM_SIZE};
 pub use posix::ShmMap;

@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use log::{debug, info};
 
+use crate::node;
 use crate::shm::{self, ShmMap};
 use crate::spike::path::{path_rocc_so, path_system_pk_bin, path_system_spike_bin, SPIKE_EXT};
 use crate::utils::path;
@@ -40,6 +41,8 @@ fn run_spike_pk(
     step: bool,
 ) -> Result<(), String> {
     let step_mode = if step { "1" } else { "0" };
+    let node_file = node::node_file()?;
+    let spike_node_id = node::alloc_node_id(&node_file)?;
 
     // step 1. Generate a unique SHM (Shared Memory) name for the spike process.
     let seq = SPIKE_SHM_SEQ.fetch_add(1, Ordering::Relaxed);
@@ -54,14 +57,17 @@ fn run_spike_pk(
         .map_err(|_| "shm name is not UTF-8".to_string())?;
 
     // step 3. Spawn the BEMU worker process.
-    // It's a bebop command: bebop worker-shm <shm_name> <step_mode>
+    // It's a bebop command: bebop bemu-tests
     let bebop_exe = path::path_current_bebop_bin()?;
     let mut worker = Command::new(&bebop_exe)
-        .arg("worker-shm")
-        .arg(nm)
+        .arg("bemu-tests")
+        .arg("--node-file")
+        .arg(&node_file)
+        .env("BEBOP_SHM_NAME", nm)
         .env("BEBOP_STEP", step_mode)
         .spawn()
         .map_err(|e| format!("spawn worker: {e}"))?;
+    node::add_child_pid(worker.id() as i32)?;
 
     // step 4. Spawn the Spike process.
     // It's a spike command:
@@ -77,25 +83,38 @@ fn run_spike_pk(
     );
     info!("spike: {}", elf.display());
 
-    let spike_st = Command::new(spike)
+    let mut spike_child = Command::new(spike)
         .arg(SPIKE_EXT)
         .arg(pk)
         .arg(elf)
         .env("BEBOP_SHM_NAME", nm)
         .env("LD_LIBRARY_PATH", ld_library_path)
         .env("BEBOP_STEP", step_mode)
-        .status()
+        .env("BEBOP_NODE_ID", spike_node_id.to_string())
+        .spawn()
         .map_err(|e| {
             let _ = worker.kill();
             let _ = worker.wait();
+            let _ = node::remove_child_pid(worker.id() as i32);
             map.set_unlink_on_drop(true);
             format!("spawn spike: {e}")
         })?;
+    node::add_child_pid(spike_child.id() as i32)?;
+    let spike_st = spike_child.wait().map_err(|e| {
+        let _ = worker.kill();
+        let _ = worker.wait();
+        let _ = node::remove_child_pid(worker.id() as i32);
+        let _ = node::remove_child_pid(spike_child.id() as i32);
+        map.set_unlink_on_drop(true);
+        format!("spike wait: {e}")
+    })?;
+    let _ = node::remove_child_pid(spike_child.id() as i32);
 
     // spike exits, then shutdown the BEMU worker.
     // wait for the BEMU worker to exit.
     shm::rpc_shutdown(map.as_bebop());
     let wst = worker.wait().map_err(|e| format!("worker wait: {e}"))?;
+    let _ = node::remove_child_pid(worker.id() as i32);
     map.set_unlink_on_drop(true);
     if !wst.success() {
         return Err(format!("worker exited {:?}", wst.code()));
