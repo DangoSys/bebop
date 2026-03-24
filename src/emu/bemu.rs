@@ -1,6 +1,7 @@
 use super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::configs::config::EmuConfig;
 use super::diff::config::DiffCfg;
+use super::fss::fss;
 use super::iss::iss;
 use crate::shm::protocol::{OpReq, OpResp};
 
@@ -57,6 +58,19 @@ impl Bemu {
                 step,
                 diff,
             ),
+            // OpReq::CmdHandle { funct, xs1, xs2 } => fss::execute_inst(
+            //     funct,
+            //     xs1,
+            //     xs2,
+            //     &mut self.memory,
+            //     mem_read16,
+            //     mem_write16,
+            //     &mut self.banks,
+            //     &mut self.bank_configs,
+            //     &mut self.bank_map,
+            //     step,
+            //     diff,
+            // ),
             OpReq::CmdShutdown => OpResp::done(),
             OpReq::MemWrite { addr, data } => self.handle_mem_write(addr, data),
             OpReq::MemRead { addr } => self.handle_mem_read(addr),

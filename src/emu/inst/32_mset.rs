@@ -32,10 +32,7 @@ pub fn exec(
         banks[p].fill(0);
     } else {
         bank_map.delete_vbank(v);
-        cfgs[i] = BankConfig {
-            allocated: false,
-            cols: 0,
-        };
+        cfgs[i] = BankConfig::default();
     }
     0
 }
