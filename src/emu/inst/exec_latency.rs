@@ -13,7 +13,7 @@ use super::{
     f67_gemmini_compute_accumulated, f80_gemmini_loop_ws, f96_gemmini_loop_conv_ws,
 };
 
-pub fn cycles_after_issue(funct: u32, xs1: u64, xs2: u64) -> u64 {
+pub fn inst_cycles(funct: u32, xs1: u64, xs2: u64) -> u64 {
     match funct {
         decode::FUNCT_FENCE => f00_fence::latency(xs1, xs2),
         decode::FUNCT_BARRIER => f01_barrier::latency(xs1, xs2),
@@ -56,6 +56,6 @@ mod tests {
     #[test]
     fn mvin_depth_is_latency() {
         let xs1 = (5u64) << 30;
-        assert_eq!(cycles_after_issue(FUNCT_MVIN, xs1, 0), 5);
+        assert_eq!(inst_cycles(FUNCT_MVIN, xs1, 0), 5);
     }
 }

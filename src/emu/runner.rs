@@ -4,114 +4,96 @@ use std::env;
 use std::ffi::CString;
 use std::sync::atomic::Ordering;
 
-use crate::shm::layout::{BEBOP_SHM_SIZE, OP_DECODE, OP_HANDLE, OP_READ, OP_SHUTDOWN, OP_SYNC};
+use crate::node;
+use crate::shm::layout::{BEBOP_SHM_SIZE, OP_CMD_REQ, OP_CMD_RESP, OP_MEM_REQ, OP_MEM_RESP};
+use crate::shm::protocol::decode_req;
 use crate::shm::ShmMap;
 
-use super::bemu::Bemu;
-use super::inst::exec_latency::cycles_after_issue;
+use super::bemu::{Bemu, StepCfg};
 
-pub fn worker_shm(name: String) -> Result<(), String> {
-    let cs = CString::new(name).map_err(|_| "worker-shm: name has NUL")?;
-    if !cs.as_bytes().starts_with(b"/") {
-        return Err("worker-shm: name must start with '/'".into());
+pub fn bemu_tests() -> Result<(), String> {
+    let node_id = node::node_id();
+    if node_id == 0 {
+        return Err("node_id must be > 0".to_string());
     }
-    run(&cs)
-}
-
-pub fn run(name: &CString) -> Result<(), String> {
-    let map = ShmMap::attach(name.as_c_str(), BEBOP_SHM_SIZE)
+    let name = env::var("BEBOP_SHM_NAME").map_err(|_| "missing env BEBOP_SHM_NAME".to_string())?;
+    let cs = CString::new(name).map_err(|_| "bemu-tests: name has NUL")?;
+    if !cs.as_bytes().starts_with(b"/") {
+        return Err("bemu-tests: name must start with '/'".into());
+    }
+    let map = ShmMap::attach(cs.as_c_str(), BEBOP_SHM_SIZE)
         .map_err(|e| format!("worker shm attach: {e}"))?;
-    let s = map.raw_bebop();
+    let shm = map.raw_bebop();
     let mut bemu = Bemu::new();
-    let step = env::var("BEBOP_STEP").ok().as_deref() == Some("1");
-    // Default: only MSET-allocated banks. Set BEBOP_STEP_BANKS=all to print every bank.
-    let step_banks_all = env::var("BEBOP_STEP_BANKS").ok().as_deref() == Some("all");
-    let mut step_idx: u64 = 0;
+    let mut step = StepCfg {
+        on: env::var("BEBOP_STEP").ok().as_deref() == Some("1"),
+        all_banks: env::var("BEBOP_STEP_BANKS").ok().as_deref() == Some("all"),
+        idx: 0,
+    };
+
     loop {
-        let r = unsafe { (*s).req.load(Ordering::Acquire) };
-        let a = unsafe { (*s).ack.load(Ordering::Acquire) };
-        if r == a {
+        let req = unsafe { (*shm).req.load(Ordering::Acquire) };
+        let ack = unsafe { (*shm).ack.load(Ordering::Acquire) };
+        if req == ack {
             std::thread::yield_now();
             continue;
         }
-        if r != a + 1 {
-            panic!("bebop worker: invalid req/ack (req={r} ack={a})");
+        if req != ack + 1 {
+            panic!("bebop worker: invalid req/ack (req={req} ack={ack})");
         }
-        let op = unsafe { (*s).op };
-        match op {
-            OP_SHUTDOWN => {
-                unsafe {
-                    (*s).ack.store(r, Ordering::Release);
-                }
-                return Ok(());
-            }
-            OP_HANDLE => {
-                let funct = unsafe { (*s).funct };
-                let xs1 = unsafe { (*s).xs1 };
-                let xs2 = unsafe { (*s).xs2 };
-                let out = bemu.execute(funct, xs1, xs2);
-                let lat_cycles = cycles_after_issue(funct, xs1, xs2);
-                if step {
-                    step_idx = step_idx.wrapping_add(1);
-                    let hs = bemu.bank_hashes64_hex();
-                    let parts: Vec<String> = hs
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, _)| step_banks_all || bemu.bank_allocated(*i))
-                        .map(|(i, h)| format!("b{i}={h}"))
-                        .collect();
-                    println!(
-                        "step={} funct={} xs1=0x{:x} xs2=0x{:x} out=0x{:x} lat={} {}",
-                        step_idx,
-                        funct,
-                        xs1,
-                        xs2,
-                        out,
-                        lat_cycles,
-                        parts.join(" ")
-                    );
-                }
-                unsafe {
-                    (*s).result = out;
-                    (*s).err = 0;
-                }
-            }
-            OP_DECODE => {
-                let funct = unsafe { (*s).funct };
-                let xs1 = unsafe { (*s).xs1 };
-                let xs2 = unsafe { (*s).xs2 };
-                let p = bemu.decode_sync_plan(funct, xs1, xs2);
-                unsafe {
-                    (*s).sync_flags = p.flags;
-                    (*s).line_blocks = p.line_blocks;
-                    (*s).depth = p.depth;
-                    (*s).mem_addr = p.mem_addr;
-                    (*s).stride = p.stride;
-                    (*s).err = 0;
-                }
-            }
-            OP_SYNC => {
-                let addr = unsafe { (*s).sync_addr };
-                let data = unsafe { (*s).data };
-                bemu.write_memory(addr, &data);
-                unsafe {
-                    (*s).err = 0;
-                }
-            }
-            OP_READ => {
-                let addr = unsafe { (*s).sync_addr };
-                let v = bemu.read_memory(addr, 16);
-                unsafe {
-                    (&mut (*s).data)[..16].copy_from_slice(&v[..16]);
-                    (*s).err = 0;
-                }
-            }
-            _ => unsafe {
-                (*s).err = -1;
-            },
+
+        // step 1. read the request from the shared memory
+        let op = unsafe { (*shm).op };
+        let sender = unsafe { (*shm).sender_id };
+        let cmd = unsafe { (*shm).cmd_code };
+        let rw = unsafe { (*shm).mem_rw };
+        let funct = unsafe { (*shm).funct };
+        let xs1 = unsafe { (*shm).xs1 };
+        let xs2 = unsafe { (*shm).xs2 };
+        let addr = unsafe { (*shm).addr };
+        let data = unsafe { (*shm).data };
+        if sender == 0 && !(op == OP_CMD_REQ && cmd == crate::shm::layout::CMD_SHUTDOWN) {
+            panic!("bebop worker: sender_id must be non-zero");
         }
+
+        // step 2. decode and handle the request
+        let op_req = decode_req(op, cmd, rw, funct, xs1, xs2, addr, data);
+        let resp = bemu.handle_op(op_req, &mut step);
+
+        // step 3. write the response to the shared memory
         unsafe {
-            (*s).ack.store(r, Ordering::Release);
+            (*shm).op = match op {
+                OP_CMD_REQ => OP_CMD_RESP,
+                OP_MEM_REQ => OP_MEM_RESP,
+                _ => (*shm).op,
+            };
+            (*shm).sender_id = node_id;
+            (*shm).receiver_id = sender;
+            (*shm).err = resp.err;
+            if let Some(v) = resp.result {
+                (*shm).result = v;
+            }
+            if let Some(plan) = resp.plan {
+                (*shm).sync_flags = plan.flags;
+                (*shm).line_blocks = plan.line_blocks;
+                (*shm).depth = plan.depth;
+                (*shm).mem_addr = plan.mem_addr;
+                (*shm).stride = plan.stride;
+            }
+            if let Some(d) = resp.data {
+                (*shm).data = d;
+            }
+        }
+
+        if resp.done {
+            unsafe {
+                (*shm).ack.store(req, Ordering::Release);
+            }
+            return Ok(());
+        }
+
+        unsafe {
+            (*shm).ack.store(req, Ordering::Release);
         }
     }
 }

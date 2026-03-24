@@ -67,14 +67,18 @@ public:
       sync_in(proc);
     }
 
-    shm_->op = BEBOP_OP_HANDLE;
+    shm_->op = BEBOP_OP_CMD_REQ;
+    shm_->sender_id = self_id_;
+    shm_->receiver_id = 0;
+    shm_->cmd_code = BEBOP_CMD_HANDLE;
+    shm_->msg_id = ++msg_seq_;
     shm_->funct = insn.funct;
     shm_->xs1 = xs1;
     shm_->xs2 = xs2;
     shm_->err = 0;
     rpc_submit(shm_);
-    if (shm_->err != 0) {
-      throw std::runtime_error("bebop_shm OP_HANDLE failed");
+    if (shm_->op != BEBOP_OP_CMD_RESP || shm_->err != 0) {
+      throw std::runtime_error("bebop_shm CMD_HANDLE failed");
     }
     uint64_t out = shm_->result;
 
@@ -90,14 +94,18 @@ public:
 
 private:
   void decode_plan(rocc_insn_t insn, uint64_t xs1, uint64_t xs2) {
-    shm_->op = BEBOP_OP_DECODE;
+    shm_->op = BEBOP_OP_CMD_REQ;
+    shm_->sender_id = self_id_;
+    shm_->receiver_id = 0;
+    shm_->cmd_code = BEBOP_CMD_DECODE;
+    shm_->msg_id = ++msg_seq_;
     shm_->funct = insn.funct;
     shm_->xs1 = xs1;
     shm_->xs2 = xs2;
     shm_->err = 0;
     rpc_submit(shm_);
-    if (shm_->err != 0) {
-      throw std::runtime_error("bebop_shm OP_DECODE failed");
+    if (shm_->op != BEBOP_OP_CMD_RESP || shm_->err != 0) {
+      throw std::runtime_error("bebop_shm CMD_DECODE failed");
     }
   }
 
@@ -119,6 +127,14 @@ private:
       throw std::runtime_error("mmap bebop shm failed");
     }
     shm_ = static_cast<bebop_shm_t *>(p);
+    const char *self = std::getenv("BEBOP_NODE_ID");
+    if (!self || !*self) {
+      throw std::runtime_error("BEBOP_NODE_ID is not set");
+    }
+    self_id_ = static_cast<uint32_t>(std::strtoul(self, nullptr, 10));
+    if (self_id_ == 0) {
+      throw std::runtime_error("invalid BEBOP_NODE_ID");
+    }
   }
 
   void sync_in(processor_t *proc) {
@@ -140,12 +156,17 @@ private:
           buf[j] = mmu->load<uint8_t>(addr + j);
         }
         std::memcpy(shm_->data, buf.data(), buf.size());
-        shm_->op = BEBOP_OP_SYNC;
-        shm_->sync_addr = addr;
+        shm_->op = BEBOP_OP_MEM_REQ;
+        shm_->sender_id = self_id_;
+        shm_->receiver_id = 0;
+        shm_->mem_rw = BEBOP_MEM_WRITE;
+        shm_->size = kBlockSz;
+        shm_->msg_id = ++msg_seq_;
+        shm_->addr = addr;
         shm_->err = 0;
         rpc_submit(shm_);
-        if (shm_->err != 0) {
-          throw std::runtime_error("bebop_shm OP_SYNC failed");
+        if (shm_->op != BEBOP_OP_MEM_RESP || shm_->err != 0) {
+          throw std::runtime_error("bebop_shm MEM_WRITE failed");
         }
       }
     }
@@ -166,12 +187,17 @@ private:
       uint64_t row_base = mem_addr + static_cast<uint64_t>(i) * stride * line_blocks * kBlockSz;
       for (uint32_t b = 0; b < line_blocks; ++b) {
         uint64_t addr = row_base + static_cast<uint64_t>(b) * kBlockSz;
-        shm_->op = BEBOP_OP_READ;
-        shm_->sync_addr = addr;
+        shm_->op = BEBOP_OP_MEM_REQ;
+        shm_->sender_id = self_id_;
+        shm_->receiver_id = 0;
+        shm_->mem_rw = BEBOP_MEM_READ;
+        shm_->size = kBlockSz;
+        shm_->msg_id = ++msg_seq_;
+        shm_->addr = addr;
         shm_->err = 0;
         rpc_submit(shm_);
-        if (shm_->err != 0) {
-          throw std::runtime_error("bebop_shm OP_READ failed");
+        if (shm_->op != BEBOP_OP_MEM_RESP || shm_->err != 0) {
+          throw std::runtime_error("bebop_shm MEM_READ failed");
         }
         std::memcpy(buf.data(), shm_->data, buf.size());
         for (uint64_t j = 0; j < kBlockSz; ++j) {
@@ -182,6 +208,8 @@ private:
   }
 
   bebop_shm_t *shm_ = nullptr;
+  uint64_t msg_seq_ = 0;
+  uint32_t self_id_ = 0;
 };
 
 REGISTER_EXTENSION(bebop_rocc, []() { return new bebop_rocc_t(); })

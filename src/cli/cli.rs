@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 use crate::emu;
-use crate::spike::runner;
+use crate::spike;
 
 #[derive(Parser)]
 #[command(name = "bebop", about = "Bebop BEMU CLI")]
@@ -13,8 +13,12 @@ pub struct Cli {
     /// Enable INFO logs (and for spike-test, the BEMU worker child inherits via RUST_LOG).
     #[arg(short, long, default_value_t = false)]
     pub verbose: bool,
+
     #[command(subcommand)]
     pub command: Commands,
+
+    #[arg(long, hide = true, global = true)]
+    pub node_file: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -33,13 +37,13 @@ pub enum Commands {
     // They are used internally by the CLI.
     //
     //===----------------------------------------------------------------------===//
-    #[command(hide = true, name = "worker-shm")]
-    WorkerShm { name: String },
+    #[command(hide = true, name = "bemu-tests")]
+    BemuTests,
 }
 
 pub fn dispatch(cli: Cli) -> Result<(), String> {
     match cli.command {
-        Commands::SpikeTest { elf, step } => runner::spike_tests(elf, step),
-        Commands::WorkerShm { name } => emu::worker_shm(name),
+        Commands::SpikeTest { elf, step } => spike::runner::spike_tests(elf, step),
+        Commands::BemuTests => emu::bemu_tests(),
     }
 }
