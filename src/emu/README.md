@@ -15,8 +15,6 @@
 
 ```bash
 cargo build --release
-cmake -S src/spike -B src/spike/build -G Ninja
-ninja -C src/spike/build bebop_rocc
 ./target/release/bebop spike-test /path/to/your-test-linux
 ```
 
