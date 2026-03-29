@@ -16,6 +16,10 @@
 ```bash
 cargo build --release
 ./target/release/bebop spike-test /path/to/your-test-linux
+./target/release/bebop spike-test /home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy/ctest_vecunit_tiled_matmul-linux --step
+./target/release/bebop verilator /home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy/ctest_vecunit_tiled_matmul-linux --step
+./target/release/bebop spike-test /home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy/ctest_vecunit_matmul_random1-linux --step
+./target/release/bebop verilator /home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy/ctest_vecunit_matmul_random1-linux --step
 ```
 
 - **`cargo build --release`**：bebop CLI、`libbemu.so` 等。

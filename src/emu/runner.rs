@@ -18,7 +18,7 @@ use super::diff::config::DiffCfg;
 
 const BLK: u32 = 16;
 
-enum Tick {
+pub(crate) enum Tick {
     Idle,
     Worked,
     Done,
@@ -104,12 +104,13 @@ unsafe fn mem_req_write16(shm: *mut BebopShm, node_id: u32, addr: u64, data: [u8
     }
 }
 
-unsafe fn run_cmd(
+pub(crate) unsafe fn run_cmd(
     shm: *mut BebopShm,
     node_id: u32,
     bemu: &mut Bemu,
     step: &mut StepCfg,
     diff: &DiffCfg,
+    post_handle: &mut impl FnMut(OpReq, &OpResp),
 ) -> Tick {
     let cmd = &mut (*shm).cmd;
     let req = cmd.req.load(Ordering::Acquire);
@@ -136,6 +137,7 @@ unsafe fn run_cmd(
         Ok(resp) => resp,
         Err(_) => OpResp::err(-1),
     };
+    post_handle(req_op, &resp);
     fill_resp(&mut cmd.msg, OP_CMD_RESP, node_id, msg.sender_id, &resp);
     cmd.ack.store(req, Ordering::Release);
     if resp.done {
@@ -169,7 +171,14 @@ pub fn bemu_tests(step_on: bool, diff_all_banks: bool) -> Result<(), String> {
 
     loop {
         unsafe {
-            match run_cmd(shm, node_id, &mut bemu, &mut step, &diff) {
+            match run_cmd(
+                shm,
+                node_id,
+                &mut bemu,
+                &mut step,
+                &diff,
+                &mut |_req, _resp| {},
+            ) {
                 Tick::Done => return Ok(()),
                 Tick::Worked => {}
                 Tick::Idle => std::thread::yield_now(),

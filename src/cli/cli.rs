@@ -31,6 +31,14 @@ pub enum Commands {
         step: bool,
     },
 
+    /// Spike + BEMU golden model + Verilator cosim (same shm protocol as spike-test).
+    #[cfg(feature = "verilator")]
+    Verilator {
+        elf: PathBuf,
+        #[arg(long, default_value_t = false)]
+        step: bool,
+    },
+
     //===----------------------------------------------------------------------===//
     //
     // The functions below are not exposed to the CLI.
@@ -44,14 +52,30 @@ pub enum Commands {
         #[arg(long, hide = true, default_value_t = false)]
         diff_all_banks: bool,
     },
+
+    #[cfg(feature = "verilator")]
+    #[command(hide = true, name = "verilator-worker")]
+    VerilatorWorker {
+        #[arg(long, hide = true, default_value_t = false)]
+        step: bool,
+        #[arg(long, hide = true, default_value_t = false)]
+        diff_all_banks: bool,
+    },
 }
 
 pub fn dispatch(cli: Cli) -> Result<(), String> {
     match cli.command {
         Commands::SpikeTest { elf, step } => spike::runner::spike_tests(elf, step),
+        #[cfg(feature = "verilator")]
+        Commands::Verilator { elf, step } => spike::runner::verilator_tests(elf, step),
         Commands::BemuTests {
             step,
             diff_all_banks,
         } => emu::bemu_tests(step, diff_all_banks),
+        #[cfg(feature = "verilator")]
+        Commands::VerilatorWorker {
+            step,
+            diff_all_banks,
+        } => emu::vl_worker::vl_worker_tests(step, diff_all_banks),
     }
 }

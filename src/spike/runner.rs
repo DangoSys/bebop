@@ -30,7 +30,30 @@ pub fn spike_tests(elf: PathBuf, step: bool) -> Result<(), String> {
     let spike = path_system_spike_bin()?;
     let pk = path_system_pk_bin()?;
     let ld = rocc_dir.display().to_string();
-    run_spike_pk(&spike, &pk, &elf, &ld, step)
+    run_spike_pk(&spike, &pk, &elf, &ld, step, WorkerKind::Bemu)
+}
+
+#[cfg(feature = "verilator")]
+pub fn verilator_tests(elf: PathBuf, step: bool) -> Result<(), String> {
+    let elf = elf.canonicalize().map_err(|e| format!("elf: {e}"))?;
+    if !elf.is_file() {
+        return Err(format!("not a file: {}", elf.display()));
+    }
+    let rocc_so = path_rocc_so()?;
+    let rocc_dir = rocc_so
+        .parent()
+        .ok_or("rocc so has no parent")?
+        .to_path_buf();
+    let spike = path_system_spike_bin()?;
+    let pk = path_system_pk_bin()?;
+    let ld = rocc_dir.display().to_string();
+    run_spike_pk(&spike, &pk, &elf, &ld, step, WorkerKind::Verilator)
+}
+
+enum WorkerKind {
+    Bemu,
+    #[cfg(feature = "verilator")]
+    Verilator,
 }
 
 fn run_spike_pk(
@@ -39,6 +62,7 @@ fn run_spike_pk(
     elf: &Path,
     ld_library_path: &str,
     step: bool,
+    worker: WorkerKind,
 ) -> Result<(), String> {
     let step_mode = if step { "1" } else { "0" };
     let node_file = node::node_file()?;
@@ -56,12 +80,19 @@ fn run_spike_pk(
         .to_str()
         .map_err(|_| "shm name is not UTF-8".to_string())?;
 
-    // step 3. Spawn the BEMU worker process.
-    // It's a bebop command: bebop bemu-tests
+    // step 3. Spawn the sidecar worker (BEMU or Verilator cosim).
     let bebop_exe = path::path_current_bebop_bin()?;
     let mut worker_cmd = Command::new(&bebop_exe);
+    match worker {
+        WorkerKind::Bemu => {
+            worker_cmd.arg("bemu-tests");
+        }
+        #[cfg(feature = "verilator")]
+        WorkerKind::Verilator => {
+            worker_cmd.arg("verilator-worker");
+        }
+    }
     worker_cmd
-        .arg("bemu-tests")
         .arg("--node-file")
         .arg(&node_file)
         .env("BEBOP_SHM_NAME", nm);
@@ -114,7 +145,7 @@ fn run_spike_pk(
     })?;
     let _ = node::remove_child_pid(spike_child.id() as i32);
 
-    // spike exits, then shutdown the BEMU worker.
+    // spike exits, then shutdown the worker.
     // wait for the BEMU worker to exit.
     shm::rpc_shutdown(map.as_bebop());
     let wst = worker.wait().map_err(|e| format!("worker wait: {e}"))?;

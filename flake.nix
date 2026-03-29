@@ -28,6 +28,7 @@
           cargoLock.lockFile = ./Cargo.lock;
           # Only build the CLI binary; tauri/wasm members need extra system libs
           cargoBuildFlags = [ "--package" "bebop" ];
+          nativeBuildInputs = with pkgs; [ verilator python3 ];
           buildInputs = [ spikeEnv.spikeDrv ] ++ riscvEnv.buildInputs;
         };
 
@@ -51,6 +52,7 @@
             pkgs.clang-tools
             pkgs.cmake
             pkgs.ninja
+            pkgs.verilator
             bebopPkg
           ] ++ spikeEnv.buildInputs ++ riscvEnv.buildInputs;
 

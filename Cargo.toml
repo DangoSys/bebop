@@ -16,7 +16,9 @@ name = "bemu"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [features]
+default = ["verilator"]
 gui = ["dep:bebop-tauri-lib"]
+verilator = []
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
