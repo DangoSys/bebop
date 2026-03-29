@@ -1,5 +1,6 @@
 use super::layout::{CMD_HANDLE, CMD_SHUTDOWN, MEM_READ, MEM_WRITE, OP_CMD_REQ, OP_MEM_REQ};
 
+#[derive(Clone, Copy)]
 pub enum OpReq {
     CmdHandle { funct: u32, xs1: u64, xs2: u64 },
     CmdShutdown,

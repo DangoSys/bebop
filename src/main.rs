@@ -4,6 +4,8 @@ mod node;
 mod shm;
 mod spike;
 mod utils;
+#[cfg(feature = "verilator")]
+mod verilator;
 
 use crate::cli::cli::{dispatch, Cli};
 use crate::node::{init_node, is_node0, kill_all_children};
