@@ -3,7 +3,7 @@
 use std::mem::size_of;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub const BEBOP_SHM_SIZE: usize = 4096;
+pub const BEBOP_SHM_SIZE: usize = 8192;
 pub const OP_CMD_REQ: u32 = 1;
 pub const OP_CMD_RESP: u32 = 2;
 pub const OP_MEM_REQ: u32 = 3;
@@ -40,6 +40,7 @@ pub struct BebopMsg {
     pub _pad1: u32,
     pub mem_addr: u64,
     pub stride: u64,
+    pub bank_digest: u64,
 }
 
 #[repr(C)]
@@ -51,8 +52,10 @@ pub struct BebopLane {
 
 #[repr(C)]
 pub struct BebopShm {
-    pub cmd: BebopLane,
-    pub mem: BebopLane,
+    pub cmd_bemu: BebopLane,
+    pub cmd_rtl: BebopLane,
+    pub mem_bemu: BebopLane,
+    pub mem_rtl: BebopLane,
 }
 
 const _: () = assert!(size_of::<BebopShm>() <= BEBOP_SHM_SIZE);
@@ -75,8 +78,7 @@ pub fn wait_done(s: &BebopLane) {
     }
 }
 
-pub fn rpc_shutdown(s: &BebopShm) {
-    let cmd = &s.cmd;
+fn shutdown_one_cmd(cmd: &BebopLane) {
     wait_idle(cmd);
     unsafe {
         let p = cmd as *const BebopLane as *mut BebopLane;
@@ -88,4 +90,22 @@ pub fn rpc_shutdown(s: &BebopShm) {
     }
     cmd.req.fetch_add(1, Ordering::AcqRel);
     wait_done(cmd);
+}
+
+#[derive(Clone, Copy)]
+pub enum CosimShutdown {
+    BemuLane,
+    RtlLane,
+    DualLanes,
+}
+
+pub fn rpc_shutdown(s: &BebopShm, mode: CosimShutdown) {
+    match mode {
+        CosimShutdown::BemuLane => shutdown_one_cmd(&s.cmd_bemu),
+        CosimShutdown::RtlLane => shutdown_one_cmd(&s.cmd_rtl),
+        CosimShutdown::DualLanes => {
+            shutdown_one_cmd(&s.cmd_bemu);
+            shutdown_one_cmd(&s.cmd_rtl);
+        }
+    }
 }

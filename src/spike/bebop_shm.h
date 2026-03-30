@@ -4,7 +4,7 @@
 
 #include <stdint.h>
 
-#define BEBOP_SHM_SIZE 4096
+#define BEBOP_SHM_SIZE 8192
 
 #define BEBOP_OP_CMD_REQ 1u
 #define BEBOP_OP_CMD_RESP 2u
@@ -40,6 +40,7 @@ typedef struct {
   uint32_t _pad1;
   uint64_t mem_addr;
   uint64_t stride;
+  uint64_t bank_digest;
 } bebop_msg_t;
 
 typedef struct {
@@ -49,8 +50,10 @@ typedef struct {
 } bebop_lane_t;
 
 typedef struct {
-  bebop_lane_t cmd;
-  bebop_lane_t mem;
+  bebop_lane_t cmd_bemu;
+  bebop_lane_t cmd_rtl;
+  bebop_lane_t mem_bemu;
+  bebop_lane_t mem_rtl;
 } bebop_shm_t;
 
 #endif

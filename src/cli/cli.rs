@@ -10,7 +10,7 @@ use crate::spike;
 #[derive(Parser)]
 #[command(name = "bebop", about = "Bebop BEMU CLI")]
 pub struct Cli {
-    /// Enable INFO logs (and for spike-test, the BEMU worker child inherits via RUST_LOG).
+    /// Enable INFO logs (Spike/worker children may inherit via RUST_LOG).
     #[arg(short, long, default_value_t = false)]
     pub verbose: bool,
 
@@ -23,17 +23,25 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Run Spike in spike mode. Run `bebop spike-test -h` to see more details.
-    SpikeTest {
+    /// Spike + pk + BEMU RoCC sidecar (golden model).
+    Bemu {
         elf: PathBuf,
         /// After each RoCC custom instruction: print bank state hash (64-bit per bank).
         #[arg(long, default_value_t = false)]
         step: bool,
     },
 
-    /// Spike + BEMU golden model + Verilator cosim (same shm protocol as spike-test).
+    /// Spike + dual SHM lanes: `bemu-tests` + `verilator-engine` in parallel per RoCC; `rd` must match.
     #[cfg(feature = "verilator")]
     Verilator {
+        elf: PathBuf,
+        #[arg(long, default_value_t = false)]
+        step: bool,
+    },
+
+    /// Like `verilator`, plus Spike enforces **bank_digest** (FNV) match between lanes.
+    #[cfg(feature = "verilator")]
+    Difftest {
         elf: PathBuf,
         #[arg(long, default_value_t = false)]
         step: bool,
@@ -53,9 +61,9 @@ pub enum Commands {
         diff_all_banks: bool,
     },
 
-    #[cfg(feature = "verilator")]
-    #[command(hide = true, name = "verilator-worker")]
-    VerilatorWorker {
+    #[cfg(all(feature = "verilator", unix))]
+    #[command(hide = true, name = "verilator-engine")]
+    VerilatorEngine {
         #[arg(long, hide = true, default_value_t = false)]
         step: bool,
         #[arg(long, hide = true, default_value_t = false)]
@@ -65,17 +73,19 @@ pub enum Commands {
 
 pub fn dispatch(cli: Cli) -> Result<(), String> {
     match cli.command {
-        Commands::SpikeTest { elf, step } => spike::runner::spike_tests(elf, step),
+        Commands::Bemu { elf, step } => spike::runner::spike_tests(elf, step),
         #[cfg(feature = "verilator")]
         Commands::Verilator { elf, step } => spike::runner::verilator_tests(elf, step),
+        #[cfg(feature = "verilator")]
+        Commands::Difftest { elf, step } => spike::runner::difftest(elf, step),
         Commands::BemuTests {
             step,
             diff_all_banks,
         } => emu::bemu_tests(step, diff_all_banks),
-        #[cfg(feature = "verilator")]
-        Commands::VerilatorWorker {
+        #[cfg(all(feature = "verilator", unix))]
+        Commands::VerilatorEngine {
             step,
             diff_all_banks,
-        } => emu::vl_worker::vl_worker_tests(step, diff_all_banks),
+        } => emu::vl_engine::run(step, diff_all_banks),
     }
 }

@@ -6,7 +6,7 @@ pub mod fss;
 pub mod inst;
 pub mod iss;
 pub mod runner;
-#[cfg(feature = "verilator")]
-pub mod vl_worker;
+#[cfg(all(feature = "verilator", unix))]
+pub mod vl_engine;
 
 pub use runner::bemu_tests;
