@@ -1,6 +1,7 @@
 use super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::configs::config::{EmuConfig, EmuMode};
 use super::diff::config::DiffCfg;
+use super::diff::hash::cosim_aggregate_banks_digest;
 use super::fss::fss;
 use super::iss::iss;
 use crate::shm::protocol::{OpReq, OpResp};
@@ -84,6 +85,10 @@ impl Bemu {
             OpReq::MemRead { addr } => self.handle_mem_read(addr),
             OpReq::Unknown => OpResp::err(-1),
         }
+    }
+
+    pub fn cosim_bank_digest(&self, diff: &DiffCfg) -> u64 {
+        cosim_aggregate_banks_digest(&self.banks, &self.bank_configs, diff.all_banks)
     }
 
     fn handle_mem_write(&mut self, addr: u64, data: [u8; MEM_BLK]) -> OpResp {

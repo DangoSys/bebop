@@ -5,13 +5,13 @@
 
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use log::{debug, info};
 
 use crate::node;
-use crate::shm::{self, ShmMap};
+use crate::shm::{self, CosimShutdown, ShmMap};
 use crate::spike::path::{path_rocc_so, path_system_pk_bin, path_system_spike_bin, SPIKE_EXT};
 use crate::utils::path;
 
@@ -33,8 +33,30 @@ pub fn spike_tests(elf: PathBuf, step: bool) -> Result<(), String> {
     run_spike_pk(&spike, &pk, &elf, &ld, step, WorkerKind::Bemu)
 }
 
-#[cfg(feature = "verilator")]
+/// Spike + `verilator-engine` only: RTL lane (`cmd_rtl` / `mem_rtl`), no `bemu-tests`.
+#[cfg(all(feature = "verilator", unix))]
 pub fn verilator_tests(elf: PathBuf, step: bool) -> Result<(), String> {
+    run_verilator_elf(elf, step, false)
+}
+
+/// `bemu-tests` + `verilator-engine`: dual lane; `rd` must match; optional **FNV bank_digest** (`BEBOP_DIFFTEST`).
+#[cfg(all(feature = "verilator", unix))]
+pub fn difftest(elf: PathBuf, step: bool) -> Result<(), String> {
+    run_verilator_elf(elf, step, true)
+}
+
+#[cfg(all(feature = "verilator", not(unix)))]
+pub fn verilator_tests(_elf: PathBuf, _step: bool) -> Result<(), String> {
+    Err("verilator cosim requires Unix".into())
+}
+
+#[cfg(all(feature = "verilator", not(unix)))]
+pub fn difftest(_elf: PathBuf, _step: bool) -> Result<(), String> {
+    Err("verilator cosim requires Unix".into())
+}
+
+#[cfg(all(feature = "verilator", unix))]
+fn run_verilator_elf(elf: PathBuf, step: bool, bank_digest_diff: bool) -> Result<(), String> {
     let elf = elf.canonicalize().map_err(|e| format!("elf: {e}"))?;
     if !elf.is_file() {
         return Err(format!("not a file: {}", elf.display()));
@@ -47,13 +69,22 @@ pub fn verilator_tests(elf: PathBuf, step: bool) -> Result<(), String> {
     let spike = path_system_spike_bin()?;
     let pk = path_system_pk_bin()?;
     let ld = rocc_dir.display().to_string();
-    run_spike_pk(&spike, &pk, &elf, &ld, step, WorkerKind::Verilator)
+    run_spike_pk(
+        &spike,
+        &pk,
+        &elf,
+        &ld,
+        step,
+        WorkerKind::Verilator { bank_digest_diff },
+    )
 }
 
 enum WorkerKind {
     Bemu,
-    #[cfg(feature = "verilator")]
-    Verilator,
+    #[cfg(all(feature = "verilator", unix))]
+    Verilator {
+        bank_digest_diff: bool,
+    },
 }
 
 fn run_spike_pk(
@@ -68,45 +99,84 @@ fn run_spike_pk(
     let node_file = node::node_file()?;
     let spike_node_id = node::alloc_node_id(&node_file)?;
 
-    // step 1. Generate a unique SHM (Shared Memory) name for the spike process.
     let seq = SPIKE_SHM_SEQ.fetch_add(1, Ordering::Relaxed);
     let shm_name = CString::new(format!("/bebop_spike_{}_{}", std::process::id(), seq))
         .map_err(|_| "shm name has NUL".to_string())?;
 
-    // step 2. Create a new SHM for the spike process.
     let mut map = ShmMap::create_new(&shm_name, shm::BEBOP_SHM_SIZE, false)
         .map_err(|e| format!("shm create: {e}"))?;
     let nm = shm_name
         .to_str()
         .map_err(|_| "shm name is not UTF-8".to_string())?;
 
-    // step 3. Spawn the sidecar worker (BEMU or Verilator cosim).
     let bebop_exe = path::path_current_bebop_bin()?;
-    let mut worker_cmd = Command::new(&bebop_exe);
-    match worker {
-        WorkerKind::Bemu => {
-            worker_cmd.arg("bemu-tests");
-        }
-        #[cfg(feature = "verilator")]
-        WorkerKind::Verilator => {
-            worker_cmd.arg("verilator-worker");
-        }
-    }
-    worker_cmd
-        .arg("--node-file")
-        .arg(&node_file)
-        .env("BEBOP_SHM_NAME", nm);
-    if step {
-        worker_cmd.arg("--step");
-    }
-    let mut worker = worker_cmd
-        .spawn()
-        .map_err(|e| format!("spawn worker: {e}"))?;
-    node::add_child_pid(worker.id() as i32)?;
 
-    // step 4. Spawn the Spike process.
-    // It's a spike command:
-    // spike <SPIKE_EXT> <PK_BIN> <ELF_FILE> <BEBOP_SHM_NAME> <LD_LIBRARY_PATH> <BEBOP_STEP>
+    let (shutdown_mode, dual_cmd, rtl_only, difftest_env, mut children): (
+        CosimShutdown,
+        bool,
+        bool,
+        &'static str,
+        Vec<Child>,
+    ) = match worker {
+        WorkerKind::Bemu => {
+            let mut c = Command::new(&bebop_exe);
+            c.arg("bemu-tests")
+                .arg("--node-file")
+                .arg(&node_file)
+                .env("BEBOP_SHM_NAME", nm);
+            if step {
+                c.arg("--step");
+            }
+            let w = c.spawn().map_err(|e| format!("spawn worker: {e}"))?;
+            node::add_child_pid(w.id() as i32)?;
+            (CosimShutdown::BemuLane, false, false, "0", vec![w])
+        }
+        #[cfg(all(feature = "verilator", unix))]
+        WorkerKind::Verilator { bank_digest_diff } => {
+            let difftest_env = if bank_digest_diff { "1" } else { "0" };
+            let mut r = Command::new(&bebop_exe);
+            r.arg("verilator-engine")
+                .arg("--node-file")
+                .arg(&node_file)
+                .env("BEBOP_SHM_NAME", nm);
+            if step {
+                r.arg("--step");
+            }
+            if bank_digest_diff {
+                let mut b = Command::new(&bebop_exe);
+                b.arg("bemu-tests")
+                    .arg("--node-file")
+                    .arg(&node_file)
+                    .env("BEBOP_SHM_NAME", nm);
+                if step {
+                    b.arg("--step");
+                }
+                let mut wb = b.spawn().map_err(|e| format!("spawn bemu-tests: {e}"))?;
+                node::add_child_pid(wb.id() as i32)?;
+                let wr = r.spawn().map_err(|e| {
+                    let _ = wb.kill();
+                    let _ = wb.wait();
+                    let _ = node::remove_child_pid(wb.id() as i32);
+                    format!("spawn verilator-engine: {e}")
+                })?;
+                node::add_child_pid(wr.id() as i32)?;
+                (
+                    CosimShutdown::DualLanes,
+                    true,
+                    false,
+                    difftest_env,
+                    vec![wb, wr],
+                )
+            } else {
+                let wr = r
+                    .spawn()
+                    .map_err(|e| format!("spawn verilator-engine: {e}"))?;
+                node::add_child_pid(wr.id() as i32)?;
+                (CosimShutdown::RtlLane, false, true, "0", vec![wr])
+            }
+        }
+    };
+
     debug!(
         "LD_LIBRARY_PATH={} {} {} {} {} BEBOP_SHM_NAME={}",
         ld_library_path,
@@ -118,7 +188,8 @@ fn run_spike_pk(
     );
     info!("spike: {}", elf.display());
 
-    let mut spike_child = Command::new(spike)
+    let mut spike_cmd = Command::new(spike);
+    spike_cmd
         .arg(SPIKE_EXT)
         .arg(pk)
         .arg(elf)
@@ -126,36 +197,45 @@ fn run_spike_pk(
         .env("LD_LIBRARY_PATH", ld_library_path)
         .env("BEBOP_STEP", step_mode)
         .env("BEBOP_NODE_ID", spike_node_id.to_string())
-        .spawn()
-        .map_err(|e| {
-            let _ = worker.kill();
-            let _ = worker.wait();
-            let _ = node::remove_child_pid(worker.id() as i32);
-            map.set_unlink_on_drop(true);
-            format!("spawn spike: {e}")
-        })?;
+        .env("BEBOP_DUAL_CMD", if dual_cmd { "1" } else { "0" })
+        .env("BEBOP_RTL_ONLY", if rtl_only { "1" } else { "0" })
+        .env("BEBOP_DIFFTEST", difftest_env);
+
+    let mut spike_child = spike_cmd.spawn().map_err(|e| {
+        for w in &mut children {
+            let _ = w.kill();
+            let _ = w.wait();
+            let _ = node::remove_child_pid(w.id() as i32);
+        }
+        map.set_unlink_on_drop(true);
+        format!("spawn spike: {e}")
+    })?;
     node::add_child_pid(spike_child.id() as i32)?;
+
     let spike_st = spike_child.wait().map_err(|e| {
-        let _ = worker.kill();
-        let _ = worker.wait();
-        let _ = node::remove_child_pid(worker.id() as i32);
+        for w in &mut children {
+            let _ = w.kill();
+            let _ = w.wait();
+            let _ = node::remove_child_pid(w.id() as i32);
+        }
         let _ = node::remove_child_pid(spike_child.id() as i32);
         map.set_unlink_on_drop(true);
         format!("spike wait: {e}")
     })?;
     let _ = node::remove_child_pid(spike_child.id() as i32);
 
-    // spike exits, then shutdown the worker.
-    // wait for the BEMU worker to exit.
-    shm::rpc_shutdown(map.as_bebop());
-    let wst = worker.wait().map_err(|e| format!("worker wait: {e}"))?;
-    let _ = node::remove_child_pid(worker.id() as i32);
-    map.set_unlink_on_drop(true);
-    if !wst.success() {
-        return Err(format!("worker exited {:?}", wst.code()));
+    shm::rpc_shutdown(map.as_bebop(), shutdown_mode);
+
+    for mut w in children {
+        let wst = w.wait().map_err(|e| format!("worker wait: {e}"))?;
+        let _ = node::remove_child_pid(w.id() as i32);
+        if !wst.success() {
+            map.set_unlink_on_drop(true);
+            return Err(format!("worker exited {:?}", wst.code()));
+        }
     }
 
-    // spike exits, then return the result.
+    map.set_unlink_on_drop(true);
     if !spike_st.success() {
         return Err(format!("spike exited {:?}", spike_st.code()));
     }

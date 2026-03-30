@@ -4,6 +4,7 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=src/verilator/bebop_accel.sv");
+    println!("cargo:rerun-if-changed=src/verilator/bebop_cosim_banks.sv");
     println!("cargo:rerun-if-changed=src/verilator/cosim.cpp");
     if env::var("CARGO_FEATURE_VERILATOR").is_err() {
         return;
@@ -30,9 +31,14 @@ fn main() {
             vl_dir.to_str().expect("utf8 vl_dir"),
             "--top-module",
             "bebop_accel",
+            "-Wno-TIMESCALEMOD",
             "-CFLAGS",
             "-fPIC -O2",
             gen_sv.to_str().expect("utf8 gen_sv"),
+            manifest
+                .join("src/verilator/bebop_cosim_banks.sv")
+                .to_str()
+                .expect("utf8 banks sv"),
             sv.to_str().expect("utf8 sv"),
             cosim.to_str().expect("utf8 cosim"),
         ])

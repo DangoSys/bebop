@@ -5,26 +5,39 @@
 ## 架构概览
 
 - **BEMU**（`src/emu`）：Rust golden model；在 **`bebop worker-shm`** 子进程里跑（与 Spike 并行），直接调用 `Bemu::execute` / `write_memory` / `read_memory`。
-- **共享内存布局**（须与 C++ 一致）：[`src/spike/bebop_shm.h`](../spike/bebop_shm.h) 与 [`src/shm/layout.rs`](../shm/layout.rs)。控制字段含 `req` / `ack`（C++ 侧用 `std::atomic_ref`），操作码：`HANDLE` / `SYNC` / `READ` / `SHUTDOWN`。
+- **共享内存布局**（须与 C++ 一致）：[`src/spike/bebop_shm.h`](../spike/bebop_shm.h) 与 [`src/shm/layout.rs`](../shm/layout.rs)。**`BEBOP_SHM_SIZE` = 8192**。每路 lane 含 `req` / `ack` + `bebop_msg_t`（含 **`bank_digest`** 供 difftest）。Cosim 布局：**`cmd_bemu` / `cmd_rtl` / `mem_bemu` / `mem_rtl`** 四 lane；**`bebop bemu`** 仅使用 **`cmd_bemu` + `mem_bemu`**。
 - **`bebop_rocc`**（[`src/spike/bebop_rocc.cc`](../spike/bebop_rocc.cc) → `libbebop_rocc.so`）：在 custom-0 路径上 `mmap` 环境变量 **`BEBOP_SHM_NAME`** 指向的段，通过 `req`/`ack` 与 worker 同步；**MVIN** 仍从 Spike MMU 读块，经 **`OP_SYNC`** 写入 BEMU；**MVOUT** 经 **`OP_READ`** 取回再写 MMU；普通指令走 **`OP_HANDLE`**。
-- **`bebop spike-test`**：CLI 在 [`src/cli.rs`](../cli.rs)；仿真流程在 [`src/spike/spike_runner.rs`](../spike/spike_runner.rs)（创建 shm → `spawn` **`worker-shm`** → 设置 `BEBOP_SHM_NAME` 与 `LD_LIBRARY_PATH` 后启动 `spike --extension=bebop_rocc pk <elf>` → **`rpc_shutdown`** → `shm_unlink`）。**`--step`**：每条 **RoCC 自定义指令**（`OP_HANDLE`）执行后，worker 打印 **`lat=<N>`**（`exec_latency::cycles_after_issue` → 各 `fXX_*.rs` 的 **`latency`**，启发式 issue→complete 周期），并为 **已 MSET 分配** 的 bank 各打印一个 **64-bit** 哈希（`b0=<16hex> …`，`std` 默认 `Hasher`）。**`BEBOP_STEP_BANKS=all`** 时打印全部 bank。非 RoCC 的 RISC‑V 指令不在此粒度内。
+- **`bebop bemu`**：仅 Spike + **`bemu-tests`**（只做 BEMU golden）。
+- **Node 协议**（[`src/node/node.rs`](../node/node.rs)）：`bebop` 主进程为 node0；`runner` 为 Spike 与侧车分配 **`--node-file`** 中的递增 **`node_id`**。**`bemu-tests`** 与 **`verilator-engine`**（Unix cosim）各自 `alloc_node_id`。
+- **`bebop verilator`**：Spike + **`verilator-engine` 仅**；**`BEBOP_RTL_ONLY=1`**、**`BEBOP_DUAL_CMD=0`**，只用 **`cmd_rtl` + `mem_rtl`**（无 `bemu-tests`，无 BEMU 侧 `b0=` step 行）。
+- **`bebop difftest`**：Spike + **`bemu-tests` + `verilator-engine`**；**`BEBOP_DUAL_CMD=1`**，两路 cmd/mem 并行，**`rd` 必须一致**；**`BEBOP_DIFFTEST=1`** 时再比两路 **`bank_digest`**。**`bebop bemu`**：**`BEBOP_DUAL_CMD=0`**、**`BEBOP_RTL_ONLY=0`**，仅 **`cmd_bemu` + `mem_bemu`**。**`--step`**：BEMU 的 **`b0=…`** 与 FNV digest 仍非同一指标。**`BEBOP_STEP_BANKS=all`** 时打印全部 bank。Cosim 需 **Unix**。
 
 程序中的自定义指令为 RISC-V custom-0；funct7 / rs1 / rs2 对应 BEMU 的 funct、xs1、xs2。MVIN/MVOUT 使用 guest 虚地址；BEMU 内地址按 512KB 取模，与 Spike 同步后语义一致。
+
+
+
+已提供 **双 cmd + 双 mem** 的前提下，若仍希望在 **单进程内**对纯 bank 阶段做额外线程级并行，可按此前文档做 Phase1/Phase2 审计；本仓库 **未** 实现。
 
 ## 完整流程（按顺序执行）
 
 ```bash
 cargo build --release
-./target/release/bebop spike-test /path/to/your-test-linux
-./target/release/bebop spike-test /home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy/ctest_vecunit_tiled_matmul-linux --step
+./target/release/bebop bemu /path/to/your-test-linux
+./target/release/bebop verilator /path/to/your-test-linux
+./target/release/bebop difftest /path/to/your-test-linux
+
+./target/release/bebop bemu /home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy/ctest_vecunit_tiled_matmul-linux --step
 ./target/release/bebop verilator /home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy/ctest_vecunit_tiled_matmul-linux --step
-./target/release/bebop spike-test /home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy/ctest_vecunit_matmul_random1-linux --step
+./target/release/bebop difftest /home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy/ctest_vecunit_tiled_matmul-linux --step
+
+./target/release/bebop bemu /home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy/ctest_vecunit_matmul_random1-linux --step
 ./target/release/bebop verilator /home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy/ctest_vecunit_matmul_random1-linux --step
+./target/release/bebop difftest /home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy/ctest_vecunit_matmul_random1-linux --step
 ```
 
 - **`cargo build --release`**：bebop CLI、`libbemu.so` 等。
 - **`cmake` / `ninja`**：在 **`src/spike`** 生成 **`src/spike/build/libbebop_rocc.so`**（CMake 需能 `find_program(spike)`）。
-- **`bebop spike-test <ELF>`**：传入已构建好的 RISC-V Linux 测例可执行文件的完整路径；缺 **`libbebop_rocc.so`** 会直接报错退出。
+- **`bebop bemu <ELF>`** / **`bebop verilator <ELF>`**：传入已构建好的 RISC-V Linux 测例可执行文件的完整路径；缺 **`libbebop_rocc.so`** 会直接报错退出。
 
 
 ## 配置文件
@@ -39,7 +52,7 @@ cargo build --release
 
 | 路径 | 说明 |
 |-----|------|
-| `src/emu/` | BEMU 实现（Rust）、`worker.rs`（`worker-shm` RPC 侧车） |
+| `src/emu/` | BEMU（Rust）、[`runner.rs`](runner.rs)（`bemu-tests` RPC）、[`vl_engine.rs`](vl_engine.rs)（`verilator-engine`，Unix） |
 | `src/emu/interface/capi_exports.rs` | C API（仍可供其他宿主 `dlopen`） |
 | `src/shm/` | POSIX shm、与 `bebop_shm.h` 对齐的布局 |
-| `src/spike/` | `bebop_rocc.cc`、`bebop_shm.h`、`CMakeLists.txt`、`spike_runner.rs` |
+| `src/spike/` | `bebop_rocc.cc`、`bebop_shm.h`、`CMakeLists.txt`、`runner.rs` |
