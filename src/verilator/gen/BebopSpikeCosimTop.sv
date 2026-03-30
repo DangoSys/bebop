@@ -7,7 +7,17 @@ module BebopSpikeCosimTop(	// src/main/scala/sims/bebop/BebopSpikeCosimTop.scala
                 bankDigestPeek	// src/main/scala/sims/bebop/BebopSpikeCosimTop.scala:19:26
 );
 
-  assign result = {57'h0, funct};	// src/main/scala/sims/bebop/BebopSpikeCosimTop.scala:11:7, :22:37
-  assign bankDigestPeek = 64'h0;	// src/main/scala/sims/bebop/BebopCosimBlocks.scala:21:6, src/main/scala/sims/bebop/BebopSpikeCosimTop.scala:11:7
+  assign result =
+    funct == 7'h0 | funct == 7'h1 | funct == 7'h2 | funct == 7'h3 | funct == 7'h4
+    | funct == 7'h10 | funct == 7'h20 | funct == 7'h21 | funct == 7'h30 | funct == 7'h31
+    | funct == 7'h32 | funct == 7'h33 | funct == 7'h34 | funct == 7'h35 | funct == 7'h36
+    | funct == 7'h40 | funct == 7'h41 | funct == 7'h42 | funct == 7'h43 | funct == 7'h50
+    | funct == 7'h51 | funct == 7'h52 | funct == 7'h53 | funct == 7'h54 | funct == 7'h55
+    | funct == 7'h56 | funct == 7'h57 | funct == 7'h60 | funct == 7'h61 | funct == 7'h62
+    | funct == 7'h63 | funct == 7'h64 | funct == 7'h65 | funct == 7'h66 | funct == 7'h67
+    | funct == 7'h68 | funct == 7'h69
+      ? {57'h0, funct}
+      : 64'h0;	// src/main/scala/sims/bebop/BebopCosimBlocks.scala:88:79, :96:6, src/main/scala/sims/bebop/BebopSpikeCosimTop.scala:11:7, :23:{16,46}
+  assign bankDigestPeek = 64'h0;	// src/main/scala/sims/bebop/BebopCosimBlocks.scala:96:6, src/main/scala/sims/bebop/BebopSpikeCosimTop.scala:11:7
 endmodule
 

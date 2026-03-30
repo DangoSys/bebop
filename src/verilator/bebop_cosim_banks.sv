@@ -45,6 +45,78 @@ module bebop_cosim_banks (
   logic g_ws_b_valid;
   logic [6:0] g_ws_n;
   logic [7:0] ws_b_store [0:4095];
+  logic vec_start;
+  logic [15:0] vec_iter;
+  logic [7:0] vec_op1 [0:15];
+  logic [7:0] vec_op2 [0:15];
+  wire [31:0] vec_res [0:15];
+  wire vec_valid;
+  wire vec_done;
+
+  int mul64_op1_p;
+  int mul64_op2_p;
+  int mul64_wr_p;
+  int mul64_kin;
+  int mul64_kk;
+  int mul64_row;
+  bit mul64_busy;
+
+  VecComputeTop u_vec_compute (
+    .clock(clk),
+    .reset(1'b0),
+    .io_start(vec_start),
+    .io_iter(vec_iter),
+    .io_op1_0(vec_op1[0]),
+    .io_op1_1(vec_op1[1]),
+    .io_op1_2(vec_op1[2]),
+    .io_op1_3(vec_op1[3]),
+    .io_op1_4(vec_op1[4]),
+    .io_op1_5(vec_op1[5]),
+    .io_op1_6(vec_op1[6]),
+    .io_op1_7(vec_op1[7]),
+    .io_op1_8(vec_op1[8]),
+    .io_op1_9(vec_op1[9]),
+    .io_op1_10(vec_op1[10]),
+    .io_op1_11(vec_op1[11]),
+    .io_op1_12(vec_op1[12]),
+    .io_op1_13(vec_op1[13]),
+    .io_op1_14(vec_op1[14]),
+    .io_op1_15(vec_op1[15]),
+    .io_op2_0(vec_op2[0]),
+    .io_op2_1(vec_op2[1]),
+    .io_op2_2(vec_op2[2]),
+    .io_op2_3(vec_op2[3]),
+    .io_op2_4(vec_op2[4]),
+    .io_op2_5(vec_op2[5]),
+    .io_op2_6(vec_op2[6]),
+    .io_op2_7(vec_op2[7]),
+    .io_op2_8(vec_op2[8]),
+    .io_op2_9(vec_op2[9]),
+    .io_op2_10(vec_op2[10]),
+    .io_op2_11(vec_op2[11]),
+    .io_op2_12(vec_op2[12]),
+    .io_op2_13(vec_op2[13]),
+    .io_op2_14(vec_op2[14]),
+    .io_op2_15(vec_op2[15]),
+    .io_res_0(vec_res[0]),
+    .io_res_1(vec_res[1]),
+    .io_res_2(vec_res[2]),
+    .io_res_3(vec_res[3]),
+    .io_res_4(vec_res[4]),
+    .io_res_5(vec_res[5]),
+    .io_res_6(vec_res[6]),
+    .io_res_7(vec_res[7]),
+    .io_res_8(vec_res[8]),
+    .io_res_9(vec_res[9]),
+    .io_res_10(vec_res[10]),
+    .io_res_11(vec_res[11]),
+    .io_res_12(vec_res[12]),
+    .io_res_13(vec_res[13]),
+    .io_res_14(vec_res[14]),
+    .io_res_15(vec_res[15]),
+    .io_valid(vec_valid),
+    .io_done(vec_done)
+  );
 
   function automatic [63:0] fnv_byte(input [63:0] h, input [7:0] b);
     logic [63:0] x;
@@ -93,6 +165,19 @@ module bebop_cosim_banks (
     g_dataflow = 1'b0;
     g_ws_b_valid = 1'b0;
     g_ws_n = 7'h0;
+    vec_start = 1'b0;
+    vec_iter = 16'h0;
+    mul64_op1_p = -1;
+    mul64_op2_p = -1;
+    mul64_wr_p = -1;
+    mul64_kin = 0;
+    mul64_kk = 0;
+    mul64_row = 0;
+    mul64_busy = 1'b0;
+    for (ri = 0; ri < 16; ri = ri + 1) begin
+      vec_op1[ri] = 8'h0;
+      vec_op2[ri] = 8'h0;
+    end
     for (ri = 0; ri < 4096; ri = ri + 1)
       ws_b_store[ri] = 8'h0;
     for (ri = 0; ri < BANK_NUM * BANK_SZ; ri = ri + 1)
@@ -106,6 +191,33 @@ module bebop_cosim_banks (
   end
 
   always_ff @(posedge clk) begin
+    int jj;
+    integer signed acc;
+    vec_start = 1'b0;
+    if (mul64_busy) begin
+      if (vec_valid) begin
+        for (jj = 0; jj < 16; jj = jj + 1) begin
+          acc = rd_i32_ij(mul64_wr_p, mul64_row, jj);
+          acc = acc + $signed(vec_res[jj]);
+          wr_i32_ij(mul64_wr_p, mul64_row, jj, acc);
+        end
+        mul64_row = mul64_row + 1;
+      end
+      if (vec_done) begin
+        int ii;
+        mul64_kk = mul64_kk + 1;
+        mul64_row = 0;
+        if (mul64_kk >= mul64_kin) begin
+          mul64_busy = 1'b0;
+        end else begin
+          for (ii = 0; ii < 16; ii = ii + 1) begin
+            vec_op1[ii] = bram[mul64_op1_p * BANK_SZ + mul64_kk * I8_STR + ii];
+            vec_op2[ii] = bram[mul64_op2_p * BANK_SZ + mul64_kk * I8_STR + ii];
+          end
+          vec_start = 1'b1;
+        end
+      end
+    end
     if (funct == 7'd2) begin
       g_dataflow = xs2[4];
     end else if (funct == 7'd32) begin
@@ -490,7 +602,7 @@ module bebop_cosim_banks (
           for (jj = 0; jj < n; jj = jj + 1)
             wr_i32_ij(pw, ii, jj, $signed({24'h0, bram[p1 * BANK_SZ + ii * I8_STR + jj]}));
       end
-    end else if (funct == 7'd64) begin
+    end else if (funct == 7'd64 && !mul64_busy) begin
       int unsigned op1;
       int unsigned op2;
       int unsigned wr;
@@ -500,11 +612,6 @@ module bebop_cosim_banks (
       int pw;
       int kin;
       int ii;
-      int jj;
-      int kk;
-      integer signed acc;
-      integer signed aa;
-      integer signed bb;
       op1 = 32'(xs1[9:0]);
       op2 = 32'(xs1[19:10]);
       wr = 32'(xs1[29:20]);
@@ -523,17 +630,19 @@ module bebop_cosim_banks (
         $fatal(1, "bebop_cosim_banks: mul_warp16 kin");
       if (kin * 16 > BANK_SZ)
         $fatal(1, "bebop_cosim_banks: mul_warp16 iter");
+      mul64_op1_p = p1;
+      mul64_op2_p = p2;
+      mul64_wr_p = pw;
+      mul64_kin = kin;
+      mul64_kk = 0;
+      mul64_row = 0;
+      vec_iter = 16'(kin);
       for (ii = 0; ii < 16; ii = ii + 1) begin
-        for (jj = 0; jj < 16; jj = jj + 1) begin
-          acc = rd_i32_ij(pw, ii, jj);
-          for (kk = 0; kk < kin; kk = kk + 1) begin
-            aa = $signed({24'h0, bram[p1 * BANK_SZ + kk * I8_STR + ii]});
-            bb = $signed({24'h0, bram[p2 * BANK_SZ + kk * I8_STR + jj]});
-            acc = acc + aa * bb;
-          end
-          wr_i32_ij(pw, ii, jj, acc);
-        end
+        vec_op1[ii] = bram[p1 * BANK_SZ + ii];
+        vec_op2[ii] = bram[p2 * BANK_SZ + ii];
       end
+      vec_start = 1'b1;
+      mul64_busy = 1'b1;
     end else if (funct == 7'd65) begin
       int unsigned op1;
       int unsigned op2;
