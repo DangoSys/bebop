@@ -17,7 +17,7 @@ use crate::utils::path;
 
 static SPIKE_SHM_SEQ: AtomicU64 = AtomicU64::new(0);
 
-pub fn spike_tests(elf: PathBuf, step: bool) -> Result<(), String> {
+pub fn spike_tests(elf: PathBuf, step: bool, all_banks: bool) -> Result<(), String> {
     let elf = elf.canonicalize().map_err(|e| format!("elf: {e}"))?;
     if !elf.is_file() {
         return Err(format!("not a file: {}", elf.display()));
@@ -30,33 +30,38 @@ pub fn spike_tests(elf: PathBuf, step: bool) -> Result<(), String> {
     let spike = path_system_spike_bin()?;
     let pk = path_system_pk_bin()?;
     let ld = rocc_dir.display().to_string();
-    run_spike_pk(&spike, &pk, &elf, &ld, step, WorkerKind::Bemu)
+    run_spike_pk(&spike, &pk, &elf, &ld, step, all_banks, WorkerKind::Bemu)
 }
 
 /// Spike + `verilator-engine` only: RTL lane (`cmd_rtl` / `mem_rtl`), no `bemu-tests`.
 #[cfg(all(feature = "verilator", unix))]
-pub fn verilator_tests(elf: PathBuf, step: bool) -> Result<(), String> {
-    run_verilator_elf(elf, step, false)
+pub fn verilator_tests(elf: PathBuf, step: bool, all_banks: bool) -> Result<(), String> {
+    run_verilator_elf(elf, step, all_banks, false)
 }
 
 /// `bemu-tests` + `verilator-engine`: dual lane; `rd` must match; optional **FNV bank_digest** (`BEBOP_DIFFTEST`).
 #[cfg(all(feature = "verilator", unix))]
-pub fn difftest(elf: PathBuf, step: bool) -> Result<(), String> {
-    run_verilator_elf(elf, step, true)
+pub fn difftest(elf: PathBuf, step: bool, all_banks: bool) -> Result<(), String> {
+    run_verilator_elf(elf, step, all_banks, true)
 }
 
 #[cfg(all(feature = "verilator", not(unix)))]
-pub fn verilator_tests(_elf: PathBuf, _step: bool) -> Result<(), String> {
+pub fn verilator_tests(_elf: PathBuf, _step: bool, _all_banks: bool) -> Result<(), String> {
     Err("verilator cosim requires Unix".into())
 }
 
 #[cfg(all(feature = "verilator", not(unix)))]
-pub fn difftest(_elf: PathBuf, _step: bool) -> Result<(), String> {
+pub fn difftest(_elf: PathBuf, _step: bool, _all_banks: bool) -> Result<(), String> {
     Err("verilator cosim requires Unix".into())
 }
 
 #[cfg(all(feature = "verilator", unix))]
-fn run_verilator_elf(elf: PathBuf, step: bool, bank_digest_diff: bool) -> Result<(), String> {
+fn run_verilator_elf(
+    elf: PathBuf,
+    step: bool,
+    all_banks: bool,
+    bank_digest_diff: bool,
+) -> Result<(), String> {
     let elf = elf.canonicalize().map_err(|e| format!("elf: {e}"))?;
     if !elf.is_file() {
         return Err(format!("not a file: {}", elf.display()));
@@ -75,6 +80,7 @@ fn run_verilator_elf(elf: PathBuf, step: bool, bank_digest_diff: bool) -> Result
         &elf,
         &ld,
         step,
+        all_banks,
         WorkerKind::Verilator { bank_digest_diff },
     )
 }
@@ -93,6 +99,7 @@ fn run_spike_pk(
     elf: &Path,
     ld_library_path: &str,
     step: bool,
+    all_banks: bool,
     worker: WorkerKind,
 ) -> Result<(), String> {
     let step_mode = if step { "1" } else { "0" };
@@ -127,6 +134,9 @@ fn run_spike_pk(
             if step {
                 c.arg("--step");
             }
+            if all_banks {
+                c.arg("--diff-all-banks");
+            }
             let w = c.spawn().map_err(|e| format!("spawn worker: {e}"))?;
             node::add_child_pid(w.id() as i32)?;
             (CosimShutdown::BemuLane, false, false, "0", vec![w])
@@ -142,6 +152,9 @@ fn run_spike_pk(
             if step {
                 r.arg("--step");
             }
+            if all_banks {
+                r.arg("--diff-all-banks");
+            }
             if bank_digest_diff {
                 let mut b = Command::new(&bebop_exe);
                 b.arg("bemu-tests")
@@ -150,6 +163,9 @@ fn run_spike_pk(
                     .env("BEBOP_SHM_NAME", nm);
                 if step {
                     b.arg("--step");
+                }
+                if all_banks {
+                    b.arg("--diff-all-banks");
                 }
                 let mut wb = b.spawn().map_err(|e| format!("spawn bemu-tests: {e}"))?;
                 node::add_child_pid(wb.id() as i32)?;

@@ -70,9 +70,9 @@
   `endif // STOP_COND
 `endif // not def STOP_COND_
 
-module MulOp(	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
-  input         clock,	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
-                reset,	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
+module MulOpVecComputeTop(	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  input         clock,	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+                reset,	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
                 io_in_valid,	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:13:18
   input  [7:0]  io_in_bits_in1_0,	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:13:18
                 io_in_bits_in1_1,	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:13:18
@@ -177,8 +177,8 @@ module MulOp(	// src/main/scala/framework/balldomain/prototype/vector/op/mul.sca
      {reg1_1},
      {reg1_0}};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, :35:55
   wire [15:0]      _GEN_0 = {8'h0, _GEN[cnt]};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :16:23, :35:55
-  always @(posedge clock) begin	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
-    if (reset) begin	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
+  always @(posedge clock) begin	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+    if (reset) begin	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
       reg1_0 <= 8'h0;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:{23,31}
       reg1_1 <= 8'h0;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:{23,31}
       reg1_2 <= 8'h0;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:{23,31}
@@ -211,10 +211,10 @@ module MulOp(	// src/main/scala/framework/balldomain/prototype/vector/op/mul.sca
       reg2_13 <= 8'h0;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23
       reg2_14 <= 8'h0;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23
       reg2_15 <= 8'h0;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23
-      cnt <= 4'h0;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :16:23
+      cnt <= 4'h0;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:16:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
       active <= 1'h0;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:17:23
     end
-    else begin	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
+    else begin	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
       if (io_in_valid) begin	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:13:18
         reg1_0 <= io_in_bits_in1_0;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23
         reg1_1 <= io_in_bits_in1_1;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23
@@ -248,83 +248,83 @@ module MulOp(	// src/main/scala/framework/balldomain/prototype/vector/op/mul.sca
         reg2_13 <= io_in_bits_in2_13;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23
         reg2_14 <= io_in_bits_in2_14;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23
         reg2_15 <= io_in_bits_in2_15;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23
-        cnt <= 4'h0;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :16:23
+        cnt <= 4'h0;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:16:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
       end
       else if (active)	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:17:23
-        cnt <= cnt + 4'h1;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :16:23, :28:16
+        cnt <= cnt + 4'h1;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:16:23, :28:16, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
       active <= io_in_valid | ~(active & (&cnt)) & active;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:16:23, :17:23, :22:21, :26:12, :27:38, :29:{14,32}, :30:14
     end
   end // always @(posedge)
-  `ifdef ENABLE_INITIAL_REG_	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
-    `ifdef FIRRTL_BEFORE_INITIAL	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
-      `FIRRTL_BEFORE_INITIAL	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
+  `ifdef ENABLE_INITIAL_REG_	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+    `ifdef FIRRTL_BEFORE_INITIAL	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+      `FIRRTL_BEFORE_INITIAL	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
     `endif // FIRRTL_BEFORE_INITIAL
-    initial begin	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
-      automatic logic [31:0] _RANDOM[0:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
-      `ifdef INIT_RANDOM_PROLOG_	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
-        `INIT_RANDOM_PROLOG_	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
+    initial begin	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+      automatic logic [31:0] _RANDOM[0:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+      `ifdef INIT_RANDOM_PROLOG_	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        `INIT_RANDOM_PROLOG_	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
       `endif // INIT_RANDOM_PROLOG_
-      `ifdef RANDOMIZE_REG_INIT	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
+      `ifdef RANDOMIZE_REG_INIT	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
         for (logic [3:0] i = 4'h0; i < 4'h9; i += 4'h1) begin
-          _RANDOM[i] = `RANDOM;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
-        end	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
-        reg1_0 = _RANDOM[4'h0][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_1 = _RANDOM[4'h0][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_2 = _RANDOM[4'h0][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_3 = _RANDOM[4'h0][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_4 = _RANDOM[4'h1][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_5 = _RANDOM[4'h1][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_6 = _RANDOM[4'h1][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_7 = _RANDOM[4'h1][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_8 = _RANDOM[4'h2][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_9 = _RANDOM[4'h2][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_10 = _RANDOM[4'h2][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_11 = _RANDOM[4'h2][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_12 = _RANDOM[4'h3][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_13 = _RANDOM[4'h3][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_14 = _RANDOM[4'h3][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg1_15 = _RANDOM[4'h3][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:23
-        reg2_0 = _RANDOM[4'h4][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_1 = _RANDOM[4'h4][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_2 = _RANDOM[4'h4][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_3 = _RANDOM[4'h4][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_4 = _RANDOM[4'h5][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_5 = _RANDOM[4'h5][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_6 = _RANDOM[4'h5][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_7 = _RANDOM[4'h5][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_8 = _RANDOM[4'h6][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_9 = _RANDOM[4'h6][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_10 = _RANDOM[4'h6][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_11 = _RANDOM[4'h6][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_12 = _RANDOM[4'h7][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_13 = _RANDOM[4'h7][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_14 = _RANDOM[4'h7][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        reg2_15 = _RANDOM[4'h7][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :15:23
-        cnt = _RANDOM[4'h8][3:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :16:23
-        active = _RANDOM[4'h8][4];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :16:23, :17:23
+          _RANDOM[i] = `RANDOM;	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        end	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_0 = _RANDOM[4'h0][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_1 = _RANDOM[4'h0][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_2 = _RANDOM[4'h0][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_3 = _RANDOM[4'h0][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_4 = _RANDOM[4'h1][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_5 = _RANDOM[4'h1][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_6 = _RANDOM[4'h1][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_7 = _RANDOM[4'h1][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_8 = _RANDOM[4'h2][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_9 = _RANDOM[4'h2][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_10 = _RANDOM[4'h2][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_11 = _RANDOM[4'h2][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_12 = _RANDOM[4'h3][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_13 = _RANDOM[4'h3][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_14 = _RANDOM[4'h3][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg1_15 = _RANDOM[4'h3][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_0 = _RANDOM[4'h4][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_1 = _RANDOM[4'h4][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_2 = _RANDOM[4'h4][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_3 = _RANDOM[4'h4][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_4 = _RANDOM[4'h5][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_5 = _RANDOM[4'h5][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_6 = _RANDOM[4'h5][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_7 = _RANDOM[4'h5][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_8 = _RANDOM[4'h6][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_9 = _RANDOM[4'h6][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_10 = _RANDOM[4'h6][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_11 = _RANDOM[4'h6][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_12 = _RANDOM[4'h7][7:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_13 = _RANDOM[4'h7][15:8];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_14 = _RANDOM[4'h7][23:16];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        reg2_15 = _RANDOM[4'h7][31:24];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:15:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        cnt = _RANDOM[4'h8][3:0];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:16:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+        active = _RANDOM[4'h8][4];	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:16:23, :17:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
       `endif // RANDOMIZE_REG_INIT
     end // initial
-    `ifdef FIRRTL_AFTER_INITIAL	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
-      `FIRRTL_AFTER_INITIAL	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7
+    `ifdef FIRRTL_AFTER_INITIAL	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+      `FIRRTL_AFTER_INITIAL	// src/main/scala/sims/bebop/VecComputeTop.scala:24:24
     `endif // FIRRTL_AFTER_INITIAL
   `endif // ENABLE_INITIAL_REG_
-  assign io_out_valid = active;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :17:23
-  assign io_out_bits_out_0 = {16'h0, active ? _GEN_0 * {8'h0, reg2_0} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_1 = {16'h0, active ? _GEN_0 * {8'h0, reg2_1} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_2 = {16'h0, active ? _GEN_0 * {8'h0, reg2_2} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_3 = {16'h0, active ? _GEN_0 * {8'h0, reg2_3} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_4 = {16'h0, active ? _GEN_0 * {8'h0, reg2_4} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_5 = {16'h0, active ? _GEN_0 * {8'h0, reg2_5} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_6 = {16'h0, active ? _GEN_0 * {8'h0, reg2_6} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_7 = {16'h0, active ? _GEN_0 * {8'h0, reg2_7} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_8 = {16'h0, active ? _GEN_0 * {8'h0, reg2_8} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_9 = {16'h0, active ? _GEN_0 * {8'h0, reg2_9} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_10 = {16'h0, active ? _GEN_0 * {8'h0, reg2_10} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_11 = {16'h0, active ? _GEN_0 * {8'h0, reg2_11} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_12 = {16'h0, active ? _GEN_0 * {8'h0, reg2_12} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_13 = {16'h0, active ? _GEN_0 * {8'h0, reg2_13} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_14 = {16'h0, active ? _GEN_0 * {8'h0, reg2_14} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
-  assign io_out_bits_out_15 = {16'h0, active ? _GEN_0 * {8'h0, reg2_15} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:8:7, :14:31, :15:23, :17:23, :35:{24,30,55}
+  assign io_out_valid = active;	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:17:23, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_0 = {16'h0, active ? _GEN_0 * {8'h0, reg2_0} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_1 = {16'h0, active ? _GEN_0 * {8'h0, reg2_1} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_2 = {16'h0, active ? _GEN_0 * {8'h0, reg2_2} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_3 = {16'h0, active ? _GEN_0 * {8'h0, reg2_3} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_4 = {16'h0, active ? _GEN_0 * {8'h0, reg2_4} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_5 = {16'h0, active ? _GEN_0 * {8'h0, reg2_5} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_6 = {16'h0, active ? _GEN_0 * {8'h0, reg2_6} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_7 = {16'h0, active ? _GEN_0 * {8'h0, reg2_7} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_8 = {16'h0, active ? _GEN_0 * {8'h0, reg2_8} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_9 = {16'h0, active ? _GEN_0 * {8'h0, reg2_9} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_10 = {16'h0, active ? _GEN_0 * {8'h0, reg2_10} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_11 = {16'h0, active ? _GEN_0 * {8'h0, reg2_11} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_12 = {16'h0, active ? _GEN_0 * {8'h0, reg2_12} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_13 = {16'h0, active ? _GEN_0 * {8'h0, reg2_13} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_14 = {16'h0, active ? _GEN_0 * {8'h0, reg2_14} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
+  assign io_out_bits_out_15 = {16'h0, active ? _GEN_0 * {8'h0, reg2_15} : 16'h0};	// src/main/scala/framework/balldomain/prototype/vector/op/mul.scala:14:31, :15:23, :17:23, :35:{24,30,55}, src/main/scala/sims/bebop/VecComputeTop.scala:24:24
 endmodule
 
 module VecComputeTop(	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7
@@ -385,105 +385,105 @@ module VecComputeTop(	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7
 );
 
   wire       _mul_io_out_valid;	// src/main/scala/sims/bebop/VecComputeTop.scala:24:19
-  reg  [7:0] op1Reg_0;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_1;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_2;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_3;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_4;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_5;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_6;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_7;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_8;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_9;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_10;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_11;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_12;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_13;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_14;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op1Reg_15;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-  reg  [7:0] op2Reg_0;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_1;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_2;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_3;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_4;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_5;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_6;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_7;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_8;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_9;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_10;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_11;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_12;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_13;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_14;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg  [7:0] op2Reg_15;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-  reg        inFire;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:23
-  reg  [3:0] rowCnt;	// src/main/scala/sims/bebop/VecComputeTop.scala:30:23
-  reg        active;	// src/main/scala/sims/bebop/VecComputeTop.scala:31:23
-  reg        doneR;	// src/main/scala/sims/bebop/VecComputeTop.scala:32:23
-  `ifndef SYNTHESIS	// src/main/scala/sims/bebop/VecComputeTop.scala:35:11
-    always @(posedge clock) begin	// src/main/scala/sims/bebop/VecComputeTop.scala:35:11
-      if (io_start & ~reset & io_iter == 16'h0) begin	// src/main/scala/sims/bebop/VecComputeTop.scala:35:{11,20}
-        if (`ASSERT_VERBOSE_COND_)	// src/main/scala/sims/bebop/VecComputeTop.scala:35:11
-          $error("Assertion failed: VecComputeTop: iter must be non-zero\n    at VecComputeTop.scala:35 assert(io.iter =/= 0.U, \"VecComputeTop: iter must be non-zero\")\n");	// src/main/scala/sims/bebop/VecComputeTop.scala:35:11
-        if (`STOP_COND_)	// src/main/scala/sims/bebop/VecComputeTop.scala:35:11
-          $fatal;	// src/main/scala/sims/bebop/VecComputeTop.scala:35:11
+  reg  [7:0] op1Reg_0;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_1;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_2;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_3;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_4;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_5;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_6;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_7;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_8;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_9;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_10;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_11;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_12;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_13;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_14;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op1Reg_15;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+  reg  [7:0] op2Reg_0;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_1;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_2;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_3;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_4;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_5;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_6;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_7;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_8;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_9;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_10;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_11;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_12;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_13;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_14;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg  [7:0] op2Reg_15;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+  reg        inFire;	// src/main/scala/sims/bebop/VecComputeTop.scala:30:23
+  reg  [3:0] rowCnt;	// src/main/scala/sims/bebop/VecComputeTop.scala:32:23
+  reg        active;	// src/main/scala/sims/bebop/VecComputeTop.scala:33:23
+  reg        doneR;	// src/main/scala/sims/bebop/VecComputeTop.scala:34:23
+  `ifndef SYNTHESIS	// src/main/scala/sims/bebop/VecComputeTop.scala:37:11
+    always @(posedge clock) begin	// src/main/scala/sims/bebop/VecComputeTop.scala:37:11
+      if (io_start & ~reset & io_iter == 16'h0) begin	// src/main/scala/sims/bebop/VecComputeTop.scala:37:{11,20}
+        if (`ASSERT_VERBOSE_COND_)	// src/main/scala/sims/bebop/VecComputeTop.scala:37:11
+          $error("Assertion failed: VecComputeTop: iter must be non-zero\n    at VecComputeTop.scala:37 assert(io.iter =/= 0.U, \"VecComputeTop: iter must be non-zero\")\n");	// src/main/scala/sims/bebop/VecComputeTop.scala:37:11
+        if (`STOP_COND_)	// src/main/scala/sims/bebop/VecComputeTop.scala:37:11
+          $fatal;	// src/main/scala/sims/bebop/VecComputeTop.scala:37:11
       end
     end // always @(posedge)
   `endif // not def SYNTHESIS
   always @(posedge clock) begin	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7
     if (io_start) begin	// src/main/scala/sims/bebop/VecComputeTop.scala:14:14
-      op1Reg_0 <= io_op1_0;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_1 <= io_op1_1;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_2 <= io_op1_2;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_3 <= io_op1_3;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_4 <= io_op1_4;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_5 <= io_op1_5;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_6 <= io_op1_6;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_7 <= io_op1_7;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_8 <= io_op1_8;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_9 <= io_op1_9;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_10 <= io_op1_10;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_11 <= io_op1_11;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_12 <= io_op1_12;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_13 <= io_op1_13;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_14 <= io_op1_14;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op1Reg_15 <= io_op1_15;	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-      op2Reg_0 <= io_op2_0;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_1 <= io_op2_1;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_2 <= io_op2_2;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_3 <= io_op2_3;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_4 <= io_op2_4;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_5 <= io_op2_5;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_6 <= io_op2_6;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_7 <= io_op2_7;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_8 <= io_op2_8;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_9 <= io_op2_9;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_10 <= io_op2_10;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_11 <= io_op2_11;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_12 <= io_op2_12;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_13 <= io_op2_13;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_14 <= io_op2_14;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-      op2Reg_15 <= io_op2_15;	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
+      op1Reg_0 <= io_op1_0;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_1 <= io_op1_1;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_2 <= io_op1_2;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_3 <= io_op1_3;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_4 <= io_op1_4;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_5 <= io_op1_5;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_6 <= io_op1_6;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_7 <= io_op1_7;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_8 <= io_op1_8;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_9 <= io_op1_9;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_10 <= io_op1_10;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_11 <= io_op1_11;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_12 <= io_op1_12;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_13 <= io_op1_13;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_14 <= io_op1_14;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op1Reg_15 <= io_op1_15;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+      op2Reg_0 <= io_op2_0;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_1 <= io_op2_1;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_2 <= io_op2_2;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_3 <= io_op2_3;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_4 <= io_op2_4;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_5 <= io_op2_5;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_6 <= io_op2_6;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_7 <= io_op2_7;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_8 <= io_op2_8;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_9 <= io_op2_9;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_10 <= io_op2_10;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_11 <= io_op2_11;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_12 <= io_op2_12;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_13 <= io_op2_13;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_14 <= io_op2_14;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+      op2Reg_15 <= io_op2_15;	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
     end
     if (reset) begin	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7
-      inFire <= 1'h0;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:23
-      rowCnt <= 4'h0;	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :30:23
-      active <= 1'h0;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:23, :31:23
-      doneR <= 1'h0;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:23, :32:23
+      inFire <= 1'h0;	// src/main/scala/sims/bebop/VecComputeTop.scala:30:23
+      rowCnt <= 4'h0;	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :32:23
+      active <= 1'h0;	// src/main/scala/sims/bebop/VecComputeTop.scala:30:23, :33:23
+      doneR <= 1'h0;	// src/main/scala/sims/bebop/VecComputeTop.scala:30:23, :34:23
     end
     else begin	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7
-      automatic logic _GEN;	// src/main/scala/sims/bebop/VecComputeTop.scala:44:17
-      _GEN = active & _mul_io_out_valid;	// src/main/scala/sims/bebop/VecComputeTop.scala:24:19, :31:23, :44:17
-      inFire <= io_start;	// src/main/scala/sims/bebop/VecComputeTop.scala:28:23
+      automatic logic _GEN;	// src/main/scala/sims/bebop/VecComputeTop.scala:46:17
+      _GEN = active & _mul_io_out_valid;	// src/main/scala/sims/bebop/VecComputeTop.scala:24:19, :33:23, :46:17
+      inFire <= io_start;	// src/main/scala/sims/bebop/VecComputeTop.scala:30:23
       if (io_start)	// src/main/scala/sims/bebop/VecComputeTop.scala:14:14
-        rowCnt <= 4'h0;	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :30:23
-      else if (~_GEN | (&rowCnt)) begin	// src/main/scala/sims/bebop/VecComputeTop.scala:30:23, :44:{17,38}, :45:{19,29}
+        rowCnt <= 4'h0;	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :32:23
+      else if (~_GEN | (&rowCnt)) begin	// src/main/scala/sims/bebop/VecComputeTop.scala:32:23, :46:{17,38}, :47:{19,29}
       end
-      else	// src/main/scala/sims/bebop/VecComputeTop.scala:30:23, :44:38, :45:29
-        rowCnt <= rowCnt + 4'h1;	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :30:23, :49:26
-      active <= io_start | ~(_GEN & (&rowCnt)) & active;	// src/main/scala/sims/bebop/VecComputeTop.scala:30:23, :31:23, :34:18, :40:12, :44:{17,38}, :45:{19,29}, :46:16
-      doneR <= ~io_start & _GEN & ((&rowCnt) | doneR);	// src/main/scala/sims/bebop/VecComputeTop.scala:30:23, :32:23, :34:18, :41:12, :44:{17,38}, :45:{19,29}, :47:16
+      else	// src/main/scala/sims/bebop/VecComputeTop.scala:32:23, :46:38, :47:29
+        rowCnt <= rowCnt + 4'h1;	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :32:23, :51:26
+      active <= io_start | ~(_GEN & (&rowCnt)) & active;	// src/main/scala/sims/bebop/VecComputeTop.scala:32:23, :33:23, :36:18, :42:12, :46:{17,38}, :47:{19,29}, :48:16
+      doneR <= ~io_start & _GEN & ((&rowCnt) | doneR);	// src/main/scala/sims/bebop/VecComputeTop.scala:32:23, :34:23, :36:18, :43:12, :46:{17,38}, :47:{19,29}, :49:16
     end
   end // always @(posedge)
   `ifdef ENABLE_INITIAL_REG_	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7
@@ -499,84 +499,84 @@ module VecComputeTop(	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7
         for (logic [3:0] i = 4'h0; i < 4'h9; i += 4'h1) begin
           _RANDOM[i] = `RANDOM;	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7
         end	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7
-        op1Reg_0 = _RANDOM[4'h0][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_1 = _RANDOM[4'h0][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_2 = _RANDOM[4'h0][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_3 = _RANDOM[4'h0][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_4 = _RANDOM[4'h1][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_5 = _RANDOM[4'h1][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_6 = _RANDOM[4'h1][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_7 = _RANDOM[4'h1][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_8 = _RANDOM[4'h2][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_9 = _RANDOM[4'h2][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_10 = _RANDOM[4'h2][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_11 = _RANDOM[4'h2][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_12 = _RANDOM[4'h3][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_13 = _RANDOM[4'h3][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_14 = _RANDOM[4'h3][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op1Reg_15 = _RANDOM[4'h3][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :26:19
-        op2Reg_0 = _RANDOM[4'h4][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_1 = _RANDOM[4'h4][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_2 = _RANDOM[4'h4][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_3 = _RANDOM[4'h4][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_4 = _RANDOM[4'h5][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_5 = _RANDOM[4'h5][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_6 = _RANDOM[4'h5][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_7 = _RANDOM[4'h5][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_8 = _RANDOM[4'h6][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_9 = _RANDOM[4'h6][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_10 = _RANDOM[4'h6][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_11 = _RANDOM[4'h6][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_12 = _RANDOM[4'h7][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_13 = _RANDOM[4'h7][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_14 = _RANDOM[4'h7][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        op2Reg_15 = _RANDOM[4'h7][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :27:19
-        inFire = _RANDOM[4'h8][0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:23
-        rowCnt = _RANDOM[4'h8][4:1];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:23, :30:23
-        active = _RANDOM[4'h8][5];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:23, :31:23
-        doneR = _RANDOM[4'h8][6];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:23, :32:23
+        op1Reg_0 = _RANDOM[4'h0][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_1 = _RANDOM[4'h0][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_2 = _RANDOM[4'h0][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_3 = _RANDOM[4'h0][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_4 = _RANDOM[4'h1][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_5 = _RANDOM[4'h1][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_6 = _RANDOM[4'h1][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_7 = _RANDOM[4'h1][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_8 = _RANDOM[4'h2][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_9 = _RANDOM[4'h2][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_10 = _RANDOM[4'h2][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_11 = _RANDOM[4'h2][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_12 = _RANDOM[4'h3][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_13 = _RANDOM[4'h3][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_14 = _RANDOM[4'h3][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op1Reg_15 = _RANDOM[4'h3][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :28:19
+        op2Reg_0 = _RANDOM[4'h4][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_1 = _RANDOM[4'h4][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_2 = _RANDOM[4'h4][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_3 = _RANDOM[4'h4][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_4 = _RANDOM[4'h5][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_5 = _RANDOM[4'h5][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_6 = _RANDOM[4'h5][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_7 = _RANDOM[4'h5][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_8 = _RANDOM[4'h6][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_9 = _RANDOM[4'h6][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_10 = _RANDOM[4'h6][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_11 = _RANDOM[4'h6][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_12 = _RANDOM[4'h7][7:0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_13 = _RANDOM[4'h7][15:8];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_14 = _RANDOM[4'h7][23:16];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        op2Reg_15 = _RANDOM[4'h7][31:24];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :29:19
+        inFire = _RANDOM[4'h8][0];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :30:23
+        rowCnt = _RANDOM[4'h8][4:1];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :30:23, :32:23
+        active = _RANDOM[4'h8][5];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :30:23, :33:23
+        doneR = _RANDOM[4'h8][6];	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :30:23, :34:23
       `endif // RANDOMIZE_REG_INIT
     end // initial
     `ifdef FIRRTL_AFTER_INITIAL	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7
       `FIRRTL_AFTER_INITIAL	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7
     `endif // FIRRTL_AFTER_INITIAL
   `endif // ENABLE_INITIAL_REG_
-  MulOp mul (	// src/main/scala/sims/bebop/VecComputeTop.scala:24:19
+  MulOpVecComputeTop mul (	// src/main/scala/sims/bebop/VecComputeTop.scala:24:19
     .clock              (clock),
     .reset              (reset),
-    .io_in_valid        (inFire),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:23
-    .io_in_bits_in1_0   (op1Reg_0),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_1   (op1Reg_1),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_2   (op1Reg_2),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_3   (op1Reg_3),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_4   (op1Reg_4),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_5   (op1Reg_5),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_6   (op1Reg_6),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_7   (op1Reg_7),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_8   (op1Reg_8),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_9   (op1Reg_9),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_10  (op1Reg_10),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_11  (op1Reg_11),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_12  (op1Reg_12),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_13  (op1Reg_13),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_14  (op1Reg_14),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in1_15  (op1Reg_15),	// src/main/scala/sims/bebop/VecComputeTop.scala:26:19
-    .io_in_bits_in2_0   (op2Reg_0),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_1   (op2Reg_1),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_2   (op2Reg_2),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_3   (op2Reg_3),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_4   (op2Reg_4),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_5   (op2Reg_5),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_6   (op2Reg_6),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_7   (op2Reg_7),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_8   (op2Reg_8),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_9   (op2Reg_9),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_10  (op2Reg_10),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_11  (op2Reg_11),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_12  (op2Reg_12),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_13  (op2Reg_13),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_14  (op2Reg_14),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
-    .io_in_bits_in2_15  (op2Reg_15),	// src/main/scala/sims/bebop/VecComputeTop.scala:27:19
+    .io_in_valid        (inFire),	// src/main/scala/sims/bebop/VecComputeTop.scala:30:23
+    .io_in_bits_in1_0   (op1Reg_0),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_1   (op1Reg_1),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_2   (op1Reg_2),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_3   (op1Reg_3),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_4   (op1Reg_4),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_5   (op1Reg_5),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_6   (op1Reg_6),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_7   (op1Reg_7),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_8   (op1Reg_8),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_9   (op1Reg_9),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_10  (op1Reg_10),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_11  (op1Reg_11),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_12  (op1Reg_12),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_13  (op1Reg_13),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_14  (op1Reg_14),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in1_15  (op1Reg_15),	// src/main/scala/sims/bebop/VecComputeTop.scala:28:19
+    .io_in_bits_in2_0   (op2Reg_0),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_1   (op2Reg_1),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_2   (op2Reg_2),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_3   (op2Reg_3),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_4   (op2Reg_4),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_5   (op2Reg_5),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_6   (op2Reg_6),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_7   (op2Reg_7),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_8   (op2Reg_8),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_9   (op2Reg_9),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_10  (op2Reg_10),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_11  (op2Reg_11),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_12  (op2Reg_12),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_13  (op2Reg_13),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_14  (op2Reg_14),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
+    .io_in_bits_in2_15  (op2Reg_15),	// src/main/scala/sims/bebop/VecComputeTop.scala:29:19
     .io_out_valid       (_mul_io_out_valid),
     .io_out_bits_out_0  (io_res_0),
     .io_out_bits_out_1  (io_res_1),
@@ -595,7 +595,7 @@ module VecComputeTop(	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7
     .io_out_bits_out_14 (io_res_14),
     .io_out_bits_out_15 (io_res_15)
   );
-  assign io_valid = active & _mul_io_out_valid;	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :24:19, :31:23, :62:22
-  assign io_done = doneR;	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :32:23
+  assign io_valid = active & _mul_io_out_valid;	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :24:19, :33:23, :64:22
+  assign io_done = doneR;	// src/main/scala/sims/bebop/VecComputeTop.scala:8:7, :34:23
 endmodule
 
