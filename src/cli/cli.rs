@@ -29,6 +29,9 @@ pub enum Commands {
         /// After each RoCC custom instruction: print bank state hash (64-bit per bank).
         #[arg(long, default_value_t = false)]
         step: bool,
+        /// Print all banks in step mode (default: allocated banks only).
+        #[arg(long, default_value_t = false)]
+        all_banks: bool,
     },
 
     /// Spike + dual SHM lanes: `bemu-tests` + `verilator-engine` in parallel per RoCC; `rd` must match.
@@ -37,6 +40,8 @@ pub enum Commands {
         elf: PathBuf,
         #[arg(long, default_value_t = false)]
         step: bool,
+        #[arg(long, default_value_t = false)]
+        all_banks: bool,
     },
 
     /// Like `verilator`, plus Spike enforces **bank_digest** (FNV) match between lanes.
@@ -45,6 +50,8 @@ pub enum Commands {
         elf: PathBuf,
         #[arg(long, default_value_t = false)]
         step: bool,
+        #[arg(long, default_value_t = false)]
+        all_banks: bool,
     },
 
     //===----------------------------------------------------------------------===//
@@ -73,11 +80,23 @@ pub enum Commands {
 
 pub fn dispatch(cli: Cli) -> Result<(), String> {
     match cli.command {
-        Commands::Bemu { elf, step } => spike::runner::spike_tests(elf, step),
+        Commands::Bemu {
+            elf,
+            step,
+            all_banks,
+        } => spike::runner::spike_tests(elf, step, all_banks),
         #[cfg(feature = "verilator")]
-        Commands::Verilator { elf, step } => spike::runner::verilator_tests(elf, step),
+        Commands::Verilator {
+            elf,
+            step,
+            all_banks,
+        } => spike::runner::verilator_tests(elf, step, all_banks),
         #[cfg(feature = "verilator")]
-        Commands::Difftest { elf, step } => spike::runner::difftest(elf, step),
+        Commands::Difftest {
+            elf,
+            step,
+            all_banks,
+        } => spike::runner::difftest(elf, step, all_banks),
         Commands::BemuTests {
             step,
             diff_all_banks,
