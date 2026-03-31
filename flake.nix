@@ -13,8 +13,6 @@
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
         rustToolchain = pkgs.rust-bin.stable.latest.default;
-        wasmEnv = import ./scripts/nix/wasm.nix { inherit pkgs rustToolchain; };
-        tauriEnv = import ./scripts/nix/tauri.nix { inherit pkgs rustToolchain; };
         spikeEnv = import ./scripts/nix/spike.nix {
           inherit pkgs;
           bebopSrc = ./.;
@@ -26,7 +24,6 @@
           version = "0.1.0";
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
-          # Only build the CLI binary; tauri/wasm members need extra system libs
           cargoBuildFlags = [ "--package" "bebop" ];
           nativeBuildInputs = with pkgs; [ verilator python3 ];
           buildInputs = [ spikeEnv.spikeDrv ] ++ riscvEnv.buildInputs;
@@ -63,16 +60,6 @@
             echo "spike: $(command -v spike)"
             echo "pk: $(command -v pk)"
           '';
-        };
-
-        devShells.wasm = pkgs.mkShell {
-          buildInputs = wasmEnv.buildInputs;
-          shellHook = wasmEnv.shellHook;
-        };
-
-        devShells.tauri = pkgs.mkShell {
-          buildInputs = tauriEnv.buildInputs;
-          shellHook = tauriEnv.shellHook;
         };
 
         packages.default = bebopPkg;

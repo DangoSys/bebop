@@ -19,7 +19,7 @@ cd bebop
 nix build
 ```
 
-### Run in CLI
+### Run
 
 ```
 cd bebop
@@ -31,20 +31,3 @@ bebop difftest /path/to/pk-tests       # bemu-tests + verilator-engine, dual lan
 # BEBOP_STEP_BANKS=all    # optional: print every bank (default: allocated only)
 ```
 
-### Run in GUI
-
-```
-cd bebop
-nix develop .#tauri
-pnpm --dir src/tauri tauri dev
-```
-
-### Run in web
-
-```
-cd bebop
-nix develop .#wasm
-python3 -m http.server 8080 --directory src/wasm/web
-```
-
-Then access this link in your web browser http://localhost:8080.
