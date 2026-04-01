@@ -27,16 +27,14 @@
           cargoBuildFlags = [ "--package" "bebop" ];
           nativeBuildInputs = with pkgs; [ verilator python3 ];
           buildInputs = [ spikeEnv.spikeDrv ] ++ riscvEnv.buildInputs;
+          preBuild = ''
+            export BEBOP_SKIP_EMIT_ARCH=1
+          '';
         };
 
         bebopPkg = pkgs.symlinkJoin {
           name = "bebop-with-rocc";
           paths = [ bebopCli spikeEnv.bebopRoccDrv ];
-          nativeBuildInputs = [ pkgs.makeWrapper ];
-          postBuild = ''
-            wrapProgram $out/bin/bebop \
-              --set BEBOP_ROCC_SO ${spikeEnv.bebopRoccDrv}/lib/libbebop_rocc.so
-          '';
         };
       in
       {

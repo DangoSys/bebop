@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn get_make_jobs() -> String {
@@ -26,6 +26,42 @@ fn get_make_jobs() -> String {
     "16".to_string()
 }
 
+fn emit_arch_verilog(manifest: &Path) {
+    println!("cargo:rerun-if-changed=scripts/emit-arch-cosim-verilog.sh");
+    println!("cargo:rerun-if-env-changed=BEBOP_SKIP_EMIT_ARCH");
+    println!("cargo:rerun-if-env-changed=BEBOP_ARCH_ROOT");
+    println!("cargo:rerun-if-env-changed=BEBOP_MILL_JOBS");
+
+    let skip = match env::var("BEBOP_SKIP_EMIT_ARCH") {
+        Ok(v) => v == "1" || v == "true" || v == "TRUE" || v == "yes" || v == "YES",
+        Err(_) => false,
+    };
+    if skip {
+        return;
+    }
+
+    let gen_out = manifest.join("src/verilator/gen");
+    let script = manifest.join("scripts/emit-arch-cosim-verilog.sh");
+    if !script.is_file() {
+        panic!(
+            "missing {}; cannot emit arch Verilog",
+            script.display()
+        );
+    }
+
+    let st = Command::new("bash")
+        .arg(script.as_os_str())
+        .arg(gen_out.as_os_str())
+        .status()
+        .unwrap_or_else(|e| panic!("spawn emit-arch-cosim-verilog.sh: {e}"));
+    if !st.success() {
+        panic!(
+            "emit-arch-cosim-verilog.sh failed; install mill, set BEBOP_ARCH_ROOT, or place pre-generated files under {}",
+            gen_out.display()
+        );
+    }
+}
+
 fn should_clean_vl() -> bool {
     match env::var("BEBOP_CLEAN_VL") {
         Ok(v) => match v.as_str() {
@@ -48,6 +84,7 @@ fn main() {
     }
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    emit_arch_verilog(manifest.as_path());
     let vl_dir = out.join("vl_bebop");
     if should_clean_vl() {
         let _ = std::fs::remove_dir_all(&vl_dir);
