@@ -12,10 +12,25 @@ use log::{debug, info};
 
 use crate::node;
 use crate::shm::{self, CosimShutdown, ShmMap};
-use crate::spike::path::{path_rocc_so, path_system_pk_bin, path_system_spike_bin, SPIKE_EXT};
+use crate::spike::path::{path_rocc_so, path_system_pk_bin, path_system_spike_bin};
 use crate::utils::path;
 
 static SPIKE_SHM_SEQ: AtomicU64 = AtomicU64::new(0);
+
+fn compose_ld_path(rocc_so: &Path, spike_bin: &Path) -> Result<String, String> {
+    let rocc_dir = rocc_so
+        .parent()
+        .ok_or("rocc so has no parent")?
+        .to_path_buf();
+    let spike_lib = spike_bin
+        .parent()
+        .ok_or("spike bin has no parent")?
+        .join("../lib");
+    if spike_lib.is_dir() {
+        return Ok(format!("{}:{}", rocc_dir.display(), spike_lib.display()));
+    }
+    Ok(rocc_dir.display().to_string())
+}
 
 pub fn spike_tests(elf: PathBuf, step: bool, all_banks: bool) -> Result<(), String> {
     let elf = elf.canonicalize().map_err(|e| format!("elf: {e}"))?;
@@ -23,14 +38,10 @@ pub fn spike_tests(elf: PathBuf, step: bool, all_banks: bool) -> Result<(), Stri
         return Err(format!("not a file: {}", elf.display()));
     }
     let rocc_so = path_rocc_so()?;
-    let rocc_dir = rocc_so
-        .parent()
-        .ok_or("rocc so has no parent")?
-        .to_path_buf();
     let spike = path_system_spike_bin()?;
     let pk = path_system_pk_bin()?;
-    let ld = rocc_dir.display().to_string();
-    run_spike_pk(&spike, &pk, &elf, &ld, step, all_banks, WorkerKind::Bemu)
+    let ld = compose_ld_path(&rocc_so, &spike)?;
+    run_spike_pk(&spike, &pk, &elf, &rocc_so, &ld, step, all_banks, WorkerKind::Bemu)
 }
 
 /// Spike + `verilator-engine` only: RTL lane (`cmd_rtl` / `mem_rtl`), no `bemu-tests`.
@@ -67,17 +78,14 @@ fn run_verilator_elf(
         return Err(format!("not a file: {}", elf.display()));
     }
     let rocc_so = path_rocc_so()?;
-    let rocc_dir = rocc_so
-        .parent()
-        .ok_or("rocc so has no parent")?
-        .to_path_buf();
     let spike = path_system_spike_bin()?;
     let pk = path_system_pk_bin()?;
-    let ld = rocc_dir.display().to_string();
+    let ld = compose_ld_path(&rocc_so, &spike)?;
     run_spike_pk(
         &spike,
         &pk,
         &elf,
+        &rocc_so,
         &ld,
         step,
         all_banks,
@@ -97,11 +105,14 @@ fn run_spike_pk(
     spike: &PathBuf,
     pk: &PathBuf,
     elf: &Path,
+    rocc_so: &Path,
     ld_library_path: &str,
     step: bool,
     all_banks: bool,
     worker: WorkerKind,
 ) -> Result<(), String> {
+    const SPIKE_EXT: &str = "--extension=bebop_rocc";
+    let extlib = format!("--extlib={}", rocc_so.display());
     let step_mode = if step { "1" } else { "0" };
     let node_file = node::node_file()?;
     let spike_node_id = node::alloc_node_id(&node_file)?;
@@ -206,6 +217,7 @@ fn run_spike_pk(
 
     let mut spike_cmd = Command::new(spike);
     spike_cmd
+        .arg(&extlib)
         .arg(SPIKE_EXT)
         .arg(pk)
         .arg(elf)

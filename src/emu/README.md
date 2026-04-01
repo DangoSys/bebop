@@ -9,14 +9,14 @@
 - **`bebop_rocc`**（[`src/spike/bebop_rocc.cc`](../spike/bebop_rocc.cc) → `libbebop_rocc.so`）：在 custom-0 路径上 `mmap` 环境变量 **`BEBOP_SHM_NAME`** 指向的段，通过 `req`/`ack` 与 worker 同步；**MVIN** 仍从 Spike MMU 读块，经 **`OP_SYNC`** 写入 BEMU；**MVOUT** 经 **`OP_READ`** 取回再写 MMU；普通指令走 **`OP_HANDLE`**。
 - **`bebop bemu`**：仅 Spike + **`bemu-tests`**（只做 BEMU golden）。
 - **Node 协议**（[`src/node/node.rs`](../node/node.rs)）：`bebop` 主进程为 node0；`runner` 为 Spike 与侧车分配 **`--node-file`** 中的递增 **`node_id`**。**`bemu-tests`** 与 **`verilator-engine`**（Unix cosim）各自 `alloc_node_id`。
-- **`bebop verilator`**：Spike + **`verilator-engine` 仅**；**`BEBOP_RTL_ONLY=1`**、**`BEBOP_DUAL_CMD=0`**，只用 **`cmd_rtl` + `mem_rtl`**（无 `bemu-tests`，无 BEMU 侧 `b0=` step 行）。
-- **`bebop difftest`**：Spike + **`bemu-tests` + `verilator-engine`**；**`BEBOP_DUAL_CMD=1`**，两路 cmd/mem 并行，**`rd` 必须一致**；**`BEBOP_DIFFTEST=1`** 时再比两路 **`bank_digest`**。**`bebop bemu`**：**`BEBOP_DUAL_CMD=0`**、**`BEBOP_RTL_ONLY=0`**，仅 **`cmd_bemu` + `mem_bemu`**。**`--step`**：BEMU 的 **`b0=…`** 与 FNV digest 仍非同一指标。加 **`--all-banks`** 时打印全部 bank。Cosim 需 **Unix**。
+- **`bebop verilator`**：Spike + **`verilator-engine` 仅**；内部按 **`--extlib=<libbebop_rocc.so绝对路径>` + `--extension=bebop_rocc`** 启动 Spike，只用 **`cmd_rtl` + `mem_rtl`**（无 `bemu-tests`，无 BEMU 侧 `b0=` step 行）。
+- **`bebop difftest`**：Spike + **`bemu-tests` + `verilator-engine`**；两路 cmd/mem 并行，**`rd` 必须一致**；**`BEBOP_DIFFTEST=1`** 时 Spike 再校验两路 **`bank_digest`**（与 BEMU `cosim_aggregate_banks_digest` 同 FNV 规则）。`bebop_cosim_banks` 仅在 **`issue_start`** 时解码 `funct`，**`banks_busy`**（如 `mul64` 多拍）会并入 `rtl_busy`，避免采样过早。**`bebop bemu`** 仅走 **`cmd_bemu` + `mem_bemu`**。**`--step`**：BEMU 的 **`b0=…`** 与 FNV digest 仍非同一指标。加 **`--all-banks`** 时打印全部 bank。Cosim 需 **Unix**。
 
 程序中的自定义指令为 RISC-V custom-0；funct7 / rs1 / rs2 对应 BEMU 的 funct、xs1、xs2。MVIN/MVOUT 使用 guest 虚地址；BEMU 内地址按 512KB 取模，与 Spike 同步后语义一致。
 
 
 
-已提供 **双 cmd + 双 mem** 的前提下，若仍希望在 **单进程内**对纯 bank 阶段做额外线程级并行，可按此前文档做 Phase1/Phase2 审计；本仓库 **未** 实现。
+已提供 **双 cmd + 双 mem** 
 
 ## 完整流程（按顺序执行）
 
@@ -38,7 +38,7 @@ cargo build --release
 - **`cargo build --release`**：bebop CLI、`libbemu.so` 等。`build.rs` 会自动给 Verilator 的 `make` 设置并行度（优先 `BEBOP_MAKE_JOBS`，其次 `NIX_BUILD_CORES`，默认 `16`），并默认保留 `vl_bebop` 目录做增量构建。
 - 需要强制清理并全量重编 Verilator 产物时，使用 `BEBOP_CLEAN_VL=1 cargo build --release`。
 - **`cmake` / `ninja`**：在 **`src/spike`** 生成 **`src/spike/build/libbebop_rocc.so`**（CMake 需能 `find_program(spike)`）。
-- **`bebop bemu <ELF>`** / **`bebop verilator <ELF>`**：传入已构建好的 RISC-V Linux 测例可执行文件的完整路径；缺 **`libbebop_rocc.so`** 会直接报错退出。
+- **`bebop bemu <ELF>`** / **`bebop verilator <ELF>`**：传入已构建好的 RISC-V Linux 测例可执行文件的完整路径；缺 **`libbebop_rocc.so`** 会直接报错退出。运行时不依赖额外配置 `BEBOP_ROCC_SO`。
 
 
 ## 配置文件

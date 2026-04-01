@@ -65,32 +65,25 @@ extern "C" void bebop_cosim_issue(uint32_t funct, uint64_t xs1, uint64_t xs2) {
   g_top->xs2 = xs2;
   g_top->issue_start = 1;
   tick();
-
-  uint32_t guard = 2000000u;
-  while (guard-- > 0) {
-    if (g_top->issue_done) {
-      break;
-    }
-    tick();
-  }
-  if (!g_top->issue_done) {
-    std::fprintf(stderr, "bebop_cosim_issue: timeout funct=%u\n", funct & 0x7fU);
-    std::abort();
-  }
-
   g_top->issue_start = 0;
   tick();
 
-  uint32_t qwait = 10000000u;
+  constexpr uint64_t kSettleCycles = 8192ULL;
+  constexpr uint64_t kBusyCycles = 500000000ULL;
+  for (uint64_t i = 0; i < kSettleCycles; ++i) {
+    tick();
+  }
+  uint64_t qwait = kBusyCycles;
   while (qwait-- > 0 && g_top->rtl_busy) {
     tick();
   }
   if (g_top->rtl_busy) {
-    std::fprintf(stderr, "bebop_cosim_issue: rtl still busy funct=%u\n", funct & 0x7fU);
+    std::fprintf(stderr, "bebop_cosim_issue: busy timeout funct=%u\n", funct & 0x7fU);
     std::abort();
   }
 
-  for (int i = 0; i < 512; i++) {
+  constexpr int kPostIssueTicks = 512;
+  for (int i = 0; i < kPostIssueTicks; i++) {
     tick();
   }
 }

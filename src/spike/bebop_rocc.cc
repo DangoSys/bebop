@@ -17,13 +17,18 @@ static_assert(sizeof(bebop_shm_t) <= BEBOP_SHM_SIZE);
 
 namespace {
 constexpr uint64_t kBlockSz = 16;
+constexpr uint64_t kSpinLim = 5000000000ULL;
 
 static void rpc_wait_idle(bebop_lane_t *s) {
+  uint64_t spin = 0;
   for (;;) {
     uint64_t r = std::atomic_ref(s->req).load(std::memory_order_acquire);
     uint64_t a = std::atomic_ref(s->ack).load(std::memory_order_acquire);
     if (r == a) {
       return;
+    }
+    if (++spin >= kSpinLim) {
+      throw std::runtime_error("bebop_shm wait idle timeout");
     }
     sched_yield();
   }
@@ -119,10 +124,14 @@ public:
     std::atomic_ref(cr->req).fetch_add(1, std::memory_order_acq_rel);
     uint64_t tb = std::atomic_ref(cb->req).load(std::memory_order_acquire);
     uint64_t tr = std::atomic_ref(cr->req).load(std::memory_order_acquire);
+    uint64_t spin = 0;
     while (std::atomic_ref(cb->ack).load(std::memory_order_acquire) != tb ||
            std::atomic_ref(cr->ack).load(std::memory_order_acquire) != tr) {
       service_one_mem(&shm_->mem_bemu, proc, self_id_);
       service_one_mem(&shm_->mem_rtl, proc, self_id_);
+      if (++spin >= kSpinLim) {
+        throw std::runtime_error("bebop_shm dual CMD_HANDLE timeout");
+      }
       sched_yield();
     }
     if (cb->msg.op != BEBOP_OP_CMD_RESP || cb->msg.err != 0) {
@@ -160,8 +169,12 @@ private:
     cmd->msg.bank_digest = 0;
     std::atomic_ref(cmd->req).fetch_add(1, std::memory_order_acq_rel);
     uint64_t target = std::atomic_ref(cmd->req).load(std::memory_order_acquire);
+    uint64_t spin = 0;
     while (std::atomic_ref(cmd->ack).load(std::memory_order_acquire) != target) {
       service_one_mem(mem, proc, self_id_);
+      if (++spin >= kSpinLim) {
+        throw std::runtime_error("bebop_shm CMD_HANDLE timeout");
+      }
       sched_yield();
     }
     if (cmd->msg.op != BEBOP_OP_CMD_RESP || cmd->msg.err != 0) {

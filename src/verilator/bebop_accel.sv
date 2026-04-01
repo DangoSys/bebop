@@ -1,6 +1,6 @@
 // Cosim top: Chisel BebopBuckyballSubsystemCosim + bebop_cosim_banks digest lane.
 // Regenerate RTL: `scripts/emit-arch-cosim-verilog.sh` (mill in arch).
-opBuckyballSubsystemCosim ties `result` to 0; RoCC `rd` for cosim matches the
+// Top ties `result` to 0; RoCC `rd` for cosim matches the
 // old BebopSpikeCosimTop encoding (funct in low 7 bits).
 module bebop_accel (
   input wire clk,
@@ -18,6 +18,7 @@ module bebop_accel (
   wire rst = |rst_cnt;
   wire issue_done_raw;
   wire [63:0] rtl_result_unused;
+  wire banks_busy;
 
   function automatic bit is_known_funct(input logic [6:0] f);
     begin
@@ -74,7 +75,8 @@ module bebop_accel (
   assign issue_done = issue_done_raw;
 
   assign rtl_busy =
-    u_bb._acc_io_tl_reader_a_valid
+    banks_busy
+    || u_bb._acc_io_tl_reader_a_valid
     || u_bb._acc_io_tl_writer_a_valid
     || u_bb._buffer_auto_in_d_valid
     || u_bb._buffer_1_auto_in_d_valid
@@ -112,11 +114,13 @@ module bebop_accel (
 
   bebop_cosim_banks u_banks (
     .clk              (clk),
+    .issue_start      (issue_start),
     .digest_all_banks (digest_all_banks),
     .funct            (funct),
     .xs1              (xs1),
     .xs2              (xs2),
-    .bank_digest_peek (bank_digest_peek)
+    .bank_digest_peek (bank_digest_peek),
+    .banks_busy       (banks_busy)
   );
 
 endmodule

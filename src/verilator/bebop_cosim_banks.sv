@@ -28,11 +28,13 @@ import "DPI-C" function void bebop_dpi_dequant_i32_le(
 
 module bebop_cosim_banks (
   input wire clk,
+  input wire issue_start,
   input wire digest_all_banks,
   input wire [6:0] funct,
   input wire [63:0] xs1,
   input wire [63:0] xs2,
-  output logic [63:0] bank_digest_peek
+  output logic [63:0] bank_digest_peek,
+  output logic banks_busy
 );
 
   (* verilator public_flat_rw *) logic [7:0] bram [0:BANK_NUM*BANK_SZ-1];
@@ -218,6 +220,7 @@ module bebop_cosim_banks (
         end
       end
     end
+    if (issue_start) begin
     if (funct == 7'd2) begin
       g_dataflow = xs2[4];
     end else if (funct == 7'd32) begin
@@ -847,6 +850,7 @@ module bebop_cosim_banks (
         $fatal(1, "bebop_cosim_banks: transpose unsupported");
       end
     end
+    end
   end
 
   always_comb begin
@@ -873,4 +877,6 @@ module bebop_cosim_banks (
     else
       bank_digest_peek = h;
   end
+
+  assign banks_busy = mul64_busy;
 endmodule
