@@ -53,6 +53,7 @@
 
           shellHook = riscvEnv.shellHook + ''
             export BEBOP_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+            export BEBOP_ARCH_ROOT="''${BEBOP_ARCH_ROOT:-$BEBOP_DIR/../arch}"
             pre-commit install --install-hooks --hook-type pre-commit -c tools/pre-commit-config.yaml
             echo "bebop: $(command -v bebop)"
             echo "spike: $(command -v spike)"

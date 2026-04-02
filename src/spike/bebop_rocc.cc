@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 
 #include <fcntl.h>
 #include <sched.h>
@@ -34,9 +35,18 @@ static void rpc_wait_idle(bebop_lane_t *s) {
   }
 }
 
-static bool env_is_one(const char *name) {
+static bool env_bool01_required(const char *name) {
   const char *v = std::getenv(name);
-  return v && v[0] == '1';
+  if (!v || !v[0]) {
+    throw std::runtime_error(std::string(name) + " is not set");
+  }
+  if (v[0] == '1' && v[1] == '\0') {
+    return true;
+  }
+  if (v[0] == '0' && v[1] == '\0') {
+    return false;
+  }
+  throw std::runtime_error(std::string(name) + " must be 0 or 1");
 }
 
 static void service_one_mem(bebop_lane_t *mem, processor_t *proc, uint32_t self_id) {
@@ -58,22 +68,18 @@ static void service_one_mem(bebop_lane_t *mem, processor_t *proc, uint32_t self_
   if (mem->msg.size != kBlockSz) {
     throw std::runtime_error("bebop_shm invalid mem size");
   }
-  try {
-    if (mem->msg.mem_rw == BEBOP_MEM_READ) {
-      for (uint64_t j = 0; j < kBlockSz; ++j) {
-        mem->msg.data[j] = mmu->load<uint8_t>(mem->msg.addr + j);
-      }
-      mem->msg.err = 0;
-    } else if (mem->msg.mem_rw == BEBOP_MEM_WRITE) {
-      for (uint64_t j = 0; j < kBlockSz; ++j) {
-        mmu->store<uint8_t>(mem->msg.addr + j, mem->msg.data[j]);
-      }
-      mem->msg.err = 0;
-    } else {
-      mem->msg.err = -1;
+  if (mem->msg.mem_rw == BEBOP_MEM_READ) {
+    for (uint64_t j = 0; j < kBlockSz; ++j) {
+      mem->msg.data[j] = mmu->load<uint8_t>(mem->msg.addr + j);
     }
-  } catch (...) {
-    mem->msg.err = -1;
+    mem->msg.err = 0;
+  } else if (mem->msg.mem_rw == BEBOP_MEM_WRITE) {
+    for (uint64_t j = 0; j < kBlockSz; ++j) {
+      mmu->store<uint8_t>(mem->msg.addr + j, mem->msg.data[j]);
+    }
+    mem->msg.err = 0;
+  } else {
+    throw std::runtime_error("bebop_shm invalid mem_rw");
   }
   mem->msg.op = BEBOP_OP_MEM_RESP;
   mem->msg.size = kBlockSz;
@@ -209,9 +215,9 @@ private:
     if (self_id_ == 0) {
       throw std::runtime_error("invalid BEBOP_NODE_ID");
     }
-    dual_cmd_ = env_is_one("BEBOP_DUAL_CMD");
-    rtl_only_ = env_is_one("BEBOP_RTL_ONLY");
-    difftest_ = env_is_one("BEBOP_DIFFTEST");
+    dual_cmd_ = env_bool01_required("BEBOP_DUAL_CMD");
+    rtl_only_ = env_bool01_required("BEBOP_RTL_ONLY");
+    difftest_ = env_bool01_required("BEBOP_DIFFTEST");
   }
 
   bebop_shm_t *shm_ = nullptr;

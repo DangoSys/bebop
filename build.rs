@@ -33,8 +33,10 @@ fn emit_arch_verilog(manifest: &Path) {
     println!("cargo:rerun-if-env-changed=BEBOP_MILL_JOBS");
 
     let skip = match env::var("BEBOP_SKIP_EMIT_ARCH") {
-        Ok(v) => v == "1" || v == "true" || v == "TRUE" || v == "yes" || v == "YES",
         Err(_) => false,
+        Ok(v) if v == "0" => false,
+        Ok(v) if v == "1" => true,
+        Ok(v) => panic!("BEBOP_SKIP_EMIT_ARCH must be 0 or 1, got: {v}"),
     };
     if skip {
         return;
@@ -43,10 +45,7 @@ fn emit_arch_verilog(manifest: &Path) {
     let gen_out = manifest.join("src/verilator/gen");
     let script = manifest.join("scripts/emit-arch-cosim-verilog.sh");
     if !script.is_file() {
-        panic!(
-            "missing {}; cannot emit arch Verilog",
-            script.display()
-        );
+        panic!("missing {}; cannot emit arch Verilog", script.display());
     }
 
     let st = Command::new("bash")
@@ -56,7 +55,7 @@ fn emit_arch_verilog(manifest: &Path) {
         .unwrap_or_else(|e| panic!("spawn emit-arch-cosim-verilog.sh: {e}"));
     if !st.success() {
         panic!(
-            "emit-arch-cosim-verilog.sh failed; install mill, set BEBOP_ARCH_ROOT, or place pre-generated files under {}",
+            "emit-arch-cosim-verilog.sh failed; set BEBOP_ARCH_ROOT to the arch checkout, or BEBOP_SKIP_EMIT_ARCH=1 when gen under {} is already up to date; need mill in PATH when emitting",
             gen_out.display()
         );
     }
@@ -64,12 +63,10 @@ fn emit_arch_verilog(manifest: &Path) {
 
 fn should_clean_vl() -> bool {
     match env::var("BEBOP_CLEAN_VL") {
-        Ok(v) => match v.as_str() {
-            "1" | "true" | "TRUE" | "yes" | "YES" => true,
-            "0" | "false" | "FALSE" | "no" | "NO" => false,
-            _ => panic!("BEBOP_CLEAN_VL must be one of: 1/0/true/false/yes/no, got: {v}"),
-        },
         Err(_) => false,
+        Ok(v) if v == "0" => false,
+        Ok(v) if v == "1" => true,
+        Ok(v) => panic!("BEBOP_CLEAN_VL must be 0 or 1, got: {v}"),
     }
 }
 
@@ -136,13 +133,21 @@ fn main() {
     if !st.success() {
         panic!("verilator failed; install Verilator and ensure it is in PATH");
     }
-    let make_st = Command::new("make")
+    let mut make_cmd = Command::new("make");
+    make_cmd
         .current_dir(&vl_dir)
         .arg("-f")
         .arg("Vbebop_accel.mk")
         .arg(format!("-j{jobs}"))
-        .arg("libVbebop_accel")
-        .env("CXX", env::var("CXX").unwrap_or_else(|_| "c++".to_string()))
+        .arg("libVbebop_accel");
+    match env::var("CXX") {
+        Ok(cxx) if cxx.is_empty() => panic!("CXX is set but empty"),
+        Ok(cxx) => {
+            make_cmd.env("CXX", cxx);
+        }
+        Err(_) => {}
+    }
+    let make_st = make_cmd
         .status()
         .unwrap_or_else(|e| panic!("spawn make: {e}"));
     if !make_st.success() {

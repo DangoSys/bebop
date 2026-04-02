@@ -1,8 +1,6 @@
 //! BEMU sidecar: services RPCs from Spike `bebop_rocc` over shared memory.
 
-use std::env;
 use std::ffi::CString;
-use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::Ordering;
 
 use crate::node;
@@ -12,6 +10,7 @@ use crate::shm::layout::{
 };
 use crate::shm::protocol::{decode_req, OpReq, OpResp};
 use crate::shm::ShmMap;
+use crate::utils::env::must_nonempty;
 
 use super::bemu::{Bemu, StepCfg};
 use super::diff::config::DiffCfg;
@@ -161,12 +160,7 @@ pub(crate) unsafe fn run_cmd(
     let mut wr = |addr: u64, data: [u8; 16]| {
         mem_req_write16(shm, mem_lane, node_id, addr, data);
     };
-    let resp = match catch_unwind(AssertUnwindSafe(|| {
-        bemu.handle_req(req_op, step, diff, &mut rd, &mut wr)
-    })) {
-        Ok(resp) => resp,
-        Err(_) => OpResp::err(-1),
-    };
+    let resp = bemu.handle_req(req_op, step, diff, &mut rd, &mut wr);
     post_handle(req_op, &resp, bemu, diff);
     fill_resp(&mut cmd.msg, OP_CMD_RESP, node_id, msg.sender_id, &resp);
     if let OpReq::CmdHandle { .. } = req_op {
@@ -211,30 +205,22 @@ pub(crate) unsafe fn run_cmd_rtl(
     let resp = match req_op {
         OpReq::CmdShutdown => OpResp::done(),
         OpReq::CmdHandle { funct, xs1, xs2 } => {
-            let r = catch_unwind(AssertUnwindSafe(|| {
-                cosim_set_digest_all_banks(diff.all_banks);
-                cosim_issue(funct, xs1, xs2);
-                let rd = cosim_result();
-                let digest = cosim_bank_digest_peek();
-                (rd, digest)
-            }));
-            match r {
-                Ok((rd, digest)) => {
-                    if step_on {
-                        println!("  rtl_bank_digest=0x{digest:016x}");
-                    }
-                    cmd.msg.bank_digest = digest;
-                    OpResp {
-                        done: false,
-                        err: 0,
-                        result: Some(rd),
-                        data: None,
-                    }
-                }
-                Err(_) => OpResp::err(-1),
+            cosim_set_digest_all_banks(diff.all_banks);
+            cosim_issue(funct, xs1, xs2);
+            let rd = cosim_result();
+            let digest = cosim_bank_digest_peek();
+            if step_on {
+                println!("  rtl_bank_digest=0x{digest:016x}");
+            }
+            cmd.msg.bank_digest = digest;
+            OpResp {
+                done: false,
+                err: 0,
+                result: Some(rd),
+                data: None,
             }
         }
-        _ => OpResp::err(-1),
+        _ => panic!("verilator-engine: unexpected cmd op (expected HANDLE or SHUTDOWN)"),
     };
 
     fill_resp(&mut cmd.msg, OP_CMD_RESP, node_id, msg.sender_id, &resp);
@@ -251,7 +237,7 @@ pub fn bemu_tests(step_on: bool, diff_all_banks: bool) -> Result<(), String> {
     if node_id == 0 {
         return Err("node_id must be > 0".to_string());
     }
-    let name = env::var("BEBOP_SHM_NAME").map_err(|_| "missing env BEBOP_SHM_NAME".to_string())?;
+    let name = must_nonempty("BEBOP_SHM_NAME")?;
     let cs = CString::new(name).map_err(|_| "bemu-tests: name has NUL")?;
     if !cs.as_bytes().starts_with(b"/") {
         return Err("bemu-tests: name must start with '/'".into());

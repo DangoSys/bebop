@@ -16,7 +16,8 @@ static void tick(void);
 
 extern "C" void bebop_cosim_init(void) {
   if (g_top) {
-    return;
+    std::fprintf(stderr, "bebop_cosim_init: already initialized\n");
+    std::abort();
   }
   g_ctx = new VerilatedContext;
   static char arg0[] = "bebop-verilator";
@@ -166,14 +167,22 @@ extern "C" void dpi_ctrace(unsigned char subcmd, unsigned int ctr_id, unsigned l
   (void)cycle;
 }
 
-extern "C" unsigned long long dpi_backdoor_get_read_addr(void) { return 0ULL; }
+extern "C" unsigned long long dpi_backdoor_get_read_addr(void) {
+  std::fprintf(stderr, "dpi_backdoor_get_read_addr: not supported in cosim\n");
+  std::abort();
+}
 
-extern "C" unsigned long long dpi_backdoor_get_write_addr(void) { return 0ULL; }
+extern "C" unsigned long long dpi_backdoor_get_write_addr(void) {
+  std::fprintf(stderr, "dpi_backdoor_get_write_addr: not supported in cosim\n");
+  std::abort();
+}
 
 extern "C" void dpi_backdoor_get_write_data(unsigned long long *data_lo,
                                             unsigned long long *data_hi) {
-  *data_lo = 0ULL;
-  *data_hi = 0ULL;
+  (void)data_lo;
+  (void)data_hi;
+  std::fprintf(stderr, "dpi_backdoor_get_write_data: not supported in cosim\n");
+  std::abort();
 }
 
 extern "C" void dpi_backdoor_put_read_data(unsigned int bank_id, unsigned int row,
@@ -182,6 +191,8 @@ extern "C" void dpi_backdoor_put_read_data(unsigned int bank_id, unsigned int ro
   (void)row;
   (void)data_lo;
   (void)data_hi;
+  std::fprintf(stderr, "dpi_backdoor_put_read_data: not supported in cosim\n");
+  std::abort();
 }
 
 extern "C" void dpi_backdoor_put_write_done(unsigned int bank_id, unsigned int row,
@@ -191,4 +202,6 @@ extern "C" void dpi_backdoor_put_write_done(unsigned int bank_id, unsigned int r
   (void)row;
   (void)data_lo;
   (void)data_hi;
+  std::fprintf(stderr, "dpi_backdoor_put_write_done: not supported in cosim\n");
+  std::abort();
 }

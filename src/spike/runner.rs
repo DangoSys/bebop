@@ -41,7 +41,16 @@ pub fn spike_tests(elf: PathBuf, step: bool, all_banks: bool) -> Result<(), Stri
     let spike = path_system_spike_bin()?;
     let pk = path_system_pk_bin()?;
     let ld = compose_ld_path(&rocc_so, &spike)?;
-    run_spike_pk(&spike, &pk, &elf, &rocc_so, &ld, step, all_banks, WorkerKind::Bemu)
+    run_spike_pk(
+        &spike,
+        &pk,
+        &elf,
+        &rocc_so,
+        &ld,
+        step,
+        all_banks,
+        WorkerKind::Bemu,
+    )
 }
 
 /// Spike + `verilator-engine` only: RTL lane (`cmd_rtl` / `mem_rtl`), no `bemu-tests`.
