@@ -3,16 +3,6 @@ use std::path::PathBuf;
 use crate::utils::path;
 
 pub fn path_rocc_so() -> Result<PathBuf, String> {
-    if let Ok(v) = std::env::var("BEBOP_ROCC_SO") {
-        let p = PathBuf::from(v);
-        let p = p
-            .canonicalize()
-            .map_err(|e| format!("BEBOP_ROCC_SO: {e}"))?;
-        if !p.is_file() {
-            return Err(format!("BEBOP_ROCC_SO is not a file: {}", p.display()));
-        }
-        return Ok(p);
-    }
     let cur = path::path_current_bebop_bin()?;
     let cur_so = cur
         .parent()
@@ -25,7 +15,7 @@ pub fn path_rocc_so() -> Result<PathBuf, String> {
         return Ok(p);
     }
     Err(format!(
-        "libbebop_rocc.so not found at {} (set BEBOP_ROCC_SO to absolute path)",
+        "libbebop_rocc.so not found at {}",
         p.display()
     ))
 }
