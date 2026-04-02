@@ -27,9 +27,6 @@
           cargoBuildFlags = [ "--package" "bebop" ];
           nativeBuildInputs = with pkgs; [ verilator python3 ];
           buildInputs = [ spikeEnv.spikeDrv ] ++ riscvEnv.buildInputs;
-          preBuild = ''
-            export BEBOP_SKIP_EMIT_ARCH=1
-          '';
         };
 
         bebopPkg = pkgs.symlinkJoin {
@@ -52,8 +49,6 @@
           ] ++ spikeEnv.buildInputs ++ riscvEnv.buildInputs;
 
           shellHook = riscvEnv.shellHook + ''
-            export BEBOP_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-            export BEBOP_ARCH_ROOT="''${BEBOP_ARCH_ROOT:-$BEBOP_DIR/../arch}"
             pre-commit install --install-hooks --hook-type pre-commit -c tools/pre-commit-config.yaml
             echo "bebop: $(command -v bebop)"
             echo "spike: $(command -v spike)"

@@ -21,6 +21,7 @@
 ## 完整流程（按顺序执行）
 
 ```bash
+nix develop
 cargo build --release
 ./target/release/bebop bemu /path/to/your-test-linux
 ./target/release/bebop verilator /path/to/your-test-linux

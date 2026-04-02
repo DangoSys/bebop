@@ -3,70 +3,48 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn get_make_jobs() -> String {
-    if let Ok(v) = env::var("BEBOP_MAKE_JOBS") {
-        let n: usize = v
-            .parse()
-            .unwrap_or_else(|_| panic!("BEBOP_MAKE_JOBS must be a positive integer, got: {v}"));
-        if n == 0 {
-            panic!("BEBOP_MAKE_JOBS must be > 0");
-        }
-        return n.to_string();
-    }
-    if let Ok(v) = env::var("NIX_BUILD_CORES") {
-        if v != "0" {
-            let n: usize = v
-                .parse()
-                .unwrap_or_else(|_| panic!("NIX_BUILD_CORES must be an integer, got: {v}"));
-            if n == 0 {
-                panic!("NIX_BUILD_CORES must be > 0 when set");
-            }
-            return n.to_string();
-        }
-    }
-    "16".to_string()
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(16)
+        .max(1)
+        .to_string()
 }
 
 fn emit_arch_verilog(manifest: &Path) {
     println!("cargo:rerun-if-changed=scripts/emit-arch-cosim-verilog.sh");
-    println!("cargo:rerun-if-env-changed=BEBOP_SKIP_EMIT_ARCH");
-    println!("cargo:rerun-if-env-changed=BEBOP_ARCH_ROOT");
-    println!("cargo:rerun-if-env-changed=BEBOP_MILL_JOBS");
-
-    let skip = match env::var("BEBOP_SKIP_EMIT_ARCH") {
-        Err(_) => false,
-        Ok(v) if v == "0" => false,
-        Ok(v) if v == "1" => true,
-        Ok(v) => panic!("BEBOP_SKIP_EMIT_ARCH must be 0 or 1, got: {v}"),
-    };
-    if skip {
-        return;
-    }
-
     let gen_out = manifest.join("src/verilator/gen");
+    let gen_be = gen_out.join("BebopBuckyballSubsystemCosim.sv");
+    let gen_vec = gen_out.join("VecComputeTop.sv");
+    let arch_root = manifest.join("../arch");
     let script = manifest.join("scripts/emit-arch-cosim-verilog.sh");
     if !script.is_file() {
         panic!("missing {}; cannot emit arch Verilog", script.display());
     }
 
+    if !arch_root.is_dir() {
+        if gen_be.is_file() && gen_vec.is_file() {
+            return;
+        }
+        panic!(
+            "arch checkout not found at {} and Verilog gen is incomplete (need {} and {}); place arch repo or run mill emit into {}",
+            arch_root.display(),
+            gen_be.display(),
+            gen_vec.display(),
+            gen_out.display()
+        );
+    }
+
     let st = Command::new("bash")
         .arg(script.as_os_str())
         .arg(gen_out.as_os_str())
+        .arg(arch_root.as_os_str())
         .status()
         .unwrap_or_else(|e| panic!("spawn emit-arch-cosim-verilog.sh: {e}"));
     if !st.success() {
         panic!(
-            "emit-arch-cosim-verilog.sh failed; set BEBOP_ARCH_ROOT to the arch checkout, or BEBOP_SKIP_EMIT_ARCH=1 when gen under {} is already up to date; need mill in PATH when emitting",
+            "emit-arch-cosim-verilog.sh failed; need mill in PATH when emitting into {}",
             gen_out.display()
         );
-    }
-}
-
-fn should_clean_vl() -> bool {
-    match env::var("BEBOP_CLEAN_VL") {
-        Err(_) => false,
-        Ok(v) if v == "0" => false,
-        Ok(v) if v == "1" => true,
-        Ok(v) => panic!("BEBOP_CLEAN_VL must be 0 or 1, got: {v}"),
     }
 }
 
@@ -83,9 +61,6 @@ fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     emit_arch_verilog(manifest.as_path());
     let vl_dir = out.join("vl_bebop");
-    if should_clean_vl() {
-        let _ = std::fs::remove_dir_all(&vl_dir);
-    }
     std::fs::create_dir_all(&vl_dir).expect("create vl_bebop");
     let gen_sv = manifest.join("src/verilator/gen/BebopBuckyballSubsystemCosim.sv");
     let vec_sv = manifest.join("src/verilator/gen/VecComputeTop.sv");
@@ -105,9 +80,6 @@ fn main() {
     }
     println!("cargo:rerun-if-changed={}", gen_sv.display());
     println!("cargo:rerun-if-changed={}", vec_sv.display());
-    println!("cargo:rerun-if-env-changed=BEBOP_MAKE_JOBS");
-    println!("cargo:rerun-if-env-changed=NIX_BUILD_CORES");
-    println!("cargo:rerun-if-env-changed=BEBOP_CLEAN_VL");
     let jobs = get_make_jobs();
     let st = Command::new("verilator")
         .args([
@@ -133,21 +105,12 @@ fn main() {
     if !st.success() {
         panic!("verilator failed; install Verilator and ensure it is in PATH");
     }
-    let mut make_cmd = Command::new("make");
-    make_cmd
+    let make_st = Command::new("make")
         .current_dir(&vl_dir)
         .arg("-f")
         .arg("Vbebop_accel.mk")
         .arg(format!("-j{jobs}"))
-        .arg("libVbebop_accel");
-    match env::var("CXX") {
-        Ok(cxx) if cxx.is_empty() => panic!("CXX is set but empty"),
-        Ok(cxx) => {
-            make_cmd.env("CXX", cxx);
-        }
-        Err(_) => {}
-    }
-    let make_st = make_cmd
+        .arg("libVbebop_accel")
         .status()
         .unwrap_or_else(|e| panic!("spawn make: {e}"));
     if !make_st.success() {

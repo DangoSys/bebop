@@ -122,7 +122,6 @@ fn run_spike_pk(
 ) -> Result<(), String> {
     const SPIKE_EXT: &str = "--extension=bebop_rocc";
     let extlib = format!("--extlib={}", rocc_so.display());
-    let step_mode = if step { "1" } else { "0" };
     let node_file = node::node_file()?;
     let spike_node_id = node::alloc_node_id(&node_file)?;
 
@@ -232,7 +231,6 @@ fn run_spike_pk(
         .arg(elf)
         .env("BEBOP_SHM_NAME", nm)
         .env("LD_LIBRARY_PATH", ld_library_path)
-        .env("BEBOP_STEP", step_mode)
         .env("BEBOP_NODE_ID", spike_node_id.to_string())
         .env("BEBOP_DUAL_CMD", if dual_cmd { "1" } else { "0" })
         .env("BEBOP_RTL_ONLY", if rtl_only { "1" } else { "0" })
