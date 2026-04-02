@@ -1,11 +1,11 @@
 //! Verilator RTL process: `cmd_rtl` + `mem_rtl` (`bebop verilator` alone, or with `bemu-tests` for `difftest`).
 
-use std::env;
 use std::ffi::CString;
 
 use crate::node;
 use crate::shm::layout::{BebopShm, BEBOP_SHM_SIZE};
 use crate::shm::ShmMap;
+use crate::utils::env::must_nonempty;
 use crate::verilator::{cosim_set_mem16_reader, cosim_set_mem16_writer, CosimGuard};
 
 use super::diff::config::DiffCfg;
@@ -20,8 +20,7 @@ pub fn run(step_on: bool, diff_all_banks: bool) -> Result<(), String> {
     if node_id == 0 {
         return Err("verilator-engine: node_id must be > 0".into());
     }
-    let name =
-        env::var("BEBOP_SHM_NAME").map_err(|_| "verilator-engine: missing BEBOP_SHM_NAME")?;
+    let name = must_nonempty("BEBOP_SHM_NAME").map_err(|e| format!("verilator-engine: {e}"))?;
     let cs = CString::new(name).map_err(|_| "verilator-engine: shm name has NUL")?;
     if !cs.as_bytes().starts_with(b"/") {
         return Err("verilator-engine: shm name must start with '/'".into());

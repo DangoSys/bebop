@@ -33,7 +33,3 @@ pub fn path_find_in_system_path(name: &str) -> Result<PathBuf, String> {
         .canonicalize()
         .map_err(|e| format!("canonicalize {}: {e}", name))
 }
-
-pub fn path_system_bebop_bin() -> Result<PathBuf, String> {
-    path_find_in_system_path("bebop")
-}
