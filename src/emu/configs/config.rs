@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::super::bank::{BANK_LINES, BANK_NUM, BANK_WIDTH};
 
@@ -31,9 +31,26 @@ impl EmuConfig {
         Ok(cfg)
     }
 
+    /// Default locations only (packaged `share/bebop` or same-machine checkout). Use
+    /// [`load_from`](Self::load_from) when passing `bebop --config`.
     pub fn load() -> Result<Self, String> {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/emu/configs/config.toml");
-        Self::load_from(path.as_path())
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let bundled = dir.join("../share/bebop/config.toml");
+                if bundled.is_file() {
+                    return Self::load_from(&bundled);
+                }
+            }
+        }
+        let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/emu/configs/config.toml");
+        if dev.is_file() {
+            return Self::load_from(&dev);
+        }
+        Err(
+            "BEMU config not found: use `bebop --config PATH ...`, install share/bebop/config.toml \
+             next to the binary, or run from a checkout where src/emu/configs/config.toml exists"
+                .into(),
+        )
     }
 
     pub fn total_memory_size(&self) -> usize {

@@ -232,7 +232,11 @@ pub(crate) unsafe fn run_cmd_rtl(
     }
 }
 
-pub fn bemu_tests(step_on: bool, diff_all_banks: bool) -> Result<(), String> {
+pub fn bemu_tests(
+    step_on: bool,
+    diff_all_banks: bool,
+    config: Option<std::path::PathBuf>,
+) -> Result<(), String> {
     let node_id = node::node_id();
     if node_id == 0 {
         return Err("node_id must be > 0".to_string());
@@ -245,7 +249,7 @@ pub fn bemu_tests(step_on: bool, diff_all_banks: bool) -> Result<(), String> {
     let map = ShmMap::attach(cs.as_c_str(), BEBOP_SHM_SIZE)
         .map_err(|e| format!("worker shm attach: {e}"))?;
     let shm = map.raw_bebop();
-    let mut bemu = Bemu::new();
+    let mut bemu = Bemu::with_config(config.as_deref());
     let mut step = StepCfg {
         on: step_on,
         idx: 0,

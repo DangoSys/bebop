@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::configs::config::{EmuConfig, EmuMode};
 use super::diff::config::DiffCfg;
@@ -25,7 +27,15 @@ pub struct Bemu {
 
 impl Bemu {
     pub fn new() -> Self {
-        let cfg = EmuConfig::load().unwrap_or_else(|e| panic!("BEMU config load failed: {e}"));
+        Self::with_config(None)
+    }
+
+    pub fn with_config(config: Option<&Path>) -> Self {
+        let cfg = match config {
+            Some(p) => EmuConfig::load_from(p),
+            None => EmuConfig::load(),
+        }
+        .unwrap_or_else(|e| panic!("BEMU config load failed: {e}"));
         Self {
             memory: vec![0; cfg.total_memory_size()],
             banks: (0..cfg.bank_num)
