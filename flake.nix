@@ -29,10 +29,16 @@
           buildInputs = [ spikeEnv.spikeDrv ] ++ riscvEnv.buildInputs;
         };
 
-        bebopPkg = pkgs.symlinkJoin {
-          name = "bebop-with-rocc";
-          paths = [ bebopCli spikeEnv.bebopRoccDrv ];
-        };
+        # Copy bebop into the same $out as libbebop_rocc.so. `symlinkJoin` leaves
+        # bin/bebop pointing into bebopCli; on Linux /proc/self/exe resolves to that
+        # store path, so path_rocc_so's ../lib misses the rocc derivation.
+        bebopPkg = pkgs.runCommand "bebop-with-rocc" { } ''
+          mkdir -p "$out/bin" "$out/lib" "$out/share/bebop"
+          cp -r "${bebopCli}/bin/." "$out/bin/"
+          cp "${spikeEnv.bebopRoccDrv}/lib/libbebop_rocc.so" "$out/lib/"
+          cp "${./src/emu/configs/config.toml}" "$out/share/bebop/config.toml"
+          chmod +x "$out/bin/"*
+        '';
       in
       {
         devShells.default = pkgs.mkShell {

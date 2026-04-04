@@ -17,6 +17,10 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
+    /// BEMU `config.toml`; forwarded to `bemu-tests` workers.
+    #[arg(long, global = true, value_name = "PATH")]
+    pub config: Option<PathBuf>,
+
     #[arg(long, hide = true, global = true)]
     pub node_file: Option<String>,
 }
@@ -79,28 +83,29 @@ pub enum Commands {
 }
 
 pub fn dispatch(cli: Cli) -> Result<(), String> {
+    let bemu_cfg = cli.config.clone();
     match cli.command {
         Commands::Bemu {
             elf,
             step,
             all_banks,
-        } => spike::runner::spike_tests(elf, step, all_banks),
+        } => spike::runner::spike_tests(elf, step, all_banks, bemu_cfg),
         #[cfg(feature = "verilator")]
         Commands::Verilator {
             elf,
             step,
             all_banks,
-        } => spike::runner::verilator_tests(elf, step, all_banks),
+        } => spike::runner::verilator_tests(elf, step, all_banks, bemu_cfg),
         #[cfg(feature = "verilator")]
         Commands::Difftest {
             elf,
             step,
             all_banks,
-        } => spike::runner::difftest(elf, step, all_banks),
+        } => spike::runner::difftest(elf, step, all_banks, bemu_cfg),
         Commands::BemuTests {
             step,
             diff_all_banks,
-        } => emu::bemu_tests(step, diff_all_banks),
+        } => emu::bemu_tests(step, diff_all_banks, bemu_cfg),
         #[cfg(all(feature = "verilator", unix))]
         Commands::VerilatorEngine {
             step,

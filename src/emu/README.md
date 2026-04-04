@@ -44,11 +44,14 @@ cargo build --release
 
 ## 配置文件
 
-`BEMU` 运行时从 **`BEBOP_DIR`** 下的 `src/emu/configs/config.toml` 读取配置。
+`BEMU` 配置来源（**不读环境变量**）：
 
-- 默认：设置 **`BEBOP_DIR`** 为 bebop 仓库根后，路径为 `src/emu/configs/config.toml`
-- 可通过环境变量 `BEMU_CONFIG` 指定自定义路径
-- 读取或解析失败会直接报错退出，不会静默回退默认行为
+- **显式**：任意子命令可用的全局参数 **`bebop --config /path/to/config.toml …`**（会传给 `bemu-tests` 子进程）。  
+- **默认**（未传 `--config` 时按顺序）：  
+  1. 与 `bebop` 同 prefix：**`../share/bebop/config.toml`**（如 Nix `bebop-with-rocc`）  
+  2. 本机源码树仍存在时：**`src/emu/configs/config.toml`**（相对编译时的 crate 根）  
+
+以上皆不可用或解析失败时直接报错退出。
 
 ## 文件说明
 

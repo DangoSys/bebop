@@ -17,6 +17,17 @@ use crate::utils::path;
 
 static SPIKE_SHM_SEQ: AtomicU64 = AtomicU64::new(0);
 
+fn append_bemu_worker_config(cmd: &mut Command, config: &Option<PathBuf>) -> Result<(), String> {
+    if let Some(p) = config {
+        let p = p.canonicalize().map_err(|e| format!("--config: {e}"))?;
+        if !p.is_file() {
+            return Err(format!("--config is not a file: {}", p.display()));
+        }
+        cmd.arg("--config").arg(p);
+    }
+    Ok(())
+}
+
 fn compose_ld_path(rocc_so: &Path, spike_bin: &Path) -> Result<String, String> {
     let rocc_dir = rocc_so
         .parent()
@@ -32,55 +43,11 @@ fn compose_ld_path(rocc_so: &Path, spike_bin: &Path) -> Result<String, String> {
     Ok(rocc_dir.display().to_string())
 }
 
-pub fn spike_tests(elf: PathBuf, step: bool, all_banks: bool) -> Result<(), String> {
-    let elf = elf.canonicalize().map_err(|e| format!("elf: {e}"))?;
-    if !elf.is_file() {
-        return Err(format!("not a file: {}", elf.display()));
-    }
-    let rocc_so = path_rocc_so()?;
-    let spike = path_system_spike_bin()?;
-    let pk = path_system_pk_bin()?;
-    let ld = compose_ld_path(&rocc_so, &spike)?;
-    run_spike_pk(
-        &spike,
-        &pk,
-        &elf,
-        &rocc_so,
-        &ld,
-        step,
-        all_banks,
-        WorkerKind::Bemu,
-    )
-}
-
-/// Spike + `verilator-engine` only: RTL lane (`cmd_rtl` / `mem_rtl`), no `bemu-tests`.
-#[cfg(all(feature = "verilator", unix))]
-pub fn verilator_tests(elf: PathBuf, step: bool, all_banks: bool) -> Result<(), String> {
-    run_verilator_elf(elf, step, all_banks, false)
-}
-
-/// `bemu-tests` + `verilator-engine`: dual lane; `rd` must match; optional **FNV bank_digest** (`BEBOP_DIFFTEST`).
-#[cfg(all(feature = "verilator", unix))]
-pub fn difftest(elf: PathBuf, step: bool, all_banks: bool) -> Result<(), String> {
-    run_verilator_elf(elf, step, all_banks, true)
-}
-
-#[cfg(all(feature = "verilator", not(unix)))]
-pub fn verilator_tests(_elf: PathBuf, _step: bool, _all_banks: bool) -> Result<(), String> {
-    Err("verilator cosim requires Unix".into())
-}
-
-#[cfg(all(feature = "verilator", not(unix)))]
-pub fn difftest(_elf: PathBuf, _step: bool, _all_banks: bool) -> Result<(), String> {
-    Err("verilator cosim requires Unix".into())
-}
-
-#[cfg(all(feature = "verilator", unix))]
-fn run_verilator_elf(
+pub fn spike_tests(
     elf: PathBuf,
     step: bool,
     all_banks: bool,
-    bank_digest_diff: bool,
+    bemu_config: Option<PathBuf>,
 ) -> Result<(), String> {
     let elf = elf.canonicalize().map_err(|e| format!("elf: {e}"))?;
     if !elf.is_file() {
@@ -98,6 +65,78 @@ fn run_verilator_elf(
         &ld,
         step,
         all_banks,
+        &bemu_config,
+        WorkerKind::Bemu,
+    )
+}
+
+/// Spike + `verilator-engine` only: RTL lane (`cmd_rtl` / `mem_rtl`), no `bemu-tests`.
+#[cfg(all(feature = "verilator", unix))]
+pub fn verilator_tests(
+    elf: PathBuf,
+    step: bool,
+    all_banks: bool,
+    bemu_config: Option<PathBuf>,
+) -> Result<(), String> {
+    run_verilator_elf(elf, step, all_banks, false, bemu_config)
+}
+
+/// `bemu-tests` + `verilator-engine`: dual lane; `rd` must match; optional **FNV bank_digest** (`BEBOP_DIFFTEST`).
+#[cfg(all(feature = "verilator", unix))]
+pub fn difftest(
+    elf: PathBuf,
+    step: bool,
+    all_banks: bool,
+    bemu_config: Option<PathBuf>,
+) -> Result<(), String> {
+    run_verilator_elf(elf, step, all_banks, true, bemu_config)
+}
+
+#[cfg(all(feature = "verilator", not(unix)))]
+pub fn verilator_tests(
+    _elf: PathBuf,
+    _step: bool,
+    _all_banks: bool,
+    _bemu_config: Option<PathBuf>,
+) -> Result<(), String> {
+    Err("verilator cosim requires Unix".into())
+}
+
+#[cfg(all(feature = "verilator", not(unix)))]
+pub fn difftest(
+    _elf: PathBuf,
+    _step: bool,
+    _all_banks: bool,
+    _bemu_config: Option<PathBuf>,
+) -> Result<(), String> {
+    Err("verilator cosim requires Unix".into())
+}
+
+#[cfg(all(feature = "verilator", unix))]
+fn run_verilator_elf(
+    elf: PathBuf,
+    step: bool,
+    all_banks: bool,
+    bank_digest_diff: bool,
+    bemu_config: Option<PathBuf>,
+) -> Result<(), String> {
+    let elf = elf.canonicalize().map_err(|e| format!("elf: {e}"))?;
+    if !elf.is_file() {
+        return Err(format!("not a file: {}", elf.display()));
+    }
+    let rocc_so = path_rocc_so()?;
+    let spike = path_system_spike_bin()?;
+    let pk = path_system_pk_bin()?;
+    let ld = compose_ld_path(&rocc_so, &spike)?;
+    run_spike_pk(
+        &spike,
+        &pk,
+        &elf,
+        &rocc_so,
+        &ld,
+        step,
+        all_banks,
+        &bemu_config,
         WorkerKind::Verilator { bank_digest_diff },
     )
 }
@@ -118,6 +157,7 @@ fn run_spike_pk(
     ld_library_path: &str,
     step: bool,
     all_banks: bool,
+    bemu_config: &Option<PathBuf>,
     worker: WorkerKind,
 ) -> Result<(), String> {
     const SPIKE_EXT: &str = "--extension=bebop_rocc";
@@ -150,6 +190,7 @@ fn run_spike_pk(
                 .arg("--node-file")
                 .arg(&node_file)
                 .env("BEBOP_SHM_NAME", nm);
+            append_bemu_worker_config(&mut c, bemu_config)?;
             if step {
                 c.arg("--step");
             }
@@ -180,6 +221,7 @@ fn run_spike_pk(
                     .arg("--node-file")
                     .arg(&node_file)
                     .env("BEBOP_SHM_NAME", nm);
+                append_bemu_worker_config(&mut b, bemu_config)?;
                 if step {
                     b.arg("--step");
                 }
