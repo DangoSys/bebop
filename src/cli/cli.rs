@@ -1,11 +1,32 @@
 //! CLI：clap 定义与命令分发（Spike 仿真在 [`crate::spike::runner`]）。
 
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 
 use crate::emu;
 use crate::spike;
+
+fn fmt_elapsed(d: Duration) -> String {
+    let ms = d.as_millis();
+    if ms >= 60_000 {
+        let m = ms / 60_000;
+        let s = (ms % 60_000) / 1000;
+        format!("{m}m {s:02}s")
+    } else {
+        format!("{:.2}s", d.as_secs_f64())
+    }
+}
+
+fn run_timed(label: &str, run: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    let t0 = Instant::now();
+    let out = run();
+    if out.is_ok() {
+        println!("    Finished `{label}` in {}", fmt_elapsed(t0.elapsed()));
+    }
+    out
+}
 
 #[derive(Parser)]
 #[command(name = "bebop", about = "Bebop BEMU CLI")]
@@ -89,19 +110,25 @@ pub fn dispatch(cli: Cli) -> Result<(), String> {
             elf,
             step,
             all_banks,
-        } => spike::runner::spike_tests(elf, step, all_banks, bemu_cfg),
+        } => run_timed("bemu", || {
+            spike::runner::spike_tests(elf, step, all_banks, bemu_cfg)
+        }),
         #[cfg(feature = "verilator")]
         Commands::Verilator {
             elf,
             step,
             all_banks,
-        } => spike::runner::verilator_tests(elf, step, all_banks, bemu_cfg),
+        } => run_timed("verilator", || {
+            spike::runner::verilator_tests(elf, step, all_banks, bemu_cfg)
+        }),
         #[cfg(feature = "verilator")]
         Commands::Difftest {
             elf,
             step,
             all_banks,
-        } => spike::runner::difftest(elf, step, all_banks, bemu_cfg),
+        } => run_timed("difftest", || {
+            spike::runner::difftest(elf, step, all_banks, bemu_cfg)
+        }),
         Commands::BemuTests {
             step,
             diff_all_banks,

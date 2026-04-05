@@ -14,10 +14,7 @@ pub fn path_rocc_so() -> Result<PathBuf, String> {
     if p.is_file() {
         return Ok(p);
     }
-    Err(format!(
-        "libbebop_rocc.so not found at {}",
-        p.display()
-    ))
+    Err(format!("libbebop_rocc.so not found at {}", p.display()))
 }
 
 pub fn path_system_pk_bin() -> Result<PathBuf, String> {
