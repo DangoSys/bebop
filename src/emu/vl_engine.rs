@@ -1,11 +1,13 @@
 //! Verilator RTL process: `cmd_rtl` + `mem_rtl` (`bebop verilator` alone, or with `bemu-tests` for `difftest`).
 
 use std::ffi::CString;
+use std::time::Instant;
 
 use crate::node;
 use crate::shm::layout::{BebopShm, BEBOP_SHM_SIZE};
 use crate::shm::ShmMap;
 use crate::utils::env::must_nonempty;
+use crate::utils::ipc_stats;
 use crate::verilator::{cosim_set_mem16_reader, cosim_set_mem16_writer, CosimGuard};
 
 use super::diff::config::DiffCfg;
@@ -49,11 +51,19 @@ pub fn run(step_on: bool, diff_all_banks: bool) -> Result<(), String> {
     };
 
     loop {
+        let t_iter = Instant::now();
         unsafe {
             match run_cmd_rtl(shm, node_id, &diff, step_on) {
-                Tick::Done => return Ok(()),
-                Tick::Worked => {}
-                Tick::Idle => std::thread::yield_now(),
+                Tick::Done => {
+                    ipc_stats::worker_work(t_iter.elapsed());
+                    ipc_stats::eprint_worker_summary("verilator-engine");
+                    return Ok(());
+                }
+                Tick::Worked => ipc_stats::worker_work(t_iter.elapsed()),
+                Tick::Idle => {
+                    ipc_stats::worker_idle(t_iter.elapsed());
+                    std::thread::yield_now();
+                }
             }
         }
     }

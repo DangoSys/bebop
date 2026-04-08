@@ -48,6 +48,7 @@ pub fn spike_tests(
     step: bool,
     all_banks: bool,
     bemu_config: Option<PathBuf>,
+    ipc_stats: bool,
 ) -> Result<(), String> {
     let elf = elf.canonicalize().map_err(|e| format!("elf: {e}"))?;
     if !elf.is_file() {
@@ -67,6 +68,7 @@ pub fn spike_tests(
         all_banks,
         &bemu_config,
         WorkerKind::Bemu,
+        ipc_stats,
     )
 }
 
@@ -77,8 +79,9 @@ pub fn verilator_tests(
     step: bool,
     all_banks: bool,
     bemu_config: Option<PathBuf>,
+    ipc_stats: bool,
 ) -> Result<(), String> {
-    run_verilator_elf(elf, step, all_banks, false, bemu_config)
+    run_verilator_elf(elf, step, all_banks, false, bemu_config, ipc_stats)
 }
 
 /// `bemu-tests` + `verilator-engine`: dual lane; `rd` must match; optional **FNV bank_digest** (`BEBOP_DIFFTEST`).
@@ -88,8 +91,9 @@ pub fn difftest(
     step: bool,
     all_banks: bool,
     bemu_config: Option<PathBuf>,
+    ipc_stats: bool,
 ) -> Result<(), String> {
-    run_verilator_elf(elf, step, all_banks, true, bemu_config)
+    run_verilator_elf(elf, step, all_banks, true, bemu_config, ipc_stats)
 }
 
 #[cfg(all(feature = "verilator", not(unix)))]
@@ -98,6 +102,7 @@ pub fn verilator_tests(
     _step: bool,
     _all_banks: bool,
     _bemu_config: Option<PathBuf>,
+    _ipc_stats: bool,
 ) -> Result<(), String> {
     Err("verilator cosim requires Unix".into())
 }
@@ -108,6 +113,7 @@ pub fn difftest(
     _step: bool,
     _all_banks: bool,
     _bemu_config: Option<PathBuf>,
+    _ipc_stats: bool,
 ) -> Result<(), String> {
     Err("verilator cosim requires Unix".into())
 }
@@ -119,6 +125,7 @@ fn run_verilator_elf(
     all_banks: bool,
     bank_digest_diff: bool,
     bemu_config: Option<PathBuf>,
+    ipc_stats: bool,
 ) -> Result<(), String> {
     let elf = elf.canonicalize().map_err(|e| format!("elf: {e}"))?;
     if !elf.is_file() {
@@ -138,6 +145,7 @@ fn run_verilator_elf(
         all_banks,
         &bemu_config,
         WorkerKind::Verilator { bank_digest_diff },
+        ipc_stats,
     )
 }
 
@@ -159,7 +167,14 @@ fn run_spike_pk(
     all_banks: bool,
     bemu_config: &Option<PathBuf>,
     worker: WorkerKind,
+    ipc_stats: bool,
 ) -> Result<(), String> {
+    if ipc_stats {
+        std::env::set_var("BEBOP_IPC_STATS", "1");
+    } else {
+        std::env::set_var("BEBOP_IPC_STATS", "0");
+    }
+
     const SPIKE_EXT: &str = "--extension=bebop_rocc";
     let extlib = format!("--extlib={}", rocc_so.display());
     let node_file = node::node_file()?;

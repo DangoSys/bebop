@@ -1,5 +1,7 @@
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
@@ -20,6 +22,61 @@ namespace {
 constexpr uint64_t kBlockSz = 16;
 constexpr uint64_t kSpinLim = 5000000000ULL;
 
+static std::atomic<uint64_t> g_ipc_ns_custom0{0};
+static std::atomic<uint64_t> g_ipc_ns_idle{0};
+static std::atomic<uint64_t> g_ipc_ns_cmd_wait{0};
+static std::atomic<uint64_t> g_ipc_ns_mem{0};
+static std::atomic<uint64_t> g_ipc_custom0_n{0};
+static std::atomic<bool> g_ipc_emit_done{false};
+
+static uint64_t ipc_now_ns() {
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+static void ipc_emit_spike_stats() {
+  uint64_t n = g_ipc_custom0_n.load(std::memory_order_relaxed);
+  if (n == 0) {
+    return;
+  }
+  bool expected = false;
+  if (!g_ipc_emit_done.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+    return;
+  }
+  uint64_t tot = g_ipc_ns_custom0.load(std::memory_order_relaxed);
+  uint64_t idle = g_ipc_ns_idle.load(std::memory_order_relaxed);
+  uint64_t cmdw = g_ipc_ns_cmd_wait.load(std::memory_order_relaxed);
+  uint64_t mem = g_ipc_ns_mem.load(std::memory_order_relaxed);
+  double tot_d = static_cast<double>(tot);
+  if (tot_d <= 0) {
+    return;
+  }
+  auto pct = [tot_d](uint64_t x) { return 100.0 * static_cast<double>(x) / tot_d; };
+  uint64_t spin = cmdw > mem ? cmdw - mem : 0;
+  double other = tot_d - static_cast<double>(idle) - static_cast<double>(cmdw);
+  if (other < 0) {
+    other = 0;
+  }
+  char buf[640];
+  int len = std::snprintf(
+      buf, sizeof(buf),
+      "[bebop ipc] spike pid=%d role=bebop_rocc (custom0 path only)\n"
+      "| custom0_calls=%llu total_s=%.3f\n"
+      "| of custom0 time: wait_cmd_idle %.1f%% | cmd_ack_wait_loop %.1f%%\n"
+      "| in ack loop: mem_mmu_service %.1f%% | spin_yield %.1f%% | other %.1f%%\n",
+      static_cast<int>(getpid()), static_cast<unsigned long long>(n), tot_d * 1e-9, pct(idle),
+      pct(cmdw), pct(mem), pct(spin), 100.0 * other / tot_d);
+  if (len > 0 && static_cast<size_t>(len) < sizeof(buf)) {
+    std::fwrite(buf, 1, static_cast<size_t>(len), stderr);
+    std::fflush(stderr);
+  }
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((destructor)) static void bebop_rocc_ipc_shlib_fini() { ipc_emit_spike_stats(); }
+#endif
+
 static void rpc_wait_idle(bebop_lane_t *s) {
   uint64_t spin = 0;
   for (;;) {
@@ -33,6 +90,16 @@ static void rpc_wait_idle(bebop_lane_t *s) {
     }
     sched_yield();
   }
+}
+
+static void rpc_wait_idle_timed(bebop_lane_t *s, bool ipc_on) {
+  if (!ipc_on) {
+    rpc_wait_idle(s);
+    return;
+  }
+  uint64_t t0 = ipc_now_ns();
+  rpc_wait_idle(s);
+  g_ipc_ns_idle.fetch_add(ipc_now_ns() - t0, std::memory_order_relaxed);
 }
 
 static bool env_bool01_required(const char *name) {
@@ -49,7 +116,7 @@ static bool env_bool01_required(const char *name) {
   throw std::runtime_error(std::string(name) + " must be 0 or 1");
 }
 
-static void service_one_mem(bebop_lane_t *mem, processor_t *proc, uint32_t self_id) {
+static void service_one_mem(bebop_lane_t *mem, processor_t *proc, uint32_t self_id, bool ipc_on) {
   uint64_t r = std::atomic_ref(mem->req).load(std::memory_order_acquire);
   uint64_t a = std::atomic_ref(mem->ack).load(std::memory_order_acquire);
   if (r == a) {
@@ -57,6 +124,10 @@ static void service_one_mem(bebop_lane_t *mem, processor_t *proc, uint32_t self_
   }
   if (r != a + 1) {
     throw std::runtime_error("bebop_shm invalid mem req/ack");
+  }
+  uint64_t t0 = 0;
+  if (ipc_on) {
+    t0 = ipc_now_ns();
   }
   auto *mmu = proc->get_mmu();
   if (!mmu) {
@@ -86,6 +157,9 @@ static void service_one_mem(bebop_lane_t *mem, processor_t *proc, uint32_t self_
   mem->msg.receiver_id = mem->msg.sender_id;
   mem->msg.sender_id = self_id;
   std::atomic_ref(mem->ack).store(r, std::memory_order_release);
+  if (ipc_on) {
+    g_ipc_ns_mem.fetch_add(ipc_now_ns() - t0, std::memory_order_relaxed);
+  }
 }
 
 } // namespace
@@ -105,54 +179,70 @@ public:
 
   reg_t custom0(processor_t *proc, rocc_insn_t insn, reg_t xs1, reg_t xs2) override {
     init();
+    uint64_t t_ent = 0;
+    if (ipc_stats_) {
+      t_ent = ipc_now_ns();
+    }
+    reg_t ret;
     if (!dual_cmd_) {
       if (rtl_only_) {
-        return issue_one_lane(proc, insn, xs1, xs2, &shm_->cmd_rtl, &shm_->mem_rtl);
+        ret = issue_one_lane(proc, insn, xs1, xs2, &shm_->cmd_rtl, &shm_->mem_rtl);
+      } else {
+        ret = issue_one_lane(proc, insn, xs1, xs2, &shm_->cmd_bemu, &shm_->mem_bemu);
       }
-      return issue_one_lane(proc, insn, xs1, xs2, &shm_->cmd_bemu, &shm_->mem_bemu);
-    }
-    auto *cb = &shm_->cmd_bemu;
-    auto *cr = &shm_->cmd_rtl;
-    rpc_wait_idle(cb);
-    rpc_wait_idle(cr);
-    cb->msg.op = BEBOP_OP_CMD_REQ;
-    cb->msg.sender_id = self_id_;
-    cb->msg.receiver_id = 0;
-    cb->msg.cmd_code = BEBOP_CMD_HANDLE;
-    cb->msg.msg_id = ++msg_seq_;
-    cb->msg.funct = insn.funct;
-    cb->msg.xs1 = xs1;
-    cb->msg.xs2 = xs2;
-    cb->msg.err = 0;
-    cb->msg.bank_digest = 0;
-    std::memcpy(&cr->msg, &cb->msg, sizeof(bebop_msg_t));
-    std::atomic_ref(cb->req).fetch_add(1, std::memory_order_acq_rel);
-    std::atomic_ref(cr->req).fetch_add(1, std::memory_order_acq_rel);
-    uint64_t tb = std::atomic_ref(cb->req).load(std::memory_order_acquire);
-    uint64_t tr = std::atomic_ref(cr->req).load(std::memory_order_acquire);
-    uint64_t spin = 0;
-    while (std::atomic_ref(cb->ack).load(std::memory_order_acquire) != tb ||
-           std::atomic_ref(cr->ack).load(std::memory_order_acquire) != tr) {
-      service_one_mem(&shm_->mem_bemu, proc, self_id_);
-      service_one_mem(&shm_->mem_rtl, proc, self_id_);
-      if (++spin >= kSpinLim) {
-        throw std::runtime_error("bebop_shm dual CMD_HANDLE timeout");
+    } else {
+      auto *cb = &shm_->cmd_bemu;
+      auto *cr = &shm_->cmd_rtl;
+      rpc_wait_idle_timed(cb, ipc_stats_);
+      rpc_wait_idle_timed(cr, ipc_stats_);
+      cb->msg.op = BEBOP_OP_CMD_REQ;
+      cb->msg.sender_id = self_id_;
+      cb->msg.receiver_id = 0;
+      cb->msg.cmd_code = BEBOP_CMD_HANDLE;
+      cb->msg.msg_id = ++msg_seq_;
+      cb->msg.funct = insn.funct;
+      cb->msg.xs1 = xs1;
+      cb->msg.xs2 = xs2;
+      cb->msg.err = 0;
+      cb->msg.bank_digest = 0;
+      std::memcpy(&cr->msg, &cb->msg, sizeof(bebop_msg_t));
+      std::atomic_ref(cb->req).fetch_add(1, std::memory_order_acq_rel);
+      std::atomic_ref(cr->req).fetch_add(1, std::memory_order_acq_rel);
+      uint64_t tb = std::atomic_ref(cb->req).load(std::memory_order_acquire);
+      uint64_t tr = std::atomic_ref(cr->req).load(std::memory_order_acquire);
+      uint64_t t_wait0 = ipc_stats_ ? ipc_now_ns() : 0;
+      uint64_t spin = 0;
+      while (std::atomic_ref(cb->ack).load(std::memory_order_acquire) != tb ||
+             std::atomic_ref(cr->ack).load(std::memory_order_acquire) != tr) {
+        service_one_mem(&shm_->mem_bemu, proc, self_id_, ipc_stats_);
+        service_one_mem(&shm_->mem_rtl, proc, self_id_, ipc_stats_);
+        if (++spin >= kSpinLim) {
+          throw std::runtime_error("bebop_shm dual CMD_HANDLE timeout");
+        }
+        sched_yield();
       }
-      sched_yield();
+      if (ipc_stats_) {
+        g_ipc_ns_cmd_wait.fetch_add(ipc_now_ns() - t_wait0, std::memory_order_relaxed);
+      }
+      if (cb->msg.op != BEBOP_OP_CMD_RESP || cb->msg.err != 0) {
+        throw std::runtime_error("bebop_shm CMD_HANDLE failed (bemu lane)");
+      }
+      if (cr->msg.op != BEBOP_OP_CMD_RESP || cr->msg.err != 0) {
+        throw std::runtime_error("bebop_shm CMD_HANDLE failed (rtl lane)");
+      }
+      if (cb->msg.result != cr->msg.result) {
+        throw std::runtime_error("bebop_shm BEMU vs RTL result mismatch");
+      }
+      if (difftest_ && cb->msg.bank_digest != cr->msg.bank_digest) {
+        throw std::runtime_error("bebop_shm BEMU vs RTL bank_digest mismatch");
+      }
+      ret = cb->msg.result;
     }
-    if (cb->msg.op != BEBOP_OP_CMD_RESP || cb->msg.err != 0) {
-      throw std::runtime_error("bebop_shm CMD_HANDLE failed (bemu lane)");
+    if (ipc_stats_) {
+      g_ipc_ns_custom0.fetch_add(ipc_now_ns() - t_ent, std::memory_order_relaxed);
+      g_ipc_custom0_n.fetch_add(1, std::memory_order_relaxed);
     }
-    if (cr->msg.op != BEBOP_OP_CMD_RESP || cr->msg.err != 0) {
-      throw std::runtime_error("bebop_shm CMD_HANDLE failed (rtl lane)");
-    }
-    if (cb->msg.result != cr->msg.result) {
-      throw std::runtime_error("bebop_shm BEMU vs RTL result mismatch");
-    }
-    if (difftest_ && cb->msg.bank_digest != cr->msg.bank_digest) {
-      throw std::runtime_error("bebop_shm BEMU vs RTL bank_digest mismatch");
-    }
-    return cb->msg.result;
+    return ret;
   }
 
   reg_t custom3(processor_t *proc, rocc_insn_t insn, reg_t xs1, reg_t xs2) override {
@@ -162,7 +252,7 @@ public:
 private:
   reg_t issue_one_lane(processor_t *proc, rocc_insn_t insn, reg_t xs1, reg_t xs2, bebop_lane_t *cmd,
                        bebop_lane_t *mem) {
-    rpc_wait_idle(cmd);
+    rpc_wait_idle_timed(cmd, ipc_stats_);
     cmd->msg.op = BEBOP_OP_CMD_REQ;
     cmd->msg.sender_id = self_id_;
     cmd->msg.receiver_id = 0;
@@ -175,13 +265,17 @@ private:
     cmd->msg.bank_digest = 0;
     std::atomic_ref(cmd->req).fetch_add(1, std::memory_order_acq_rel);
     uint64_t target = std::atomic_ref(cmd->req).load(std::memory_order_acquire);
+    uint64_t t_wait0 = ipc_stats_ ? ipc_now_ns() : 0;
     uint64_t spin = 0;
     while (std::atomic_ref(cmd->ack).load(std::memory_order_acquire) != target) {
-      service_one_mem(mem, proc, self_id_);
+      service_one_mem(mem, proc, self_id_, ipc_stats_);
       if (++spin >= kSpinLim) {
         throw std::runtime_error("bebop_shm CMD_HANDLE timeout");
       }
       sched_yield();
+    }
+    if (ipc_stats_) {
+      g_ipc_ns_cmd_wait.fetch_add(ipc_now_ns() - t_wait0, std::memory_order_relaxed);
     }
     if (cmd->msg.op != BEBOP_OP_CMD_RESP || cmd->msg.err != 0) {
       throw std::runtime_error("bebop_shm CMD_HANDLE failed");
@@ -218,6 +312,16 @@ private:
     dual_cmd_ = env_bool01_required("BEBOP_DUAL_CMD");
     rtl_only_ = env_bool01_required("BEBOP_RTL_ONLY");
     difftest_ = env_bool01_required("BEBOP_DIFFTEST");
+    const char *ipc_st = std::getenv("BEBOP_IPC_STATS");
+    if (ipc_st && ipc_st[0] == '0' && ipc_st[1] == '\0') {
+      ipc_stats_ = false;
+    } else if (ipc_st && ipc_st[0] == '1' && ipc_st[1] == '\0') {
+      ipc_stats_ = true;
+    } else if (!ipc_st || !ipc_st[0]) {
+      ipc_stats_ = true;
+    } else {
+      throw std::runtime_error("BEBOP_IPC_STATS must be 0, 1, or unset");
+    }
   }
 
   bebop_shm_t *shm_ = nullptr;
@@ -226,6 +330,7 @@ private:
   bool dual_cmd_ = false;
   bool rtl_only_ = false;
   bool difftest_ = false;
+  bool ipc_stats_ = false;
 };
 
 REGISTER_EXTENSION(bebop_rocc, []() { return new bebop_rocc_t(); })

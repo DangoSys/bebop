@@ -35,6 +35,10 @@ pub struct Cli {
     #[arg(short, long, default_value_t = false)]
     pub verbose: bool,
 
+    /// Do not print SHM IPC timing summary (default is on for `bemu` / `verilator` / `difftest`).
+    #[arg(long, global = true, default_value_t = false)]
+    pub no_ipc_stats: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 
@@ -105,13 +109,14 @@ pub enum Commands {
 
 pub fn dispatch(cli: Cli) -> Result<(), String> {
     let bemu_cfg = cli.config.clone();
+    let ipc_stats = !cli.no_ipc_stats;
     match cli.command {
         Commands::Bemu {
             elf,
             step,
             all_banks,
         } => run_timed("bemu", || {
-            spike::runner::spike_tests(elf, step, all_banks, bemu_cfg)
+            spike::runner::spike_tests(elf, step, all_banks, bemu_cfg, ipc_stats)
         }),
         #[cfg(feature = "verilator")]
         Commands::Verilator {
@@ -119,7 +124,7 @@ pub fn dispatch(cli: Cli) -> Result<(), String> {
             step,
             all_banks,
         } => run_timed("verilator", || {
-            spike::runner::verilator_tests(elf, step, all_banks, bemu_cfg)
+            spike::runner::verilator_tests(elf, step, all_banks, bemu_cfg, ipc_stats)
         }),
         #[cfg(feature = "verilator")]
         Commands::Difftest {
@@ -127,7 +132,7 @@ pub fn dispatch(cli: Cli) -> Result<(), String> {
             step,
             all_banks,
         } => run_timed("difftest", || {
-            spike::runner::difftest(elf, step, all_banks, bemu_cfg)
+            spike::runner::difftest(elf, step, all_banks, bemu_cfg, ipc_stats)
         }),
         Commands::BemuTests {
             step,
