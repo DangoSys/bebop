@@ -2,6 +2,7 @@
 
 use std::ffi::CString;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use crate::node;
 use crate::shm::layout::{
@@ -11,6 +12,7 @@ use crate::shm::layout::{
 use crate::shm::protocol::{decode_req, OpReq, OpResp};
 use crate::shm::ShmMap;
 use crate::utils::env::must_nonempty;
+use crate::utils::ipc_stats;
 
 use super::bemu::{Bemu, StepCfg};
 use super::diff::config::DiffCfg;
@@ -92,9 +94,11 @@ pub(crate) unsafe fn shm_mem_read16(
     mem.msg.err = 0;
     mem.req.fetch_add(1, Ordering::AcqRel);
     let target = mem.req.load(Ordering::Acquire);
+    let t_mem = Instant::now();
     while mem.ack.load(Ordering::Acquire) != target {
         std::thread::yield_now();
     }
+    ipc_stats::mem_rpc_wait(t_mem.elapsed());
     if mem.msg.op != OP_MEM_RESP || mem.msg.err != 0 || mem.msg.size != 16 {
         panic!("bebop worker: mem request failed");
     }
@@ -124,9 +128,11 @@ pub(crate) unsafe fn mem_req_write16(
     mem.msg.err = 0;
     mem.req.fetch_add(1, Ordering::AcqRel);
     let target = mem.req.load(Ordering::Acquire);
+    let t_mem = Instant::now();
     while mem.ack.load(Ordering::Acquire) != target {
         std::thread::yield_now();
     }
+    ipc_stats::mem_rpc_wait(t_mem.elapsed());
     if mem.msg.op != OP_MEM_RESP || mem.msg.err != 0 || mem.msg.size != 16 {
         panic!("bebop worker: mem request failed");
     }
@@ -259,6 +265,7 @@ pub fn bemu_tests(
     };
 
     loop {
+        let t_iter = Instant::now();
         unsafe {
             match run_cmd(
                 shm,
@@ -269,9 +276,16 @@ pub fn bemu_tests(
                 &diff,
                 &mut |_req, _resp, _bemu, _diff| {},
             ) {
-                Tick::Done => return Ok(()),
-                Tick::Worked => {}
-                Tick::Idle => std::thread::yield_now(),
+                Tick::Done => {
+                    ipc_stats::worker_work(t_iter.elapsed());
+                    ipc_stats::eprint_worker_summary("bemu-tests");
+                    return Ok(());
+                }
+                Tick::Worked => ipc_stats::worker_work(t_iter.elapsed()),
+                Tick::Idle => {
+                    ipc_stats::worker_idle(t_iter.elapsed());
+                    std::thread::yield_now();
+                }
             }
         }
     }

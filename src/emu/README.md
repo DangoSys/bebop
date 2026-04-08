@@ -39,7 +39,8 @@ cargo build --release
 - **`cargo build --release`**：bebop CLI、`libbemu.so` 等。`build.rs` 会自动给 Verilator 的 `make` 设置并行度（优先 `BEBOP_MAKE_JOBS`，其次 `NIX_BUILD_CORES`，默认 `16`），并默认保留 `vl_bebop` 目录做增量构建。
 - 需要强制清理并全量重编 Verilator 产物时，使用 `BEBOP_CLEAN_VL=1 cargo build --release`。
 - **`cmake` / `ninja`**：在 **`src/spike`** 生成 **`src/spike/build/libbebop_rocc.so`**（CMake 需能 `find_program(spike)`）。
-- **`bebop bemu <ELF>`** / **`bebop verilator <ELF>`**：传入已构建好的 RISC-V Linux 测例可执行文件的完整路径；缺 **`libbebop_rocc.so`** 会直接报错退出。运行时不依赖额外配置 `BEBOP_ROCC_SO`。
+- **`bebop bemu <ELF>`** / **`bebop verilator <ELF>`**：传入已构建好的 RISC-V Linux 测例可执行文件的完整路径；缺 **`libbebop_rocc.so`** 会直接报错退出。查找顺序：**`src/spike/build/libbebop_rocc.so`**（相对 `target/{debug,release}/bebop`）→ **`../lib/libbebop_rocc.so`**（安装/Nix）。运行时不依赖额外配置 `BEBOP_ROCC_SO`。
+- **IPC 耗时摘要**：**`bebop bemu` / `verilator` / `difftest`** 默认在结束时向 **stderr** 打印：**Spike**（`bebop_rocc` 的 **custom0** 时间拆分）与各 **Rust worker** 各一段。`bebop` 会为子进程设 **`BEBOP_IPC_STATS`** 为 `1` 或 `0`（**`--no-ipc-stats`** 时为 `0`）。若**单独**用 Spike 加载 `libbebop_rocc.so` 且未设该变量，**`bebop_rocc` 也会默认**打印 Spike 侧摘要；不需要时设 **`BEBOP_IPC_STATS=0`**。修改 [`bebop_rocc.cc`](../spike/bebop_rocc.cc) 后需重编 **`cmake --build src/spike/build --target bebop_rocc`**。
 
 
 ## 配置文件

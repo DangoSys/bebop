@@ -4,17 +4,24 @@ use crate::utils::path;
 
 pub fn path_rocc_so() -> Result<PathBuf, String> {
     let cur = path::path_current_bebop_bin()?;
-    let cur_so = cur
-        .parent()
-        .ok_or("current bebop has no parent")?
-        .join("../lib/libbebop_rocc.so");
-    let p = cur_so
-        .canonicalize()
-        .map_err(|e| format!("canonicalize libbebop_rocc.so: {e}"))?;
-    if p.is_file() {
-        return Ok(p);
+    let exe_dir = cur.parent().ok_or("current bebop has no parent")?;
+    let candidates = [
+        exe_dir.join("../../src/spike/build/libbebop_rocc.so"),
+        exe_dir.join("../lib/libbebop_rocc.so"),
+    ];
+    let mut tried = Vec::new();
+    for p in &candidates {
+        tried.push(p.display().to_string());
+        if let Ok(c) = p.canonicalize() {
+            if c.is_file() {
+                return Ok(c);
+            }
+        }
     }
-    Err(format!("libbebop_rocc.so not found at {}", p.display()))
+    Err(format!(
+        "libbebop_rocc.so not found (tried: {}). For dev: cmake --build src/spike/build --target bebop_rocc. For install/Nix: place libbebop_rocc.so in ../lib relative to this binary.",
+        tried.join(", ")
+    ))
 }
 
 pub fn path_system_pk_bin() -> Result<PathBuf, String> {
