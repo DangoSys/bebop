@@ -1,4 +1,4 @@
-//! Gemmini / loop 指令的全局配置（单线程 Spike worker 下使用 Mutex）。
+//! Global config for Gemmini/loop instructions (protected by Mutex in single-threaded Spike worker mode).
 use std::sync::{Mutex, OnceLock};
 
 #[derive(Clone, Default)]

@@ -82,7 +82,7 @@ pub fn xs2_mset(xs2: u64) -> (u64, u64, u64) {
     (row, col, alloc)
 }
 
-/// 指令中的 bank 字段为 **vbank_id**；访问 `banks` 前解析为物理槽下标。
+/// The bank field in instructions is **vbank_id**; resolve it to a physical slot index before accessing `banks`.
 #[inline]
 pub fn pbank(bm: &BankMap, vbank: u64) -> usize {
     if vbank >= BANK_NUM as u64 {

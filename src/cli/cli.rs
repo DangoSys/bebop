@@ -1,4 +1,4 @@
-//! CLI：clap 定义与命令分发（Spike 仿真在 [`crate::spike::runner`]）。
+//! CLI: clap definitions and command dispatch (Spike simulation lives in [`crate::spike::runner`]).
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};

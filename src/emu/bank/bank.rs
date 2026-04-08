@@ -4,7 +4,7 @@ pub const BANK_LINES: usize = 1024;
 pub const BANK_SIZE: usize = BANK_LINES * (BANK_WIDTH / 8);
 pub const MATRIX_SIZE: usize = 16;
 
-/// 与 `PrivateMemBackend.mappingTable` 一致：物理 SRAM bank 槽位 → 当前绑定的虚拟 bank id。
+/// Matches `PrivateMemBackend.mappingTable`: physical SRAM bank slot -> currently bound virtual bank id.
 #[derive(Clone, Default, Debug)]
 pub struct MapEntry {
     pub valid: bool,
@@ -23,7 +23,7 @@ impl BankMap {
         }
     }
 
-    /// 对应 RTL `deleteEntry`：释放该 vbank 占用的所有物理槽。
+    /// Equivalent to RTL `deleteEntry`: release all physical slots occupied by this vbank.
     pub fn delete_vbank(&mut self, v: u32) {
         for e in &mut self.slots {
             if e.valid && e.vbank_id == v {
@@ -36,13 +36,13 @@ impl BankMap {
         self.slots.iter().position(|e| !e.valid)
     }
 
-    /// 绑定物理槽 `p` 到虚拟 id `v`（alloc 路径上应先 `delete_vbank(v)` 再 bind）。
+    /// Bind physical slot `p` to virtual id `v` (allocation path should call `delete_vbank(v)` first).
     pub fn bind(&mut self, p: usize, v: u32) {
         self.slots[p].valid = true;
         self.slots[p].vbank_id = v;
     }
 
-    /// 虚拟 bank id → 物理 bank 下标（RTL 按表项匹配 `vbank_id`）。
+    /// Virtual bank id -> physical bank index (RTL resolves by matching `vbank_id` in entries).
     pub fn resolve(&self, v: u32) -> Option<usize> {
         self.slots.iter().position(|e| e.valid && e.vbank_id == v)
     }

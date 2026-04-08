@@ -2,9 +2,9 @@ pub mod emu;
 pub mod node;
 pub mod shm;
 pub mod utils;
-/// BEMU 库入口
+/// BEMU library entry point.
 ///
-/// 这个库提供 Buckyball NPU 模拟功能
+/// This crate provides Buckyball NPU emulation.
 #[cfg(feature = "verilator")]
 mod verilator;
 

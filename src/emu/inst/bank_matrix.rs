@@ -1,12 +1,12 @@
-//! Scratchpad bank 上的矩阵视图：i8（cols=1，行步长 16）与 acc i32（cols=4，行步长 64）。
-//! `p` 为 **物理 bank 下标**（经 `decode::pbank` 解析后传入）。
+//! Matrix views on scratchpad banks: i8 (cols=1, row stride 16) and acc i32 (cols=4, row stride 64).
+//! `p` is the **physical bank index** (resolved by `decode::pbank` before passing in).
 
-/// i8 bank 每行固定 16 字节步长（与 `MATRIX_SIZE` 对齐方式一致）。
+/// i8 bank uses a fixed 16-byte row stride (aligned with `MATRIX_SIZE` layout).
 pub const I8_ROW_STRIDE: usize = 16;
-/// acc bank（cols=4）每行 16 个 i32 → 64 字节。
+/// acc bank (cols=4): 16 i32 values per row -> 64 bytes.
 pub const ACC_ROW_STRIDE: usize = 64;
 
-/// n×n int8 子块（行主序，行步长 [`I8_ROW_STRIDE`]）。
+/// n×n int8 tile (row-major, row stride [`I8_ROW_STRIDE`]).
 pub fn read_i8_nn(banks: &[Vec<u8>], p: usize, n: usize) -> Vec<Vec<i8>> {
     let m = &banks[p];
     let mut out = vec![vec![0i8; n]; n];
@@ -18,7 +18,7 @@ pub fn read_i8_nn(banks: &[Vec<u8>], p: usize, n: usize) -> Vec<Vec<i8>> {
     out
 }
 
-/// `rows` 行 × `width` 列，列数 ≤ 16，行步长 [`I8_ROW_STRIDE`]（如 mul_warp16 的 K×16）。
+/// `rows` x `width`, width <= 16, row stride [`I8_ROW_STRIDE`] (e.g. Kx16 in mul_warp16).
 // pub fn read_i8_k_rows(banks: &[Vec<u8>], p: usize, rows: usize, width: usize) -> Vec<Vec<i8>> {
 //     let m = &banks[p];
 //     let mut out = vec![vec![0i8; width]; rows];
@@ -30,7 +30,7 @@ pub fn read_i8_nn(banks: &[Vec<u8>], p: usize, n: usize) -> Vec<Vec<i8>> {
 //     out
 // }
 
-/// n×n int32 累加 bank（`i * ACC_ROW_STRIDE + j * 4`）。
+/// n×n int32 accumulator bank (`i * ACC_ROW_STRIDE + j * 4`).
 pub fn read_i32_nn(banks: &[Vec<u8>], p: usize, n: usize) -> Vec<Vec<i32>> {
     let b = &banks[p];
     let mut out = vec![vec![0i32; n]; n];
@@ -52,7 +52,7 @@ pub fn write_i32_nn(banks: &mut [Vec<u8>], p: usize, c: &[Vec<i32>], n: usize) {
     }
 }
 
-/// 固定 16×16 acc 块，避免 Vec 分配。
+/// Fixed 16x16 acc tile to avoid Vec allocation.
 pub fn read_i32_16x16(banks: &[Vec<u8>], p: usize) -> [[i32; 16]; 16] {
     let b = &banks[p];
     let mut mat = [[0i32; 16]; 16];

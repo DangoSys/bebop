@@ -3,4 +3,4 @@ bank_width = 128
 bank_lines = 1024
 
 # iss | fss
-emu_mode = "iss"
+emu_mode = "fss"
