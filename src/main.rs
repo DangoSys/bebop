@@ -1,15 +1,9 @@
-mod cli;
-mod emu;
+mod framework;
 mod node;
-mod shm;
-mod spike;
-mod utils;
-#[cfg(feature = "verilator")]
-mod verilator;
 
-use crate::cli::cli::{dispatch, Cli};
-use crate::node::{init_node, is_node0, kill_all_children};
-use crate::utils::log::init_log;
+use crate::framework::cli::cli::{dispatch, Cli};
+use crate::framework::node::{init_node, is_node0, kill_all_children};
+use crate::framework::utils::log::init_log;
 use clap::Parser;
 
 fn main() {

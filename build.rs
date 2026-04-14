@@ -12,7 +12,7 @@ fn get_make_jobs() -> String {
 
 fn emit_arch_verilog(manifest: &Path) {
     println!("cargo:rerun-if-changed=scripts/emit-arch-cosim-verilog.sh");
-    let gen_out = manifest.join("src/verilator/gen");
+    let gen_out = manifest.join("src/node/verilator/gen");
     let gen_be = gen_out.join("BebopBuckyballSubsystemCosim.sv");
     let gen_vec = gen_out.join("VecComputeTop.sv");
     let arch_root = manifest.join("../arch");
@@ -49,11 +49,11 @@ fn emit_arch_verilog(manifest: &Path) {
 }
 
 fn main() {
-    println!("cargo:rerun-if-changed=src/verilator/bebop_accel.sv");
-    println!("cargo:rerun-if-changed=src/verilator/bebop_cosim_banks.sv");
-    println!("cargo:rerun-if-changed=src/verilator/cosim.cpp");
-    println!("cargo:rerun-if-changed=src/verilator/gen/VecComputeTop.sv");
-    println!("cargo:rerun-if-changed=src/verilator/gen/BebopBuckyballSubsystemCosim.sv");
+    println!("cargo:rerun-if-changed=src/node/verilator/bebop_accel.sv");
+    println!("cargo:rerun-if-changed=src/node/verilator/bebop_cosim_banks.sv");
+    println!("cargo:rerun-if-changed=src/node/verilator/cosim.cpp");
+    println!("cargo:rerun-if-changed=src/node/verilator/gen/VecComputeTop.sv");
+    println!("cargo:rerun-if-changed=src/node/verilator/gen/BebopBuckyballSubsystemCosim.sv");
     if env::var("CARGO_FEATURE_VERILATOR").is_err() {
         return;
     }
@@ -62,10 +62,10 @@ fn main() {
     emit_arch_verilog(manifest.as_path());
     let vl_dir = out.join("vl_bebop");
     std::fs::create_dir_all(&vl_dir).expect("create vl_bebop");
-    let gen_sv = manifest.join("src/verilator/gen/BebopBuckyballSubsystemCosim.sv");
-    let vec_sv = manifest.join("src/verilator/gen/VecComputeTop.sv");
-    let sv = manifest.join("src/verilator/bebop_accel.sv");
-    let cosim = manifest.join("src/verilator/cosim.cpp");
+    let gen_sv = manifest.join("src/node/verilator/gen/BebopBuckyballSubsystemCosim.sv");
+    let vec_sv = manifest.join("src/node/verilator/gen/VecComputeTop.sv");
+    let sv = manifest.join("src/node/verilator/bebop_accel.sv");
+    let cosim = manifest.join("src/node/verilator/cosim.cpp");
     if !gen_sv.is_file() {
         panic!(
             "missing {}; run arch: mill buckyball.runMain sims.bebop.EmitBebopSpikeCosimVerilog <bebop>/src/verilator/gen (see scripts/emit-arch-cosim-verilog.sh)",
@@ -94,7 +94,7 @@ fn main() {
             gen_sv.to_str().expect("utf8 gen_sv"),
             vec_sv.to_str().expect("utf8 vec_sv"),
             manifest
-                .join("src/verilator/bebop_cosim_banks.sv")
+                .join("src/node/verilator/bebop_cosim_banks.sv")
                 .to_str()
                 .expect("utf8 banks sv"),
             sv.to_str().expect("utf8 sv"),

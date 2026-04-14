@@ -36,7 +36,7 @@ bebop verilator /path/to/pk-tests
 # bemu-tests + verilator-engine, dual lane + optional FNV `bank_digest` check
 bebop difftest /path/to/pk-tests       
 
- # optional: print every bank (default: allocated only)
+# optional: print every bank (default: allocated only)
 bebop bemu /path/to/pk-tests --step --all-banks  
 ```
 

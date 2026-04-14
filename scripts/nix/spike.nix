@@ -69,7 +69,7 @@ rec {
 
     buildPhase = ''
       runHook preBuild
-      src_dir="$PWD/src/spike"
+      src_dir="$PWD/src/node/spike"
       build_dir="$PWD/build-rocc"
       cmake -G Ninja -S "$src_dir" -B "$build_dir" -DSPIKE_EXE=${spikeDrv}/bin/spike
       ninja -C "$build_dir" bebop_rocc

@@ -6,7 +6,7 @@ use super::diff::config::DiffCfg;
 use super::diff::hash::cosim_aggregate_banks_digest;
 use super::fss::fss;
 use super::iss::iss;
-use crate::shm::protocol::{OpReq, OpResp};
+use crate::framework::shm::protocol::{OpReq, OpResp};
 
 const MEM_BLK: usize = 16;
 

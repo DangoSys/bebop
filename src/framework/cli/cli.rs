@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 
-use crate::emu;
-use crate::spike;
+use crate::node::emu;
+use crate::node::spike;
 
 fn fmt_elapsed(d: Duration) -> String {
     let ms = d.as_millis();

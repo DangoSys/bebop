@@ -1,4 +1,4 @@
-use crate::emu::bank::BankConfig;
+use crate::node::emu::bank::BankConfig;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
