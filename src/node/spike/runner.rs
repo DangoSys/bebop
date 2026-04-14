@@ -10,10 +10,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use log::{debug, info};
 
-use crate::node;
-use crate::shm::{self, CosimShutdown, ShmMap};
-use crate::spike::path::{path_rocc_so, path_system_pk_bin, path_system_spike_bin};
-use crate::utils::path;
+use crate::framework::node;
+use crate::framework::shm::{self, CosimShutdown, ShmMap};
+use crate::framework::utils::path;
+use crate::node::spike::path::{path_rocc_so, path_system_pk_bin, path_system_spike_bin};
 
 static SPIKE_SHM_SEQ: AtomicU64 = AtomicU64::new(0);
 

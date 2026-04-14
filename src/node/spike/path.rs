@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::utils::path;
+use crate::framework::utils::path;
 
 pub fn path_rocc_so() -> Result<PathBuf, String> {
     let cur = path::path_current_bebop_bin()?;

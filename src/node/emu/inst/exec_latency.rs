@@ -51,7 +51,7 @@ pub fn inst_cycles(funct: u32, xs1: u64, xs2: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::emu::inst::decode::FUNCT_MVIN;
+    use crate::node::emu::inst::decode::FUNCT_MVIN;
 
     #[test]
     fn mvin_depth_is_latency() {

@@ -1,9 +1,9 @@
-use crate::emu::bank::{BankConfig, BankMap};
-use crate::emu::bemu::StepCfg;
-use crate::emu::diff::config::DiffCfg;
-use crate::emu::inst::decode;
-use crate::emu::inst::exec_latency;
-use crate::shm::protocol::OpResp;
+use crate::framework::shm::protocol::OpResp;
+use crate::node::emu::bank::{BankConfig, BankMap};
+use crate::node::emu::bemu::StepCfg;
+use crate::node::emu::diff::config::DiffCfg;
+use crate::node::emu::inst::decode;
+use crate::node::emu::inst::exec_latency;
 
 const MEM_BLK: usize = 16;
 

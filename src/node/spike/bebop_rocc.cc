@@ -59,14 +59,14 @@ static void ipc_emit_spike_stats() {
     other = 0;
   }
   char buf[640];
-  int len = std::snprintf(
-      buf, sizeof(buf),
-      "[bebop ipc] spike pid=%d role=bebop_rocc (custom0 path only)\n"
-      "| custom0_calls=%llu total_s=%.3f\n"
-      "| of custom0 time: wait_cmd_idle %.1f%% | cmd_ack_wait_loop %.1f%%\n"
-      "| in ack loop: mem_mmu_service %.1f%% | spin_yield %.1f%% | other %.1f%%\n",
-      static_cast<int>(getpid()), static_cast<unsigned long long>(n), tot_d * 1e-9, pct(idle),
-      pct(cmdw), pct(mem), pct(spin), 100.0 * other / tot_d);
+  int len =
+      std::snprintf(buf, sizeof(buf),
+                    "[bebop ipc] spike pid=%d role=bebop_rocc (custom0 path only)\n"
+                    "| custom0_calls=%llu total_s=%.3f\n"
+                    "| of custom0 time: wait_cmd_idle %.1f%% | cmd_ack_wait_loop %.1f%%\n"
+                    "| in ack loop: mem_mmu_service %.1f%% | spin_yield %.1f%% | other %.1f%%\n",
+                    static_cast<int>(getpid()), static_cast<unsigned long long>(n), tot_d * 1e-9,
+                    pct(idle), pct(cmdw), pct(mem), pct(spin), 100.0 * other / tot_d);
   if (len > 0 && static_cast<size_t>(len) < sizeof(buf)) {
     std::fwrite(buf, 1, static_cast<size_t>(len), stderr);
     std::fflush(stderr);

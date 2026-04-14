@@ -36,7 +36,7 @@
           mkdir -p "$out/bin" "$out/lib" "$out/share/bebop"
           cp -r "${bebopCli}/bin/." "$out/bin/"
           cp "${spikeEnv.bebopRoccDrv}/lib/libbebop_rocc.so" "$out/lib/"
-          cp "${./src/emu/configs/config.toml}" "$out/share/bebop/config.toml"
+          cp "${./src/node/emu/configs/config.toml}" "$out/share/bebop/config.toml"
           chmod +x "$out/bin/"*
         '';
       in

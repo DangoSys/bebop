@@ -4,21 +4,21 @@ use std::ffi::CString;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use crate::node;
-use crate::shm::layout::{
+use crate::framework::node;
+use crate::framework::shm::layout::{
     BebopLane, BebopMsg, BebopShm, BEBOP_SHM_SIZE, CMD_SHUTDOWN, MEM_READ, MEM_WRITE, OP_CMD_REQ,
     OP_CMD_RESP, OP_MEM_REQ, OP_MEM_RESP,
 };
-use crate::shm::protocol::{decode_req, OpReq, OpResp};
-use crate::shm::ShmMap;
-use crate::utils::env::must_nonempty;
-use crate::utils::ipc_stats;
+use crate::framework::shm::protocol::{decode_req, OpReq, OpResp};
+use crate::framework::shm::ShmMap;
+use crate::framework::utils::env::must_nonempty;
+use crate::framework::utils::ipc_stats;
 
 use super::bemu::{Bemu, StepCfg};
 use super::diff::config::DiffCfg;
 
 #[cfg(feature = "verilator")]
-use crate::verilator::{
+use crate::node::verilator::{
     cosim_bank_digest_peek, cosim_issue, cosim_result, cosim_set_digest_all_banks,
 };
 

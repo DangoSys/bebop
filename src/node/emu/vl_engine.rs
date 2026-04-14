@@ -3,12 +3,12 @@
 use std::ffi::CString;
 use std::time::Instant;
 
-use crate::node;
-use crate::shm::layout::{BebopShm, BEBOP_SHM_SIZE};
-use crate::shm::ShmMap;
-use crate::utils::env::must_nonempty;
-use crate::utils::ipc_stats;
-use crate::verilator::{cosim_set_mem16_reader, cosim_set_mem16_writer, CosimGuard};
+use crate::framework::node;
+use crate::framework::shm::layout::{BebopShm, BEBOP_SHM_SIZE};
+use crate::framework::shm::ShmMap;
+use crate::framework::utils::env::must_nonempty;
+use crate::framework::utils::ipc_stats;
+use crate::node::verilator::{cosim_set_mem16_reader, cosim_set_mem16_writer, CosimGuard};
 
 use super::diff::config::DiffCfg;
 use super::runner::{mem_req_write16, run_cmd_rtl, shm_mem_read16, ShmMemLane, Tick};
