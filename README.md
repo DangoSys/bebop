@@ -24,10 +24,19 @@ nix build
 ```
 cd bebop
 nix develop
+
 bebop bemu /path/to/pk-tests
-bebop bemu /path/to/pk-tests --step   # per allocated bank 64-bit hash after each RoCC insn
-bebop verilator /path/to/pk-tests      # verilator-engine only, RTL SHM lane (Unix + `verilator`)
-bebop difftest /path/to/pk-tests       # bemu-tests + verilator-engine, dual lane + optional FNV `bank_digest` check
-bebop bemu /path/to/pk-tests --step --all-banks   # optional: print every bank (default: allocated only)
+
+# per allocated bank 64-bit hash after each RoCC insn
+bebop bemu /path/to/pk-tests --step   
+
+# verilator-engine only, RTL SHM lane (Unix + `verilator`)
+bebop verilator /path/to/pk-tests   
+
+# bemu-tests + verilator-engine, dual lane + optional FNV `bank_digest` check
+bebop difftest /path/to/pk-tests       
+
+ # optional: print every bank (default: allocated only)
+bebop bemu /path/to/pk-tests --step --all-banks  
 ```
 
