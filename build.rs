@@ -68,13 +68,13 @@ fn main() {
     let cosim = manifest.join("src/node/verilator/cosim.cpp");
     if !gen_sv.is_file() {
         panic!(
-            "missing {}; run arch: mill buckyball.runMain sims.bebop.EmitBebopSpikeCosimVerilog <bebop>/src/verilator/gen (see scripts/emit-arch-cosim-verilog.sh)",
+            "missing {}; run arch: mill buckyball.runMain sims.bebop.EmitBebopSpikeCosimVerilog <bebop>/src/node/verilator/gen (see scripts/emit-arch-cosim-verilog.sh)",
             gen_sv.display()
         );
     }
     if !vec_sv.is_file() {
         panic!(
-            "missing {}; run arch: mill buckyball.runMain sims.bebop.EmitBebopSpikeCosimVerilog <bebop>/src/verilator/gen (see scripts/emit-arch-cosim-verilog.sh)",
+            "missing {}; run arch: mill buckyball.runMain sims.bebop.EmitBebopSpikeCosimVerilog <bebop>/src/node/verilator/gen (see scripts/emit-arch-cosim-verilog.sh)",
             vec_sv.display()
         );
     }
