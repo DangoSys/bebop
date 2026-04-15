@@ -1,12 +1,12 @@
-//! CLI: clap definitions and command dispatch (Spike simulation lives in [`crate::spike::runner`]).
+//! CLI: clap definitions and command dispatch.
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 
+use crate::graph::sim;
 use crate::node::emu;
-use crate::node::spike;
 
 fn fmt_elapsed(d: Duration) -> String {
     let ms = d.as_millis();
@@ -31,18 +31,15 @@ fn run_timed(label: &str, run: impl FnOnce() -> Result<(), String>) -> Result<()
 #[derive(Parser)]
 #[command(name = "bebop", about = "Bebop BEMU CLI")]
 pub struct Cli {
-    /// Enable INFO logs (Spike/worker children may inherit via RUST_LOG).
     #[arg(short, long, default_value_t = false)]
     pub verbose: bool,
 
-    /// Do not print SHM IPC timing summary (default is on for `bemu` / `verilator` / `difftest`).
     #[arg(long, global = true, default_value_t = false)]
     pub no_ipc_stats: bool,
 
     #[command(subcommand)]
     pub command: Commands,
 
-    /// BEMU `config.toml`; forwarded to `bemu-tests` workers.
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<PathBuf>,
 
@@ -52,18 +49,14 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Spike + pk + BEMU RoCC sidecar (golden model).
     Bemu {
         elf: PathBuf,
-        /// After each RoCC custom instruction: print bank state hash (64-bit per bank).
         #[arg(long, default_value_t = false)]
         step: bool,
-        /// Print all banks in step mode (default: allocated banks only).
         #[arg(long, default_value_t = false)]
         all_banks: bool,
     },
 
-    /// Spike + dual SHM lanes: `bemu-tests` + `verilator-engine` in parallel per RoCC; `rd` must match.
     #[cfg(feature = "verilator")]
     Verilator {
         elf: PathBuf,
@@ -73,7 +66,6 @@ pub enum Commands {
         all_banks: bool,
     },
 
-    /// Like `verilator`, plus Spike enforces **bank_digest** (FNV) match between lanes.
     #[cfg(feature = "verilator")]
     Difftest {
         elf: PathBuf,
@@ -83,18 +75,14 @@ pub enum Commands {
         all_banks: bool,
     },
 
-    //===----------------------------------------------------------------------===//
-    //
-    // The functions below are not exposed to the CLI.
-    // They are used internally by the CLI.
-    //
-    //===----------------------------------------------------------------------===//
     #[command(hide = true, name = "bemu-tests")]
     BemuTests {
         #[arg(long, hide = true, default_value_t = false)]
         step: bool,
         #[arg(long, hide = true, default_value_t = false)]
         diff_all_banks: bool,
+        #[arg(long, hide = true, value_name = "SHM")]
+        shm_name: String,
     },
 
     #[cfg(all(feature = "verilator", unix))]
@@ -104,6 +92,8 @@ pub enum Commands {
         step: bool,
         #[arg(long, hide = true, default_value_t = false)]
         diff_all_banks: bool,
+        #[arg(long, hide = true, value_name = "SHM")]
+        shm_name: String,
     },
 }
 
@@ -116,7 +106,7 @@ pub fn dispatch(cli: Cli) -> Result<(), String> {
             step,
             all_banks,
         } => run_timed("bemu", || {
-            spike::runner::spike_tests(elf, step, all_banks, bemu_cfg, ipc_stats)
+            sim::bemu(elf, step, all_banks, bemu_cfg, ipc_stats)
         }),
         #[cfg(feature = "verilator")]
         Commands::Verilator {
@@ -124,7 +114,7 @@ pub fn dispatch(cli: Cli) -> Result<(), String> {
             step,
             all_banks,
         } => run_timed("verilator", || {
-            spike::runner::verilator_tests(elf, step, all_banks, bemu_cfg, ipc_stats)
+            sim::verilator(elf, step, all_banks, bemu_cfg, ipc_stats)
         }),
         #[cfg(feature = "verilator")]
         Commands::Difftest {
@@ -132,16 +122,18 @@ pub fn dispatch(cli: Cli) -> Result<(), String> {
             step,
             all_banks,
         } => run_timed("difftest", || {
-            spike::runner::difftest(elf, step, all_banks, bemu_cfg, ipc_stats)
+            sim::difftest(elf, step, all_banks, bemu_cfg, ipc_stats)
         }),
         Commands::BemuTests {
             step,
             diff_all_banks,
-        } => emu::bemu_tests(step, diff_all_banks, bemu_cfg),
+            shm_name,
+        } => emu::bemu_tests(step, diff_all_banks, bemu_cfg, shm_name, ipc_stats),
         #[cfg(all(feature = "verilator", unix))]
         Commands::VerilatorEngine {
             step,
             diff_all_banks,
-        } => emu::vl_engine::run(step, diff_all_banks),
+            shm_name,
+        } => emu::vl_engine::run(step, diff_all_banks, shm_name, ipc_stats),
     }
 }
