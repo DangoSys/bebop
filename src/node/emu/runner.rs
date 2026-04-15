@@ -169,11 +169,12 @@ pub(crate) unsafe fn run_cmd(
     let resp = bemu.handle_req(req_op, step, diff, &mut rd, &mut wr);
     post_handle(req_op, &resp, bemu, diff);
     fill_resp(&mut cmd.msg, OP_CMD_RESP, node_id, msg.sender_id, &resp);
-    if let OpReq::CmdHandle { .. } = req_op {
+    if let OpReq::CmdHandle { funct, .. } = req_op {
         if resp.err == 0 && !resp.done {
             let d = bemu.cosim_bank_digest(diff);
             cmd.msg.bank_digest = d;
             if step.on {
+                println!("  step_funct={funct}");
                 println!("  bemu_bank_digest=0x{d:016x}");
             }
         }
