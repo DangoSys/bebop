@@ -11,7 +11,6 @@ use crate::framework::shm::layout::{
 };
 use crate::framework::shm::protocol::{decode_req, OpReq, OpResp};
 use crate::framework::shm::ShmMap;
-use crate::framework::utils::env::must_nonempty;
 use crate::framework::utils::ipc_stats;
 
 use super::bemu::{Bemu, StepCfg};
@@ -243,12 +242,15 @@ pub fn bemu_tests(
     step_on: bool,
     diff_all_banks: bool,
     config: Option<std::path::PathBuf>,
+    shm_name: String,
+    ipc_stats_on: bool,
 ) -> Result<(), String> {
     let node_id = node::node_id();
     if node_id == 0 {
         return Err("node_id must be > 0".to_string());
     }
-    let name = must_nonempty("BEBOP_SHM_NAME")?;
+    ipc_stats::set_on(ipc_stats_on);
+    let name = shm_name;
     let cs = CString::new(name).map_err(|_| "bemu-tests: name has NUL")?;
     if !cs.as_bytes().starts_with(b"/") {
         return Err("bemu-tests: name must start with '/'".into());

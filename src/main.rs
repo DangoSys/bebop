@@ -1,4 +1,5 @@
 mod framework;
+mod graph;
 mod node;
 
 use crate::framework::cli::cli::{dispatch, Cli};
@@ -7,11 +8,6 @@ use crate::framework::utils::log::init_log;
 use clap::Parser;
 
 fn main() {
-    //===----------------------------------------------------------------------===//
-    //
-    // All commands come through here to CLI, then start the execution.
-    //
-    //===----------------------------------------------------------------------===//
     let cli = Cli::parse();
 
     if let Err(e) = init_node(cli.node_file.as_deref()) {
