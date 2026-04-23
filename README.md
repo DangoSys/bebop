@@ -12,15 +12,10 @@ cd bebop
 git checkout next
 ```
 
-2. Initialize all nodes from source tree (spike / bemu / verilator)
+2. Build the simulator
 
 ```
-./scripts/install-nodes.sh
-```
-
-3. Build with Nix package flow
-
-```
+cd bebop
 nix build
 ```
 
@@ -33,14 +28,15 @@ nix develop
 bebop bemu /path/to/pk-tests
 
 # per allocated bank 64-bit hash after each RoCC insn
-bebop bemu /path/to/pk-tests --step
+bebop bemu /path/to/pk-tests --step   
 
 # verilator-engine only, RTL SHM lane (Unix + `verilator`)
-bebop verilator /path/to/pk-tests
+bebop verilator /path/to/pk-tests   
 
 # bemu-tests + verilator-engine, dual lane + optional FNV `bank_digest` check
-bebop difftest /path/to/pk-tests
+bebop difftest /path/to/pk-tests       
 
 # optional: print every bank (default: allocated only)
-bebop bemu /path/to/pk-tests --step --all-banks
+bebop bemu /path/to/pk-tests --step --all-banks  
 ```
+

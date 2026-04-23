@@ -2,17 +2,23 @@ use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-static ON: AtomicBool = AtomicBool::new(true);
+static INIT: AtomicBool = AtomicBool::new(false);
+static ON: AtomicBool = AtomicBool::new(false);
 
 static W_IDLE_NS: AtomicU64 = AtomicU64::new(0);
 static W_WORK_NS: AtomicU64 = AtomicU64::new(0);
 static W_MEM_RPC_NS: AtomicU64 = AtomicU64::new(0);
 
-pub fn set_on(v: bool) {
-    ON.store(v, Ordering::Release);
+fn ensure_init() {
+    if INIT.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let v = std::env::var("BEBOP_IPC_STATS").unwrap_or_default();
+    ON.store(v == "1", Ordering::Release);
 }
 
 pub fn on() -> bool {
+    ensure_init();
     ON.load(Ordering::Acquire)
 }
 

@@ -6,18 +6,14 @@ use std::time::Instant;
 use crate::framework::node;
 use crate::framework::shm::layout::{BebopShm, BEBOP_SHM_SIZE};
 use crate::framework::shm::ShmMap;
+use crate::framework::utils::env::must_nonempty;
 use crate::framework::utils::ipc_stats;
 use crate::node::verilator::{cosim_set_mem16_reader, cosim_set_mem16_writer, CosimGuard};
 
 use super::diff::config::DiffCfg;
 use super::runner::{mem_req_write16, run_cmd_rtl, shm_mem_read16, ShmMemLane, Tick};
 
-pub fn run(
-    step_on: bool,
-    diff_all_banks: bool,
-    shm_name: String,
-    ipc_stats_on: bool,
-) -> Result<(), String> {
+pub fn run(step_on: bool, diff_all_banks: bool) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     unsafe {
         libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
@@ -26,8 +22,8 @@ pub fn run(
     if node_id == 0 {
         return Err("verilator-engine: node_id must be > 0".into());
     }
-    ipc_stats::set_on(ipc_stats_on);
-    let cs = CString::new(shm_name).map_err(|_| "verilator-engine: shm name has NUL")?;
+    let name = must_nonempty("BEBOP_SHM_NAME").map_err(|e| format!("verilator-engine: {e}"))?;
+    let cs = CString::new(name).map_err(|_| "verilator-engine: shm name has NUL")?;
     if !cs.as_bytes().starts_with(b"/") {
         return Err("verilator-engine: shm name must start with '/'".into());
     }
