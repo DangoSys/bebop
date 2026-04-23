@@ -1,4 +1,0 @@
-# C/C++ style for clang-format (--style=file:tools/clang-format.yaml)
-BasedOnStyle: LLVM
-IndentWidth: 2
-ColumnLimit: 100
