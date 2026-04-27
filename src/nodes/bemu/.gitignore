@@ -1,0 +1,14 @@
+# Rust build artifacts
+target/
+Cargo.lock
+
+# Spike build artifacts
+spike_build/
+spike_install/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

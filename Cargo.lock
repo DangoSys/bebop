@@ -65,6 +65,7 @@ dependencies = [
 name = "bebop"
 version = "0.1.0"
 dependencies = [
+ "bebop-bemu",
  "bebop-verilator",
  "camino",
  "clap",
@@ -79,10 +80,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "bebop-bemu"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "clap",
+ "snafu",
+]
+
+[[package]]
 name = "bebop-verilator"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "clap",
  "snafu",
 ]
 
