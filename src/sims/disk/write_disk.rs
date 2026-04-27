@@ -1,6 +1,6 @@
 use std::{fs, ops::Range, path::Path};
 
-use snafu::Whatever;
+use snafu::{Whatever, FromString};
 
 const EI_CLASS: usize = 4;
 const EI_DATA: usize = 5;

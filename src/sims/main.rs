@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use snafu::Whatever;
 
 struct BebopSim {
@@ -11,6 +12,6 @@ impl BebopSim {
     }
 
     fn run(self) -> Result<(), Whatever> {
-
+        Ok(())
     }
 }

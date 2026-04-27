@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "src/nodes/verilator"]
+members = [".", "src/nodes/verilator", "src/nodes/bemu"]
 resolver = "2"
 
 [package]
@@ -15,8 +15,14 @@ path = "src/main.rs"
 name = "bebop"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
+[features]
+default = []
+verilator = ["dep:bebop-verilator"]
+bemu = ["dep:bebop-bemu"]
+
 [dependencies]
-bebop-verilator = { path = "src/nodes/verilator" }
+bebop-verilator = { path = "src/nodes/verilator", optional = true }
+bebop-bemu = { path = "src/nodes/bemu", optional = true }
 clap = { version = "4", features = ["derive"] }
 libc = "0.2"
 log = "0.4"
