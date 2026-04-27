@@ -1,0 +1,14 @@
+[package]
+name = "bebop-verilator"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+snafu = "0.8"
+
+[build-dependencies]
+cc = { version = "1", features = ["parallel"] }

@@ -4,7 +4,7 @@ repos:
       - id: clang-format
         name: clang-format (C/C++)
         language: system
-        entry: bash tools/pre-commit-clang-format.sh
+        entry: bash scripts/tools/pre-commit-clang-format.sh
         types_or: [c, c++]
         files: \.(c|h|cc|cpp|cxx|hpp|hxx)$
 
