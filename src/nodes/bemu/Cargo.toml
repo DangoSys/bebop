@@ -5,10 +5,13 @@ edition = "2021"
 
 [lib]
 path = "src/lib.rs"
+crate-type = ["rlib"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 snafu = "0.8"
+once_cell = "1"
+bebop-elf = { path = "../lib/elf" }
 
 [build-dependencies]
 cc = { version = "1", features = ["parallel"] }

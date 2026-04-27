@@ -4,26 +4,19 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const SPIKE_REPO: &str = "https://github.com/riscv-software-src/riscv-isa-sim.git";
-const SPIKE_TAG: &str = "master"; 
+const SPIKE_TAG: &str = "master";
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let repo_root = manifest_dir
-        .ancestors()
-        .nth(3)
-        .expect("bemu crate should live under bebop/src/nodes/bemu")
-        .to_path_buf();
-    let bb_root = repo_root
-        .parent()
-        .expect("bebop repo should live under buckyball root")
-        .to_path_buf();
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
 
     let spike_dir = manifest_dir.join("spike");
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let spike_install_dir = out_dir.join("spike_install");
     let spike_build_dir = out_dir.join("spike_build");
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/buckyball_rocc.cc");
+    println!("cargo:rerun-if-changed=src/spike_wrapper.cc");
 
     // Download spike if not exists
     if !spike_dir.exists() || !spike_dir.join("configure.ac").exists() {
@@ -31,15 +24,43 @@ fn main() {
         download_spike(&spike_dir);
     }
 
+    // Copy buckyball_rocc.cc to spike customext
+    let customext_dir = spike_dir.join("customext");
+    fs::copy(
+        manifest_dir.join("src/buckyball_rocc.cc"),
+        customext_dir.join("buckyball_rocc.cc")
+    ).expect("copy buckyball_rocc.cc");
+
+    // Patch customext.mk.in to include buckyball_rocc.cc
+    let customext_mk = customext_dir.join("customext.mk.in");
+    let mk_content = fs::read_to_string(&customext_mk).expect("read customext.mk.in");
+    if !mk_content.contains("buckyball_rocc.cc") {
+        let patched = mk_content.replace(
+            "customext_srcs = \\\n\tdummy_rocc.cc \\\n\tcflush.cc \\\n",
+            "customext_srcs = \\\n\tdummy_rocc.cc \\\n\tcflush.cc \\\n\tbuckyball_rocc.cc \\\n"
+        );
+        fs::write(&customext_mk, patched).expect("write customext.mk.in");
+    }
+
     // Build and install spike
     build_spike(&spike_dir, &spike_build_dir, &spike_install_dir);
+
+    // Compile spike_wrapper.cc (after spike is installed)
+    cc::Build::new()
+        .cpp(true)
+        .file("src/spike_wrapper.cc")
+        .include(spike_install_dir.join("include/riscv"))
+        .include(spike_install_dir.join("include/fesvr"))
+        .flag("-std=c++17")
+        .compile("spike_wrapper");
 
     // Link spike libraries
     println!("cargo:rustc-link-search=native={}/lib", spike_install_dir.display());
     println!("cargo:rustc-link-lib=dylib=riscv");
-    println!("cargo:rustc-link-lib=static=disasm");
+    println!("cargo:rustc-link-lib=dylib=disasm");
     println!("cargo:rustc-link-lib=dylib=softfloat");
-    println!("cargo:rustc-link-lib=static=fesvr");
+    println!("cargo:rustc-link-lib=dylib=fesvr");
+    println!("cargo:rustc-link-lib=dylib=customext");
     println!("cargo:rustc-link-lib=dylib=stdc++");
 }
 
@@ -88,7 +109,6 @@ fn build_spike(spike_dir: &Path, build_dir: &Path, install_dir: &Path) {
 
     println!("cargo:warning=Building spike from {}", spike_dir.display());
 
-    // Run configure (disable Boost dependencies)
     let configure_status = Command::new(spike_dir.join("configure"))
         .current_dir(build_dir)
         .arg(format!("--prefix={}", install_dir.display()))
@@ -104,7 +124,6 @@ fn build_spike(spike_dir: &Path, build_dir: &Path, install_dir: &Path) {
         panic!("spike configure failed with status {}", configure_status);
     }
 
-    // Run make
     let make_status = Command::new("make")
         .current_dir(build_dir)
         .arg("-j")
@@ -118,7 +137,6 @@ fn build_spike(spike_dir: &Path, build_dir: &Path, install_dir: &Path) {
         panic!("spike make failed with status {}", make_status);
     }
 
-    // Run make install
     let install_status = Command::new("make")
         .current_dir(build_dir)
         .arg("install")
