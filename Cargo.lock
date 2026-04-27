@@ -84,6 +84,7 @@ name = "bebop-bemu"
 version = "0.1.0"
 dependencies = [
  "bebop-elf",
+ "bebop-syscall",
  "cc",
  "clap",
  "once_cell",
@@ -93,6 +94,13 @@ dependencies = [
 [[package]]
 name = "bebop-elf"
 version = "0.1.0"
+
+[[package]]
+name = "bebop-syscall"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+]
 
 [[package]]
 name = "bebop-verilator"
