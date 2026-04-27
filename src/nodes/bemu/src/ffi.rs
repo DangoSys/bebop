@@ -2,6 +2,7 @@ use std::sync::Mutex;
 use std::os::raw::c_char;
 use once_cell::sync::Lazy;
 use bebop_elf::load_elf;
+use bebop_syscall::{handle_syscall, get_exit_code};
 
 use crate::bank::{BankConfig, BankMap, BANK_NUM, BANK_SIZE};
 use crate::inst;
@@ -67,6 +68,39 @@ pub extern "C" fn buckyball_exec(funct7: u8, xs1: u64, xs2: u64) -> u64 {
     ).unwrap_or_else(|| {
         panic!("unknown funct7: {}", funct7)
     })
+}
+
+/// Handle system call from guest program
+/// Returns (result, should_exit)
+#[no_mangle]
+pub extern "C" fn handle_syscall_ffi(
+    syscall_num: u64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+    a4: u64,
+    a5: u64,
+) -> u64 {
+    let mut state = EMU_STATE.lock().unwrap();
+    let (result, _should_exit) = handle_syscall(
+        syscall_num,
+        a0, a1, a2, a3, a4, a5,
+        &mut state.memory,
+    );
+    result
+}
+
+/// Check if program should exit
+#[no_mangle]
+pub extern "C" fn should_exit() -> bool {
+    get_exit_code().is_some()
+}
+
+/// Get exit code
+#[no_mangle]
+pub extern "C" fn get_exit_code_ffi() -> i32 {
+    get_exit_code().unwrap_or(0)
 }
 
 extern "C" {

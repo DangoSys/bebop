@@ -3,6 +3,7 @@
 #include "cfg.h"
 #include "extension.h"
 #include "simif.h"
+#include "trap.h"
 #include <vector>
 #include <string>
 #include <cstring>
@@ -10,6 +11,12 @@
 
 #define SIM_EXIT_ADDR 0x60000000UL
 #define DRAM_BASE 0x80000000UL
+
+extern "C" {
+    uint64_t handle_syscall_ffi(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+    bool should_exit();
+    int get_exit_code_ffi();
+}
 
 // Simple simif implementation without HTIF
 class simple_simif_t : public simif_t {
@@ -74,41 +81,64 @@ int spike_run_raw(
     uint64_t entry,
     const char* log_path
 ) {
-    try {
-        // Create simif with Rust-provided memory
-        simple_simif_t simif(mem_ptr, mem_size, isa);
+    // Create simif with Rust-provided memory
+    simple_simif_t simif(mem_ptr, mem_size, isa);
 
-        // Create processor
-        FILE* log_file = nullptr;
-        if (log_path && strlen(log_path) > 0) {
-            log_file = fopen(log_path, "w");
-        }
-
-        processor_t proc(isa, "MSU", &simif.get_cfg(), &simif, 0, false, log_file, std::cerr);
-
-        // Load buckyball extension
-        auto ext_factory = find_extension("buckyball");
-        if (ext_factory) {
-            proc.register_extension(ext_factory());
-        }
-
-        // Set PC to entry point (provided by Rust)
-        proc.get_state()->pc = entry;
-
-        // Run until sim_exit
-        while (!simif.exit_requested) {
-            proc.step(1);
-        }
-
-        if (log_file) {
-            fclose(log_file);
-        }
-
-        return 0;
-    } catch (const std::exception& e) {
-        fprintf(stderr, "spike_run error: %s\n", e.what());
-        return 1;
+    // Create processor
+    FILE* log_file = nullptr;
+    if (log_path && strlen(log_path) > 0) {
+        log_file = fopen(log_path, "w");
     }
-}
 
+    processor_t proc(isa, "MSU", &simif.get_cfg(), &simif, 0, false, log_file, std::cerr);
+
+    // Load buckyball extension
+    auto ext_factory = find_extension("buckyball");
+    if (ext_factory) {
+        proc.register_extension(ext_factory());
+    }
+
+    // Set PC to entry point (provided by Rust)
+    proc.get_state()->pc = entry;
+
+    // Run until sim_exit or syscall exit
+    while (!simif.exit_requested && !should_exit()) {
+        try {
+            proc.step(1);
+        } catch (trap_t& t) {
+            // Handle traps (exceptions)
+            if (t.cause() == CAUSE_USER_ECALL ||
+                t.cause() == CAUSE_SUPERVISOR_ECALL ||
+                t.cause() == CAUSE_MACHINE_ECALL) {
+                // System call - get arguments from registers
+                state_t* state = proc.get_state();
+                uint64_t syscall_num = state->XPR[17]; // a7
+                uint64_t a0 = state->XPR[10];
+                uint64_t a1 = state->XPR[11];
+                uint64_t a2 = state->XPR[12];
+                uint64_t a3 = state->XPR[13];
+                uint64_t a4 = state->XPR[14];
+                uint64_t a5 = state->XPR[15];
+
+                // Call Rust syscall handler
+                uint64_t result = handle_syscall_ffi(syscall_num, a0, a1, a2, a3, a4, a5);
+
+                // Set return value
+                state->XPR.write(10, result); // a0
+
+                // Advance PC past ecall instruction
+                state->pc += 4;
+            } else {
+                // Other trap - re-throw, will crash
+                throw;
+            }
+        }
+    }
+
+    if (log_file) {
+        fclose(log_file);
+    }
+
+    return should_exit() ? get_exit_code_ffi() : 0;
+}
 }
