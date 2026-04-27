@@ -85,7 +85,7 @@ rec {
   ];
 
   shellHook = ''
-    echo "riscv gcc: $(command -v riscv64-none-elf-gcc)"
-    echo "pk: $(command -v pk)"
+    # echo "riscv gcc: $(command -v riscv64-none-elf-gcc)"
+    # echo "pk: $(command -v pk)"
   '';
 }

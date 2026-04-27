@@ -12,11 +12,12 @@
   gcc = pkgs.gcc;
   boost = pkgs.boost.dev;
   python3 = pkgs.python3;
-  rustAnalyzer = pkgs.rust-analyzer;
-  cargoWatch = pkgs.cargo-watch;
-  preCommit = pkgs.pre-commit;
   clangTools = pkgs.clang-tools;
-  rust = pkgs.rust-bin.stable.latest.default;
+  cargo = pkgs.cargo;
+  rustc = pkgs.rustc;
+  rustfmt = pkgs.rustfmt;
+  clippy = pkgs.clippy;
+  preCommit = pkgs.pre-commit;
 
   riscvGcc = pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc;
   riscvBinutils = pkgs.pkgsCross.riscv64-embedded.buildPackages.binutils;
