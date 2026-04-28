@@ -35,7 +35,12 @@ class buckyball_rocc_t : public rocc_t {
   }
 };
 
-REGISTER_EXTENSION(buckyball, []() {
+// Export the factory function so spike_wrapper.cc can call it directly
+std::function<extension_t*()> buckyball_extension_factory = []() {
   static buckyball_rocc_t ext;
   return &ext;
-})
+};
+
+// NOTE: Do NOT use REGISTER_EXTENSION macro here, as it will cause Spike to
+// try to dlopen() the extension library, which doesn't exist. Instead, we
+// manually register the extension in spike_wrapper.cc via ensure_buckyball_registered().
