@@ -13,6 +13,8 @@ snafu = "0.8"
 once_cell = "1"
 bebop-elf = { path = "../lib/elf" }
 bebop-syscall = { path = "../lib/syscall" }
+bebop-dtb = { path = "../lib/dtb" }
+bebop-uart = { path = "../lib/uart" }
 
 [build-dependencies]
 cc = { version = "1", features = ["parallel"] }

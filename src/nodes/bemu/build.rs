@@ -24,44 +24,29 @@ fn main() {
         download_spike(&spike_dir);
     }
 
-    // Copy buckyball_rocc.cc to spike customext
-    let customext_dir = spike_dir.join("customext");
-    fs::copy(
-        manifest_dir.join("src/buckyball_rocc.cc"),
-        customext_dir.join("buckyball_rocc.cc")
-    ).expect("copy buckyball_rocc.cc");
-
-    // Patch customext.mk.in to include buckyball_rocc.cc
-    let customext_mk = customext_dir.join("customext.mk.in");
-    let mk_content = fs::read_to_string(&customext_mk).expect("read customext.mk.in");
-    if !mk_content.contains("buckyball_rocc.cc") {
-        let patched = mk_content.replace(
-            "customext_srcs = \\\n\tdummy_rocc.cc \\\n\tcflush.cc \\\n",
-            "customext_srcs = \\\n\tdummy_rocc.cc \\\n\tcflush.cc \\\n\tbuckyball_rocc.cc \\\n"
-        );
-        fs::write(&customext_mk, patched).expect("write customext.mk.in");
-    }
-
-    // Build and install spike
+    // Build and install spike (without buckyball_rocc.cc in customext)
     build_spike(&spike_dir, &spike_build_dir, &spike_install_dir);
 
-    // Compile spike_wrapper.cc (after spike is installed)
+    // Compile spike_wrapper.cc and buckyball_rocc.cc together
     cc::Build::new()
         .cpp(true)
         .file("src/spike_wrapper.cc")
+        .file("src/buckyball_rocc.cc")
         .include(spike_install_dir.join("include/riscv"))
         .include(spike_install_dir.join("include/fesvr"))
         .flag("-std=c++17")
         .compile("spike_wrapper");
 
-    // Link spike libraries
+    // Link spike libraries (no need for libcustomext.so anymore)
     println!("cargo:rustc-link-search=native={}/lib", spike_install_dir.display());
     println!("cargo:rustc-link-lib=dylib=riscv");
     println!("cargo:rustc-link-lib=dylib=disasm");
     println!("cargo:rustc-link-lib=dylib=softfloat");
     println!("cargo:rustc-link-lib=dylib=fesvr");
-    println!("cargo:rustc-link-lib=dylib=customext");
     println!("cargo:rustc-link-lib=dylib=stdc++");
+
+    // Set rpath so the binary can find the libraries at runtime
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{}/lib", spike_install_dir.display());
 }
 
 fn download_spike(spike_dir: &Path) {

@@ -2,8 +2,6 @@ pub mod bank;
 pub mod config;
 pub mod ffi;
 pub mod inst;
+mod bemu;
 
-#[path = "main.rs"]
-mod main_impl;
-
-pub use main_impl::{run, BemuCli};
+pub use bemu::{run, BemuCli};

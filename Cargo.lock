@@ -83,13 +83,19 @@ dependencies = [
 name = "bebop-bemu"
 version = "0.1.0"
 dependencies = [
+ "bebop-dtb",
  "bebop-elf",
  "bebop-syscall",
+ "bebop-uart",
  "cc",
  "clap",
  "once_cell",
  "snafu",
 ]
+
+[[package]]
+name = "bebop-dtb"
+version = "0.1.0"
 
 [[package]]
 name = "bebop-elf"
@@ -101,6 +107,10 @@ version = "0.1.0"
 dependencies = [
  "once_cell",
 ]
+
+[[package]]
+name = "bebop-uart"
+version = "0.1.0"
 
 [[package]]
 name = "bebop-verilator"

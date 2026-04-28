@@ -39,7 +39,7 @@ pub fn exec(
     if kin == 0 {
         panic!("mul_warp16: iter must be > 0");
     }
-    let need = kin * 16;
+    let need = kin * WARP_N;
     if need > banks[p1].len() || need > banks[p2].len() {
         panic!("mul_warp16: iter too large for bank");
     }
