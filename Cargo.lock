@@ -66,6 +66,7 @@ name = "bebop"
 version = "0.1.0"
 dependencies = [
  "bebop-bemu",
+ "bebop-p2e",
  "bebop-verilator",
  "camino",
  "clap",
@@ -102,6 +103,16 @@ name = "bebop-elf"
 version = "0.1.0"
 
 [[package]]
+name = "bebop-p2e"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "log",
+ "once_cell",
+ "snafu",
+]
+
+[[package]]
 name = "bebop-syscall"
 version = "0.1.0"
 dependencies = [
@@ -116,8 +127,14 @@ version = "0.1.0"
 name = "bebop-verilator"
 version = "0.1.0"
 dependencies = [
+ "bebop-uart",
  "cc",
  "clap",
+ "goblin",
+ "libc",
+ "memmap2",
+ "serde",
+ "serde_json",
  "snafu",
 ]
 
@@ -283,6 +300,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "goblin"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b363a30c165f666402fe6a3024d3bec7ebc898f96a4a23bd1c99f8dbf3f4f47"
+dependencies = [
+ "log",
+ "plain",
+ "scroll",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -309,6 +337,12 @@ name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
+
+[[package]]
+name = "itoa"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jiff"
@@ -363,6 +397,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
+name = "memmap2"
+version = "0.9.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "714098028fe011992e1c3962653c96b2d578c4b4bce9036e15ff220319b1e0e3"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "nix"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -412,6 +455,12 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+
+[[package]]
+name = "plain"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "portable-atomic"
@@ -482,6 +531,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
+name = "scroll"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ab8598aa408498679922eff7fa985c25d58a90771bd6be794434c5277eab1a6"
+dependencies = [
+ "scroll_derive",
+]
+
+[[package]]
+name = "scroll_derive"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1783eabc414609e28a5ba76aee5ddd52199f7107a0b24c2e9746a1ecc34a683d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -509,6 +578,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.149"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
+dependencies = [
+ "itoa",
+ "memchr",
+ "serde",
+ "serde_core",
+ "zmij",
 ]
 
 [[package]]
@@ -655,3 +737,9 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+
+[[package]]
+name = "zmij"
+version = "1.0.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"

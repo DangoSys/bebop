@@ -1,0 +1,41 @@
+use std::io::Write;
+use crate::state::SyscallState;
+
+pub fn handle_write(
+    state: &mut SyscallState,
+    fd: u64,
+    buf_addr: u64,
+    count: usize,
+    memory: &[u8],
+) -> (u64, bool) {
+    if fd == 1 || fd == 2 {
+        if buf_addr < 0x80000000 || buf_addr + count as u64 > 0x80000000 + memory.len() as u64 {
+            return ((-1i64 as u64), false);
+        }
+        let offset = (buf_addr - 0x80000000) as usize;
+        let data = &memory[offset..offset + count];
+
+        if let Ok(s) = std::str::from_utf8(data) {
+            print!("{}", s);
+            std::io::stdout().flush().ok();
+        } else {
+            std::io::stdout().write_all(data).ok();
+        }
+        (count as u64, false)
+    } else {
+        if let Some(file) = state.open_files.get_mut(&fd) {
+            if buf_addr < 0x80000000 || buf_addr + count as u64 > 0x80000000 + memory.len() as u64 {
+                return ((-1i64 as u64), false);
+            }
+            let offset = (buf_addr - 0x80000000) as usize;
+            let data = &memory[offset..offset + count];
+
+            match file.write(data) {
+                Ok(n) => (n as u64, false),
+                Err(_) => ((-1i64 as u64), false),
+            }
+        } else {
+            ((-1i64 as u64), false)
+        }
+    }
+}

@@ -9,14 +9,15 @@ const SPIKE_TAG: &str = "master";
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
+    let native_dir = manifest_dir.join("native");
 
-    let spike_dir = manifest_dir.join("spike");
+    let spike_dir = native_dir.join("spike");
     let spike_install_dir = out_dir.join("spike_install");
     let spike_build_dir = out_dir.join("spike_build");
 
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=src/buckyball_rocc.cc");
-    println!("cargo:rerun-if-changed=src/spike_wrapper.cc");
+    println!("cargo:rerun-if-changed={}", native_dir.join("rocc.cc").display());
+    println!("cargo:rerun-if-changed={}", native_dir.join("spike_wrapper.cc").display());
 
     // Download spike if not exists
     if !spike_dir.exists() || !spike_dir.join("configure.ac").exists() {
@@ -24,14 +25,14 @@ fn main() {
         download_spike(&spike_dir);
     }
 
-    // Build and install spike (without buckyball_rocc.cc in customext)
+    // Build and install spike (without rocc.cc in customext)
     build_spike(&spike_dir, &spike_build_dir, &spike_install_dir);
 
-    // Compile spike_wrapper.cc and buckyball_rocc.cc together
+    // Compile spike_wrapper.cc and rocc.cc together
     cc::Build::new()
         .cpp(true)
-        .file("src/spike_wrapper.cc")
-        .file("src/buckyball_rocc.cc")
+        .file(native_dir.join("spike_wrapper.cc"))
+        .file(native_dir.join("rocc.cc"))
         .include(spike_install_dir.join("include/riscv"))
         .include(spike_install_dir.join("include/fesvr"))
         .flag("-std=c++17")

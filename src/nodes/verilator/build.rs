@@ -74,16 +74,24 @@ fn main() {
     build.include(verilator_root.join("include"));
     build.include(verilator_root.join("include/vltstd"));
 
-    if let Some(dir) = pkg_config_var("readline", "includedir") {
-        if !dir.is_empty() {
-            build.include(dir);
+    // Only compile minimal wrapper + DRAMSim2 + generated Verilator code
+    // DPI-C callbacks are now in Rust (dpi.rs)
+    build.file(native_dir.join("verilator.cc"));
+
+    // Include all monitor source files (DPI-C callbacks, trace, etc.)
+    for file in &csrcs {
+        let file_name = file.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        let path_str = file.to_string_lossy();
+
+        // Include all monitor files (trace, ioe, bdb, utils)
+        if path_str.contains("/src/csrc/src/monitor/") {
+            // Skip main.cc if it exists in monitor
+            if file_name != "main.cc" {
+                build.file(file);
+            }
         }
     }
 
-    build.file(native_dir.join("main.cc"));
-    for file in &csrcs {
-        build.file(file);
-    }
     for file in &generated_cpps {
         build.file(file);
     }
@@ -92,6 +100,16 @@ fn main() {
     }
 
     build.compile("bebop_verilator_native");
+
+    // Link against required libraries
+    println!("cargo:rustc-link-lib=static=bebop_verilator_native");
+    println!("cargo:rustc-link-lib=z");  // zlib for compression
+    println!("cargo:rustc-link-lib=stdc++");  // C++ standard library
+
+    // Link against DRAMSim2
+    let dramsim2_dir = bb_root.join("arch/thirdparty/chipyard/tools/DRAMSim2");
+    println!("cargo:rustc-link-search=native={}", dramsim2_dir.display());
+    println!("cargo:rustc-link-lib=static=dramsim");
 }
 
 fn env_flag(name: &str) -> bool {

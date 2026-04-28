@@ -29,8 +29,6 @@ pub mod f51_quant;
 pub mod f52_dequant;
 #[path = "53_gemmini_preload.rs"]
 pub mod f53_gemmini_preload;
-#[path = "54_bdb_backdoor.rs"]
-pub mod f54_bdb_backdoor;
 #[path = "64_mul_warp16.rs"]
 pub mod f64_mul_warp16;
 #[path = "65_bfp.rs"]

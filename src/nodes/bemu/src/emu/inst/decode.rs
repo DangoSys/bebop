@@ -4,7 +4,7 @@ use super::super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::{
     f00_fence, f01_barrier, f02_gemmini_config, f03_gemmini_flush, f04_bdb_counter, f16_mvout,
     f32_mset, f33_mvin, f48_im2col, f49_transpose, f50_relu, f51_quant, f52_dequant,
-    f53_gemmini_preload, f54_bdb_backdoor, f64_mul_warp16, f65_bfp, f66_gemmini_compute_preloaded,
+    f53_gemmini_preload, f64_mul_warp16, f65_bfp, f66_gemmini_compute_preloaded,
     f67_gemmini_compute_accumulated, f80_gemmini_loop_ws, f96_gemmini_loop_conv_ws,
 };
 
@@ -22,7 +22,6 @@ pub const FUNCT_RELU: u32 = 50;
 pub const FUNCT_QUANT: u32 = 51;
 pub const FUNCT_DEQUANT: u32 = 52;
 pub const FUNCT_GEMMINI_PRELOAD: u32 = 53;
-pub const FUNCT_BDB_BACKDOOR: u32 = 54;
 pub const FUNCT_MUL_WARP16: u32 = 64;
 pub const FUNCT_BFP: u32 = 65;
 pub const FUNCT_GEMMINI_COMPUTE_PRELOADED: u32 = 66;
@@ -158,7 +157,6 @@ pub fn execute_known(
         FUNCT_QUANT => f51_quant::exec(xs1, xs2, banks, cfgs, bank_map),
         FUNCT_DEQUANT => f52_dequant::exec(xs1, xs2, banks, cfgs, bank_map),
         FUNCT_GEMMINI_PRELOAD => f53_gemmini_preload::exec(xs1, xs2, banks, cfgs, bank_map),
-        FUNCT_BDB_BACKDOOR => f54_bdb_backdoor::exec(),
         FUNCT_BFP => f65_bfp::exec(xs1, xs2, banks, cfgs, bank_map),
         FUNCT_GEMMINI_COMPUTE_PRELOADED => {
             f66_gemmini_compute_preloaded::exec(xs1, xs2, banks, cfgs, bank_map)

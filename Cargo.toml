@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "src/nodes/verilator", "src/nodes/bemu"]
+members = [".", "src/nodes/verilator", "src/nodes/bemu", "src/nodes/p2e"]
 resolver = "2"
 
 [package]
@@ -19,10 +19,13 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 default = []
 verilator = ["dep:bebop-verilator"]
 bemu = ["dep:bebop-bemu"]
+p2e = ["dep:bebop-p2e"]
+build-bitstream = ["bebop-p2e?/build-bitstream"]
 
 [dependencies]
 bebop-verilator = { path = "src/nodes/verilator", optional = true }
 bebop-bemu = { path = "src/nodes/bemu", optional = true }
+bebop-p2e = { path = "src/nodes/p2e", optional = true }
 clap = { version = "4", features = ["derive"] }
 libc = "0.2"
 log = "0.4"

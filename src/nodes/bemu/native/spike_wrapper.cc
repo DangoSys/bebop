@@ -36,7 +36,7 @@ static void crash_handler(int sig) {
 }
 
 // Forward declare the buckyball extension factory
-// This is defined in buckyball_rocc.cc via REGISTER_EXTENSION macro
+// This is defined in rocc.cc via REGISTER_EXTENSION macro
 extern std::function<extension_t*()> buckyball_extension_factory;
 
 // Manually register buckyball extension to avoid dlopen() issues
