@@ -1,0 +1,46 @@
+use std::fs::File;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
+use crate::constants::*;
+use crate::utils::*;
+
+pub static SYSCALL_STATE: Lazy<Mutex<SyscallState>> = Lazy::new(|| {
+    Mutex::new(SyscallState::new())
+});
+
+pub struct SyscallState {
+    pub open_files: HashMap<u64, File>,
+    pub next_fd: u64,
+    pub exit_code: Option<i32>,
+    pub brk_addr: u64,
+    pub mmap_base: u64,
+}
+
+impl SyscallState {
+    pub fn new() -> Self {
+        Self {
+            open_files: HashMap::new(),
+            next_fd: 3, // 0, 1, 2 are stdin, stdout, stderr
+            exit_code: None,
+            brk_addr: 0,
+            mmap_base: 0,
+        }
+    }
+
+    pub fn alloc_fd(&mut self, file: File) -> u64 {
+        let fd = self.next_fd;
+        self.next_fd += 1;
+        self.open_files.insert(fd, file);
+        fd
+    }
+}
+
+pub fn get_exit_code() -> Option<i32> {
+    SYSCALL_STATE.lock().unwrap().exit_code
+}
+
+pub fn reset_syscall_state() {
+    let mut state = SYSCALL_STATE.lock().unwrap();
+    *state = SyscallState::new();
+}

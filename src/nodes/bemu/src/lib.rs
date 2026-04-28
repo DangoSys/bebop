@@ -1,7 +1,13 @@
-pub mod bank;
-pub mod config;
-pub mod ffi;
-pub mod inst;
-mod bemu;
+mod config;
+mod sim;
 
-pub use bemu::{run, BemuCli};
+#[path = "../native/ffi.rs"]
+mod ffi;
+
+#[path = "emu/bank/mod.rs"]
+mod bank;
+
+#[path = "emu/inst/mod.rs"]
+mod inst;
+
+pub use sim::{run, BemuCli};

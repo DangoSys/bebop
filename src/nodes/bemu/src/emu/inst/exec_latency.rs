@@ -9,7 +9,7 @@ use super::decode::{
 use super::{
     f00_fence, f01_barrier, f02_gemmini_config, f03_gemmini_flush, f04_bdb_counter, f16_mvout,
     f32_mset, f33_mvin, f48_im2col, f49_transpose, f50_relu, f51_quant, f52_dequant,
-    f53_gemmini_preload, f54_bdb_backdoor, f64_mul_warp16, f65_bfp, f66_gemmini_compute_preloaded,
+    f53_gemmini_preload, f64_mul_warp16, f65_bfp, f66_gemmini_compute_preloaded,
     f67_gemmini_compute_accumulated, f80_gemmini_loop_ws, f96_gemmini_loop_conv_ws,
 };
 
@@ -29,7 +29,6 @@ pub fn cycles_after_issue(funct: u32, xs1: u64, xs2: u64) -> u64 {
         FUNCT_QUANT => f51_quant::latency(xs1, xs2),
         FUNCT_DEQUANT => f52_dequant::latency(xs1, xs2),
         FUNCT_GEMMINI_PRELOAD => f53_gemmini_preload::latency(xs1, xs2),
-        decode::FUNCT_BDB_BACKDOOR => f54_bdb_backdoor::latency(xs1, xs2),
         FUNCT_MUL_WARP16 => f64_mul_warp16::latency(xs1, xs2),
         FUNCT_BFP => f65_bfp::latency(xs1, xs2),
         FUNCT_GEMMINI_COMPUTE_PRELOADED => f66_gemmini_compute_preloaded::latency(xs1, xs2),

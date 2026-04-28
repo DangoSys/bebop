@@ -1,26 +1,28 @@
 use clap::Parser;
-use snafu::Whatever;
+use snafu::{Whatever, FromString};
 
 #[derive(Debug, Parser)]
-#[command(disable_help_flag = true)]
+#[command(name = "bebop-verilator", about = "Bebop Verilator Simulator")]
 struct CliArgs {
-  #[arg(long)]
+  #[arg(long, help = "Specify log file path (NDJSON trace)")]
   log: String,
-  #[arg(long)]
+  #[arg(long, help = "Specify FST waveform file path")]
   fst: String,
-  #[arg(long)]
-  trace: Option<String>,
-  #[arg(long = "trace-mask")]
-  trace_mask: Option<String>,
-  #[arg(long)]
-  batch: bool,
-  #[arg(long)]
-  help: bool,
+  #[arg(long, help = "Enable instruction trace")]
+  itrace: bool,
+  #[arg(long, help = "Enable memory trace")]
+  mtrace: bool,
+  #[arg(long, help = "Enable performance counter trace")]
+  pmctrace: bool,
+  #[arg(long, help = "Enable cycle counter trace")]
+  ctrace: bool,
+  #[arg(long, help = "Enable bank trace")]
+  banktrace: bool,
 }
 
 pub fn parse_args(
   args: Vec<String>,
-) -> Result<(String, String, Option<String>, Option<String>, bool, bool), Whatever> {
+) -> Result<(String, String, bool, bool, bool, bool, bool), Whatever> {
   let mut argv = Vec::with_capacity(args.len() + 1);
   argv.push("bebop-verilator".to_string());
   argv.extend(args);
@@ -29,9 +31,10 @@ pub fn parse_args(
   Ok((
     parsed.log,
     parsed.fst,
-    parsed.trace,
-    parsed.trace_mask,
-    parsed.batch,
-    parsed.help,
+    parsed.itrace,
+    parsed.mtrace,
+    parsed.pmctrace,
+    parsed.ctrace,
+    parsed.banktrace,
   ))
 }
