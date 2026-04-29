@@ -106,9 +106,9 @@ version = "0.1.0"
 name = "bebop-p2e"
 version = "0.1.0"
 dependencies = [
- "libc",
+ "clap",
+ "env_logger",
  "log",
- "once_cell",
  "snafu",
 ]
 

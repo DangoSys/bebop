@@ -24,8 +24,7 @@ nix build
 cd bebop
 nix develop
 
-# current focus: retain the verilator path only
-bebop verilator /path/to/pk-tests
+cargo build --features verilator --config "env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'"
 ```
 
-`bemu` and `p2e` are intentionally not wired at this stage.
+

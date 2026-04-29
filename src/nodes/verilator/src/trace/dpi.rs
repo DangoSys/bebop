@@ -55,3 +55,20 @@ pub extern "C" fn dpi_mem_pmctrace(is_store: u8, rob_id: u32, elapsed: u64) {
 pub extern "C" fn dpi_ctrace(subcmd: u8, ctr_id: u32, tag: u64, elapsed: u64, cycle: u64) {
     trace::ctrace(subcmd, ctr_id, tag, elapsed, cycle);
 }
+
+// ================================================================
+// JTAG DPI-C function
+// ================================================================
+
+#[no_mangle]
+pub extern "C" fn jtag_tick(
+    _tck: *mut u8,
+    _tms: *mut u8,
+    _tdi: *mut u8,
+    _tdo: *mut u8,
+    _trstn: u8,
+    _jtag_id: *mut u32,
+) -> u8 {
+    // Stub implementation - JTAG not currently used
+    0
+}
