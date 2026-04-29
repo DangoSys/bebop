@@ -1,13 +1,10 @@
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
-use std::io::ErrorKind;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 const P2E_TOP: &str = "P2EHarness";
-const VVAC_REL_LIB_DIR: &str = "out/vvacDir/runtimeDir/lib/lib_arm";
 const SOURCE_ME: &str = "sourceme.sh";
 
 fn main() {
@@ -57,71 +54,142 @@ fn main() {
     write_flist(&flist, &vsrcs);
     let sourceme = manifest_dir.join(SOURCE_ME);
     assert_exists(&sourceme, "missing p2e sourceme script");
+
+    println!("cargo:warning=Running vvac to generate DPI-C code...");
     run_vvac(&out_dir, &sourceme, &flist, P2E_TOP);
 
-    let vvac_lib_dir = find_vvac_lib_dir(&bebop_root).unwrap_or_else(|| {
-        panic!(
-            "libvCtb.so not found after vvac under {}",
-            out_dir.display()
-        )
-    });
-    link_vvac(&vvac_lib_dir);
+    println!("cargo:warning=Patching generated code for compatibility...");
+    patch_generated_code(&out_dir);
+
+    println!("cargo:warning=Building DPI-C library with cmake...");
+    build_dpic_library(&out_dir);
+
+    let libctb = out_dir.join("libvCtb.so");
+    assert_exists(&libctb, "missing p2e libvCtb.so");
+
+    println!("cargo:warning=Building C++ wrapper for Rust FFI...");
+    build_cpp_wrapper(&manifest_dir, &out_dir);
+
+    link_vvac(&libctb);
+
+    println!("cargo:warning=✓ P2E VVAC build complete!");
 }
 
 fn run_vvac(out_dir: &Path, sourceme: &Path, flist: &Path, top: &str) {
-    // Create a wrapper bin directory with a clang-format wrapper that clears
-    // LD_LIBRARY_PATH to prevent HPE's old libstdc++.so.6 from breaking Nix's clang-format
-    let wrapper_bin = out_dir.join("wrapper_bin");
-    fs::create_dir_all(&wrapper_bin).expect("create wrapper bin directory");
+    let bebop_root = out_dir.parent().expect("out_dir parent");
 
-    let wrapper_path = wrapper_bin.join("clang-format");
-    let wrapper_content = r#"#!/bin/bash
-# Wrapper to isolate clang-format from HPE's old libstdc++.so.6
-# Find the real clang-format (skip this wrapper)
-real_clang_format=$(PATH="${PATH#*:}" command -v clang-format 2>/dev/null)
-if [ -z "$real_clang_format" ]; then
-    echo "Error: clang-format not found in PATH" >&2
-    exit 127
-fi
-# Clear LD_LIBRARY_PATH to prevent HPE lib pollution
-unset LD_LIBRARY_PATH
-exec "$real_clang_format" "$@"
-"#;
-    fs::write(&wrapper_path, wrapper_content).expect("write clang-format wrapper");
-    fs::set_permissions(&wrapper_path, fs::Permissions::from_mode(0o755))
-        .expect("chmod clang-format wrapper");
-
-    // Create log file for vvac output
-    let log_file = out_dir.join("vvac_build.log");
-    let log_fd = fs::File::create(&log_file).expect("create vvac log file");
-
+    // Run vvac through nix develop to get the right environment
+    // vvac will fail at the cmake step due to LD_LIBRARY_PATH pollution, but that's OK
+    // We'll manually compile the DPI-C library afterwards
     let script = format!(
-        "export PATH='{}':\"$PATH\" && source '{}' && vvac -bc -f '{}' -top '{}' 2>&1 | tee '{}'",
-        sh_quote(&wrapper_bin.display().to_string()),
+        "cd '{}' && nix develop -c bash -c 'cd {} && unset LD_LIBRARY_PATH && mkdir -p {}/.dummy_bin && echo \"#!/bin/bash\" > {}/.dummy_bin/clang-format && echo \"exit 0\" >> {}/.dummy_bin/clang-format && chmod +x {}/.dummy_bin/clang-format && export PATH={}/.dummy_bin:$PATH && source {} && vvac -bc -f {} -top {} 2>&1' | tee {}",
+        sh_quote(&bebop_root.display().to_string()),
+        sh_quote(&out_dir.display().to_string()),
+        sh_quote(&out_dir.display().to_string()),
+        sh_quote(&out_dir.display().to_string()),
+        sh_quote(&out_dir.display().to_string()),
+        sh_quote(&out_dir.display().to_string()),
+        sh_quote(&out_dir.display().to_string()),
         sh_quote(&sourceme.display().to_string()),
         sh_quote(&flist.display().to_string()),
         sh_quote(top),
-        sh_quote(&log_file.display().to_string()),
+        sh_quote(&out_dir.join("vvac_build.log").display().to_string()),
     );
 
-    println!("cargo:warning=VVAC log will be written to: {}", log_file.display());
-    println!("cargo:warning=You can monitor it with: tail -f {}", log_file.display());
+    let status = Command::new("bash")
+        .arg("-c")
+        .arg(&script)
+        .status()
+        .expect("failed to execute vvac");
 
-    let mut cmd = Command::new("bash");
-    cmd.stdout(Stdio::from(log_fd.try_clone().expect("clone log fd")))
-        .stderr(Stdio::from(log_fd))
-        .current_dir(out_dir)
-        .arg("-lc")
-        .arg(script);
+    // vvac will fail at cmake step, but that's expected - check if code was generated
+    let dpic_dir = out_dir.join("vvac.tmp/dpic");
+    assert!(
+        dpic_dir.exists(),
+        "vvac failed to generate dpic directory. Check log: {}",
+        out_dir.join("vvac_build.log").display()
+    );
 
-    let status = match cmd.status() {
-        Ok(status) => status,
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            panic!("bash not found; cannot source p2e environment before running vvac")
+    if !status.success() {
+        println!("cargo:warning=vvac cmake step failed (expected), continuing with manual build...");
+    }
+}
+
+fn patch_generated_code(out_dir: &Path) {
+    // Patch CMakeLists.txt for cmake 4.x compatibility
+    let cmake_lists = out_dir.join("vvac.tmp/dpic/CMakeLists.txt");
+    if cmake_lists.exists() {
+        let content = fs::read_to_string(&cmake_lists).expect("read CMakeLists.txt");
+        let patched = content
+            .replace(
+                "cmake_minimum_required(VERSION 3.4.3)",
+                "cmake_minimum_required(VERSION 3.5)"
+            )
+            .replace(
+                "cmake_path(NORMAL_PATH LD OUTPUT_VARIABLE LD_OUT)",
+                "set(LD_OUT \"${LD}\")  # cmake_path requires cmake 3.20+"
+            );
+        if content != patched {
+            fs::write(&cmake_lists, patched).expect("write patched CMakeLists.txt");
         }
-        Err(error) => panic!("failed to execute vvac through p2e sourceme.sh: {error}"),
-    };
-    assert!(status.success(), "vvac failed with status {status}");
+    }
+
+    // Patch stub.h to fix vvac code generation bug (missing type for parameter)
+    let stub_h = out_dir.join("vvac.tmp/dpic/ctb_gen/stub.h");
+    if stub_h.exists() {
+        let content = fs::read_to_string(&stub_h).expect("read stub.h");
+        let patched = content.replace(
+            "p2e_uart_write(uint32_t i0,  i1);",
+            "p2e_uart_write(uint32_t i0, uint32_t i1);"
+        );
+        if content != patched {
+            fs::write(&stub_h, patched).expect("write patched stub.h");
+        }
+    }
+}
+
+fn build_dpic_library(out_dir: &Path) {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let sourceme = manifest_dir.join(SOURCE_ME);
+    let dpic_dir = out_dir.join("vvac.tmp/dpic");
+    let build_dir = dpic_dir.join("build");
+
+    fs::create_dir_all(&build_dir).expect("create build directory");
+
+    // Run cmake in clean environment (unset LD_LIBRARY_PATH to avoid HPE toolchain pollution)
+    // But source sourceme.sh first to set VVAC_HOME and other required environment variables
+    let bebop_root = out_dir.parent().expect("out_dir parent");
+    let cmake_status = Command::new("bash")
+        .arg("-c")
+        .arg(format!(
+            "cd {} && nix develop -c bash -c 'cd {} && unset LD_LIBRARY_PATH && source {} && cmake .. -D_ARM_=ON -DCMAKE_BUILD_TYPE=Release'",
+            sh_quote(&bebop_root.display().to_string()),
+            sh_quote(&build_dir.display().to_string()),
+            sh_quote(&sourceme.display().to_string()),
+        ))
+        .status()
+        .expect("failed to run cmake");
+
+    assert!(cmake_status.success(), "cmake configuration failed");
+
+    // Run make
+    let make_status = Command::new("bash")
+        .arg("-c")
+        .arg(format!(
+            "cd {} && nix develop -c bash -c 'cd {} && make -j8 && make install'",
+            sh_quote(&bebop_root.display().to_string()),
+            sh_quote(&build_dir.display().to_string()),
+        ))
+        .status()
+        .expect("failed to run make");
+
+    assert!(make_status.success(), "make build failed");
+
+    // Copy libvCtb.so to expected location
+    let src = dpic_dir.join("extern/lib/libvCtb.so");
+    let dst = out_dir.join("libvCtb.so");
+    assert!(src.exists(), "libvCtb.so not found at {}", src.display());
+    fs::copy(&src, &dst).expect("copy libvCtb.so");
 }
 
 fn sh_quote(value: impl AsRef<str>) -> String {
@@ -137,28 +205,52 @@ fn write_flist(path: &Path, sources: &[PathBuf]) {
     fs::write(path, contents).expect("write p2e vvac filelist");
 }
 
-fn link_vvac(lib_dir: &Path) {
+fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
+    let wrapper_src = manifest_dir.join("src/ctb_wrapper.cpp");
+    let wrapper_obj = out_dir.join("ctb_wrapper.o");
+    let wrapper_lib = out_dir.join("libctb_wrapper.a");
+
+    println!("cargo:rerun-if-changed={}", wrapper_src.display());
+
+    // Compile C++ wrapper to object file
+    let status = Command::new("g++")
+        .args(&[
+            "-c",
+            "-fPIC",
+            "-std=c++11",
+            "-I", &out_dir.join("vvac.tmp/dpic/extern/include").display().to_string(),
+            &wrapper_src.display().to_string(),
+            "-o", &wrapper_obj.display().to_string(),
+        ])
+        .status()
+        .expect("failed to compile C++ wrapper");
+
+    assert!(status.success(), "C++ wrapper compilation failed");
+
+    // Create static library from object file
+    let status = Command::new("ar")
+        .args(&[
+            "rcs",
+            &wrapper_lib.display().to_string(),
+            &wrapper_obj.display().to_string(),
+        ])
+        .status()
+        .expect("failed to create wrapper library");
+
+    assert!(status.success(), "wrapper library creation failed");
+
+    // Link the wrapper library
+    println!("cargo:rustc-link-search=native={}", out_dir.display());
+    println!("cargo:rustc-link-lib=static=ctb_wrapper");
+    println!("cargo:rustc-link-lib=dylib=stdc++");
+}
+
+fn link_vvac(libctb: &Path) {
+    let lib_dir = libctb.parent().expect("libvCtb.so parent directory");
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-link-lib=dylib=vCtb");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
     println!("cargo:rustc-cfg=vvac_linked");
-    println!(
-        "cargo:warning=Linking with libvCtb.so from {}",
-        lib_dir.display()
-    );
-}
-
-fn find_vvac_lib_dir(bebop_root: &Path) -> Option<PathBuf> {
-    candidate_vvac_lib_dirs(bebop_root)
-        .into_iter()
-        .find(|dir| dir.join("libvCtb.so").exists())
-}
-
-fn candidate_vvac_lib_dirs(bebop_root: &Path) -> Vec<PathBuf> {
-    vec![
-        // Workspace builds use bebop/out, matching Verilator's repo-root flow.
-        bebop_root.join(VVAC_REL_LIB_DIR),
-    ]
 }
 
 fn assert_exists(path: &Path, message: &str) {
