@@ -221,3 +221,4 @@ pub fn ctrace(subcmd: u8, ctr_id: u32, tag: u64, elapsed: u64, cycle: u64) {
     write_trace(&json);
 }
 
+

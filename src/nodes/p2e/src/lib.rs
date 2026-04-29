@@ -1,10 +1,15 @@
+pub mod builder;
+pub mod config;
 pub mod ffi;
-pub mod ddr;
-pub mod scu;
+pub mod mmio;
+mod runner;
 pub mod simulator;
+pub mod vdbg;
 
-pub use simulator::P2ESimulator;
-pub use ddr::DdrBackdoor;
-pub use scu::ScuController;
+pub use builder::BitstreamBuilder;
+pub use mmio::ScuController;
+pub use runner::{run, P2ECli};
+pub use simulator::{P2ESimulator, SimulationResult, SimulatorConfig};
+pub use vdbg::VdbgSession;
 
 pub type Result<T> = std::result::Result<T, String>;

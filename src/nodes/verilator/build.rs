@@ -16,7 +16,14 @@ fn main() {
         .expect("bebop repo should live under buckyball root")
         .to_path_buf();
     let arch_dir = bb_root.join("arch");
-    let build_dir = arch_dir.join("build");
+
+    // Get config from ARCH_CONFIG environment variable (required)
+    let config = env::var("ARCH_CONFIG")
+        .expect("ARCH_CONFIG environment variable is required. Example: ARCH_CONFIG=sims.verilator.BuckyballToyVerilatorConfig");
+
+    // Build directory is now arch/build/<config>/
+    let build_dir = arch_dir.join("build").join(&config);
+
     let result_dir = bb_root.join("result");
     let native_dir = manifest_dir.join("native");
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
@@ -28,9 +35,21 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", native_dir.join("main.cc").display());
     println!("cargo:rerun-if-changed={}", native_dir.join("main.h").display());
+    println!("cargo:rerun-if-env-changed=ARCH_CONFIG");
 
     assert_exists(&arch_dir, "missing sibling `arch` repo");
-    assert_exists(&build_dir, "missing `arch/build`; generate Verilog first");
+
+    // Get config from ARCH_CONFIG environment variable (required)
+    let config = env::var("ARCH_CONFIG")
+        .expect("ARCH_CONFIG environment variable is required. Example: ARCH_CONFIG=sims.verilator.BuckyballToyVerilatorConfig");
+
+    // Build directory is now arch/build/<config>/
+    let build_dir = arch_dir.join("build").join(&config);
+
+    assert_exists(
+        &build_dir,
+        &format!("missing `arch/build/{}`; generate Verilog first with config: {}", config, config)
+    );
     assert_exists(&result_dir, "missing `result` directory");
 
     let vsrcs = collect_files(&build_dir, &["v", "sv"]);
@@ -74,19 +93,19 @@ fn main() {
     build.include(verilator_root.join("include"));
     build.include(verilator_root.join("include/vltstd"));
 
-    // Only compile minimal wrapper + DRAMSim2 + generated Verilator code
-    // DPI-C callbacks are now in Rust (dpi.rs)
+    // Only compile minimal wrapper + memory model + generated Verilator code
+    // All DPI-C callbacks are implemented in Rust (dpi.rs)
     build.file(native_dir.join("verilator.cc"));
 
-    // Include all monitor source files (DPI-C callbacks, trace, etc.)
+    // Include memory model files (mm.cc, mm_dramsim2.cc, BBSimDRAM.cc)
+    // DO NOT include monitor/trace files - all DPI-C is in Rust
     for file in &csrcs {
         let file_name = file.file_name().and_then(|s| s.to_str()).unwrap_or("");
         let path_str = file.to_string_lossy();
 
-        // Include all monitor files (trace, ioe, bdb, utils)
-        if path_str.contains("/src/csrc/src/monitor/") {
-            // Skip main.cc if it exists in monitor
-            if file_name != "main.cc" {
+        // Include memory model files from ioe directory
+        if path_str.contains("/src/csrc/src/monitor/ioe/") {
+            if file_name.starts_with("BBSimDRAM") || file_name.starts_with("mm") {
                 build.file(file);
             }
         }
@@ -99,17 +118,43 @@ fn main() {
         build.file(support);
     }
 
+    // Add Verilator timing support library (for coroutines)
+    build.file(verilator_root.join("include/verilated_timing.cpp"));
+
     build.compile("bebop_verilator_native");
 
     // Link against required libraries
     println!("cargo:rustc-link-lib=static=bebop_verilator_native");
-    println!("cargo:rustc-link-lib=z");  // zlib for compression
     println!("cargo:rustc-link-lib=stdc++");  // C++ standard library
 
     // Link against DRAMSim2
     let dramsim2_dir = bb_root.join("arch/thirdparty/chipyard/tools/DRAMSim2");
     println!("cargo:rustc-link-search=native={}", dramsim2_dir.display());
     println!("cargo:rustc-link-lib=static=dramsim");
+
+    // Link against zlib (from Nix environment)
+    // Add all library paths from NIX_LDFLAGS
+    if let Ok(nix_ldflags) = env::var("NIX_LDFLAGS") {
+        for flag in nix_ldflags.split_whitespace() {
+            if let Some(path) = flag.strip_prefix("-L") {
+                println!("cargo:rustc-link-search=native={}", path);
+            }
+        }
+    }
+
+    // Also try to find zlib in common Nix store locations
+    let zlib_paths = [
+        "/nix/store/8icpg7vrz95c6ap3mznmlmg7h0l2av1w-zlib-1.3.1/lib",
+        "/nix/store/ri9paa3mri4kqakljak8ldvbcp7lpmif-zlib-1.3.1/lib",
+    ];
+    for path in &zlib_paths {
+        if Path::new(path).exists() {
+            println!("cargo:rustc-link-search=native={}", path);
+            break;
+        }
+    }
+
+    println!("cargo:rustc-link-lib=z");  // zlib for compression
 }
 
 fn env_flag(name: &str) -> bool {

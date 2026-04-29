@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use snafu::Whatever;
+use std::path::PathBuf;
 
 struct BebopSim {
     elf: PathBuf,

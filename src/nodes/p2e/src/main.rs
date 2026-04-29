@@ -1,45 +1,29 @@
-use bebop_p2e::{P2ESimulator, ScuController};
-use std::fs;
+use bebop_p2e::{config, run, P2ECli};
 
-fn main() -> Result<(), String> {
-    env_logger::init();
+fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    println!("P2E Basic Simulation Example");
-
-    // 创建仿真器
-    let sim = P2ESimulator::new()?;
-
-    // 1. 加载 kernel image 到 DDR
-    let kernel_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "kernel.bin".to_string());
-
-    if let Ok(kernel) = fs::read(&kernel_path) {
-        println!("Loading kernel from {} ({} bytes)", kernel_path, kernel.len());
-        sim.load_image(0x80000000, &kernel)?;
-    } else {
-        println!("No kernel file found, skipping DDR load");
+    let args: Vec<String> = std::env::args().collect();
+    if args[1..].iter().any(|arg| arg == "-h" || arg == "--help") {
+        print!("{}", config::help_text());
+        return;
     }
 
-    // 2. 复位仿真器
-    println!("Resetting simulator...");
-    sim.reset()?;
+    let options = match config::parse_args(args[1..].to_vec()) {
+        Ok(options) => options,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
 
-    // 3. 通过 UART 发送消息
-    println!("Sending UART message...");
-    ScuController::uart_puts("Hello from P2E!\n")?;
+    let cli = P2ECli {
+        buildbitstream: options.buildbitstream,
+        runworkload: options.runworkload,
+    };
 
-    // 4. 运行仿真
-    println!("Running simulation...");
-    sim.step(1000)?;
-
-    // 5. 检查退出状态
-    if sim.check_exit() {
-        let code = sim.get_exit_code();
-        println!("Simulation exited with code: {}", code);
-    } else {
-        println!("Simulation still running");
+    if let Err(e) = run(cli) {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
     }
-
-    Ok(())
 }

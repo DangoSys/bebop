@@ -8,6 +8,7 @@ dist/
 pkg/
 result/
 result
+out/
 
 # Native / Spike / workload build artifacts
 *.o
@@ -18,3 +19,4 @@ result
 
 .codex/
 .claude/
+log.txt
