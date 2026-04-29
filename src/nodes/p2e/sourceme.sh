@@ -9,6 +9,7 @@
 export HPEC_HOME="${HPEC_HOME:-/home/x-epic/hpe-24.12.01.s008}"
 
 # Source HPE setup script (sets VCOM_HOME, VDBG_HOME, VSYN_HOME, etc.)
+# Commented out to avoid LD_LIBRARY_PATH pollution that breaks Nix tools
 # source $HPEC_HOME/.setup.sh
 export PATH="$HPEC_HOME"/bin:"$PATH"
 export VCOM_HOME="$HPEC_HOME"

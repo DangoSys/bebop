@@ -19,22 +19,23 @@ mod raw {
         /// Advance the emulated design by N cycles.
         pub fn waitNCycles(n: u32);
 
-        /// C++: vvac::CtbBuilder::create()
-        #[link_name = "_ZN4vvac10CtbBuilder6createEv"]
-        pub fn ctb_builder_create() -> *mut ICtbMgr;
+        /// C wrapper: ctb_builder_create_wrapper()
+        pub fn ctb_builder_create_wrapper() -> *mut ICtbMgr;
 
-        /// C++: ICtbMgr::init(fpga_id, case_home, rtcfg_path)
-        #[link_name = "_ZN4vvac8ICtbMgr4initEPKcS2_S2_"]
-        pub fn ctb_init(
+        /// C wrapper: ctb_init_wrapper(mgr, fpga_id, case_home, rtcfg_path)
+        pub fn ctb_init_wrapper(
             ctb: *mut ICtbMgr,
             fpga_id: *const c_char,
             case_home: *const c_char,
             rtcfg_path: *const c_char,
         ) -> bool;
 
-        /// C++: ICtbMgr::quit()
-        #[link_name = "_ZN4vvac8ICtbMgr4quitEv"]
+        /// C++: ctb::ctbMgr::quit()
+        #[link_name = "_ZN3ctb6ctbMgr4quitEv"]
         pub fn ctb_quit(ctb: *mut ICtbMgr);
+
+        /// C++: p2e_scu_0_hart_id()
+        pub fn p2e_scu_0_hart_id() -> u32;
     }
 }
 
@@ -241,7 +242,7 @@ impl CtbManager {
 
         #[cfg(vvac_linked)]
         {
-            let ctb = unsafe { raw::ctb_builder_create() };
+            let ctb = unsafe { raw::ctb_builder_create_wrapper() };
             if ctb.is_null() {
                 return Err("failed to create ICtbMgr".to_string());
             }
@@ -256,7 +257,7 @@ impl CtbManager {
 
         #[cfg(vvac_linked)]
         let success = unsafe {
-            raw::ctb_init(
+            raw::ctb_init_wrapper(
                 self.ctb,
                 fpga_id_c.as_ptr(),
                 case_home_c.as_ptr(),
