@@ -42,7 +42,6 @@ pub struct SimulationResult {
     pub exit_code: i32,
     pub elapsed: Duration,
     pub cycles: u64,
-    pub timed_out: bool,
     pub uart_log: String,
 }
 
@@ -95,31 +94,13 @@ impl P2ESimulator {
         Ok(())
     }
 
-    pub fn run_until_exit(&mut self) -> Result<i32, String> {
-        let result = self.run_until_exit_timeout(None)?;
-        Ok(result.exit_code)
-    }
-
-    pub fn run_for(&mut self, seconds: u64) -> Result<SimulationResult, String> {
-        self.run_until_exit_timeout(Some(Duration::from_secs(seconds)))
-    }
-
-    pub fn run_until_exit_timeout(
-        &mut self,
-        timeout: Option<Duration>,
-    ) -> Result<SimulationResult, String> {
+    /// Run simulation until sim_exit signal is asserted (DPI-C callback)
+    pub fn run_until_exit(&mut self) -> Result<SimulationResult, String> {
         let started = Instant::now();
 
         loop {
             if self.check_exit() {
-                return Ok(self.result(started, false));
-            }
-
-            if timeout
-                .map(|limit| started.elapsed() >= limit)
-                .unwrap_or(false)
-            {
-                return Ok(self.result(started, true));
+                return Ok(self.result(started));
             }
 
             self.step(self.config.step_cycles)?;
@@ -146,12 +127,11 @@ impl P2ESimulator {
         self.cycles
     }
 
-    fn result(&self, started: Instant, timed_out: bool) -> SimulationResult {
+    fn result(&self, started: Instant) -> SimulationResult {
         SimulationResult {
             exit_code: self.get_exit_code(),
             elapsed: started.elapsed(),
             cycles: self.cycles,
-            timed_out,
             uart_log: self.get_uart_log(),
         }
     }

@@ -3,22 +3,16 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    # this old nixpkgs version has gcc8 which is needed for P2E vvac builds
-    nixpkgs-gcc83 = {
-      url = "github:NixOS/nixpkgs/nixos-19.03";
-      flake = false;
-    };
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, nixpkgs-gcc83, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [
           (import ./scripts/nix/overlay.nix)
         ];
         pkgs = import nixpkgs { inherit system overlays; };
-        gccPkgs = import nixpkgs-gcc83 { inherit system; };
         preCommitCfg = ./scripts/tools/pre-commit-config.yaml;
         preCommitInstall = pkgs.writeShellApplication {
           name = "bebop-pre-commit-install";
@@ -36,7 +30,7 @@
             pkgs.base.libtool
             pkgs.base.gnumake
             pkgs.base.pkgConfig
-            pkgs.base.clangTools
+            # pkgs.base.clangTools
             pkgs.base.cmake
             pkgs.base.ninja
             pkgs.base.dtc
@@ -50,12 +44,12 @@
 
             pkgs.verilator
             pkgs.bebop
-            gccPkgs.gcc8
+            pkgs.gcc13  # Use gcc13 instead of gcc8 for P2E vvac builds
           ] ++ pkgs.riscv.buildInputs;
 
           shellHook = ''
-            # Put gcc8 at the front of PATH for P2E vvac builds
-            export PATH="${gccPkgs.gcc8}/bin:$PATH"
+            # Put gcc13 at the front of PATH for P2E vvac builds
+            export PATH="${pkgs.gcc13}/bin:$PATH"
             hash -r
           '' + pkgs.riscv.shellHook + ''
             echo "================= bebop development environment activated ========================="

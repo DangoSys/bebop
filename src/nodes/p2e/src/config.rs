@@ -1,5 +1,5 @@
-use clap::{CommandFactory, Parser};
-use snafu::{FromString, Whatever};
+use clap::Parser;
+use snafu::{Whatever, whatever};
 use std::path::PathBuf;
 
 pub const OUT_DIR: &str = "./out";
@@ -9,59 +9,62 @@ pub const CTB_FPGA_ID: &str = "P0";
 
 #[derive(Debug, Parser)]
 #[command(name = "bebop-p2e", about = "Bebop P2E FPGA flow")]
-struct CliArgs {
-    #[arg(long, help = "Build the P2E bitstream")]
-    buildbitstream: bool,
-    #[arg(long, help = "Run the workload through VVAC CTB")]
-    runworkload: bool,
-}
+pub struct CliArgs {
+    #[arg(long, help = "Build bitstream for the specified config (e.g., sims.p2e.P2EToyConfig)")]
+    pub buildbitstream: Option<String>,
 
-#[derive(Debug, Clone)]
-pub struct P2EOptions {
-    pub buildbitstream: bool,
+    #[arg(long, help = "Run workload on FPGA")]
     pub runworkload: bool,
 }
 
-impl P2EOptions {
-    pub fn out_dir(&self) -> PathBuf {
-        PathBuf::from(OUT_DIR)
+/// Configuration for P2E bitstream builder
+#[derive(Debug, Clone)]
+pub struct BitstreamConfig {
+    pub arch_config: String,
+    pub vvac_top_module: String,
+    pub output_dir: PathBuf,
+    pub hw_config: PathBuf,
+    pub vcom_tcl: PathBuf,
+}
+
+impl BitstreamConfig {
+    /// Create new config with required parameters
+    ///
+    /// # Arguments
+    /// * `arch_config` - Architecture config (e.g., "sims.p2e.P2EToyConfig")
+    /// * `vcom_tcl` - Path to vcom_compile.tcl (required, no default)
+    pub fn new(arch_config: impl Into<String>, vcom_tcl: impl Into<PathBuf>) -> Self {
+        Self {
+            arch_config: arch_config.into(),
+            vvac_top_module: VVAC_TOP_MODULE.to_string(),
+            output_dir: PathBuf::from(OUT_DIR),
+            hw_config: PathBuf::from(HW_CONFIG),
+            vcom_tcl: vcom_tcl.into(),
+        }
     }
 
-    pub fn bitstream(&self) -> PathBuf {
-        self.out_dir().join("fpgaCompDir/bitstream.bit")
+    pub fn output_dir(mut self, path: impl Into<PathBuf>) -> Self {
+        self.output_dir = path.into();
+        self
     }
 
-    pub fn rtcfg(&self) -> PathBuf {
-        self.out_dir().join("vvacDir/runtimeDir/rtcfg")
+    pub fn hw_config(mut self, path: impl Into<PathBuf>) -> Self {
+        self.hw_config = path.into();
+        self
+    }
+
+    pub fn vcom_tcl(mut self, path: impl Into<PathBuf>) -> Self {
+        self.vcom_tcl = path.into();
+        self
     }
 }
 
-pub fn parse_args(args: Vec<String>) -> Result<P2EOptions, Whatever> {
-    let mut argv = Vec::with_capacity(args.len() + 1);
-    argv.push("bebop-p2e".to_string());
-    argv.extend(args);
+pub fn parse_args() -> Result<CliArgs, Whatever> {
+    let args = CliArgs::parse();
 
-    let parsed =
-        CliArgs::try_parse_from(argv).map_err(|e| Whatever::without_source(e.to_string()))?;
-
-    let options = P2EOptions {
-        buildbitstream: parsed.buildbitstream,
-        runworkload: parsed.runworkload,
-    };
-    validate_tasks(&options)?;
-    Ok(options)
-}
-
-pub fn help_text() -> String {
-    CliArgs::command().render_help().to_string()
-}
-
-pub fn validate_tasks(options: &P2EOptions) -> Result<(), Whatever> {
-    if options.buildbitstream || options.runworkload {
-        Ok(())
-    } else {
-        Err(Whatever::without_source(
-            "choose at least one task: --buildbitstream or --runworkload".to_string(),
-        ))
+    if args.buildbitstream.is_none() && !args.runworkload {
+        whatever!("choose at least one task: --buildbitstream=<config> or --runworkload");
     }
+
+    Ok(args)
 }

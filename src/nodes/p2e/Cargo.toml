@@ -21,8 +21,10 @@ clap = { version = "4", features = ["derive"] }
 log = "0.4"
 env_logger = "0.11"
 snafu = "0.8"
+regex = "1.10"
 
 [build-dependencies]
+regex = "1.10"
 
 [package.metadata.docs.rs]
 all-features = true

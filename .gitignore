@@ -20,3 +20,9 @@ out/
 .codex/
 .claude/
 log.txt
+
+nohup.out
+vcom.key
+vcom.log
+jm_vcom.log
+work_lib/
