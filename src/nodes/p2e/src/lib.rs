@@ -2,14 +2,11 @@ pub mod builder;
 pub mod config;
 pub mod ffi;
 pub mod mmio;
-mod runner;
-pub mod simulator;
-pub mod vdbg;
+pub mod runner;
 
 pub use builder::BitstreamBuilder;
+pub use config::{BitstreamConfig, CliArgs, parse_args};
 pub use mmio::ScuController;
-pub use runner::{run, P2ECli};
-pub use simulator::{P2ESimulator, SimulationResult, SimulatorConfig};
-pub use vdbg::VdbgSession;
+pub use runner::{P2ESimulator, SimulationResult, SimulatorConfig, VdbgSession};
 
 pub type Result<T> = std::result::Result<T, String>;

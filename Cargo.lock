@@ -109,6 +109,7 @@ dependencies = [
  "clap",
  "env_logger",
  "log",
+ "regex",
  "snafu",
 ]
 
