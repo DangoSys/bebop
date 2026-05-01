@@ -1,21 +1,15 @@
 # P2E System Compile TCL Script
-# Based on p2e_control_path example
+# Based on p2e_ddr4_backdoor example
 
 set top_module "xepic_vvac_top"
 
-# Read empty module definitions from original Verilog files (not VVAC processed)
-# These modules are optimized away by vsyn but still referenced in the netlist
-set arch_build_dir "/home/wanghui/Code/buckyball/arch/build/sims.p2e.P2EToyConfig"
-if {[file exists "$arch_build_dir/IntSyncCrossingSource_n1x1_Registered.sv"]} {
-    design_read -netlist $arch_build_dir/IntSyncCrossingSource_n1x1_Registered.sv
-}
-if {[file exists "$arch_build_dir/NullIntSource.sv"]} {
-    design_read -netlist $arch_build_dir/NullIntSource.sv
-}
-
-# Read netlist and Vivado vcom library
+# Read netlist
 design_read -netlist ./xepic_vvac_top.vm
-design_read -netlist $env(VSYN_HOME)/share/verilog/vtech_vivado_vcom.v
+
+# Configure DDR4 controller as netlist macro
+# This tells vcom to treat xepic_ddr4_dc1 as a pre-compiled IP core
+set nnmf_path "$env(HPE_HOME)/netlist_macro_packages"
+netlistmacro -instance ${top_module}.P2ETop.top.ddr -package ${nnmf_path}/xepic_ddr4_dc1 -location 0.A -channel 0
 
 # Load design with top module
 design_load -top ${top_module}
@@ -32,11 +26,15 @@ vvac_cfg_map -dir ./vvacDir
 # Load hardware configuration
 emulator_spec -add {file ./hw-config.hdf}
 
-# Create clock constraint (100MHz default, adjust if needed)
-create_clock -sigName ${top_module}.clock -frequency 100Mhz
+# Set FPGA resource utilization limit (70% like p2e_ddr4_backdoor)
+emulator_util -add {default 70}
 
-# Set emulator utilization
-emulator_util -add {default 0}
+# Define writable nets for runtime control
+write_net -add {io_sys_rstn}
+
+# Create clock constraint (100MHz default)
+# Note: The top-level clock signal is 'io_user_clk', not 'user_clk'
+create_clock -sig_name ${top_module}.io_user_clk -frequency 100Mhz
 
 # Enable design rule mode
 set_dr_mode -add enable

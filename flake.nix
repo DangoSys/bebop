@@ -44,20 +44,20 @@
 
             pkgs.verilator
             pkgs.bebop
-            pkgs.gcc13  # Use gcc13 instead of gcc8 for P2E vvac builds
+            # Use gcc13 instead of gcc8 for P2E vvac builds
+            # pkgs.gcc13  
           ] ++ pkgs.riscv.buildInputs;
 
           shellHook = ''
             # Put gcc13 at the front of PATH for P2E vvac builds
-            export PATH="${pkgs.gcc13}/bin:$PATH"
-            hash -r
+            # export PATH="${pkgs.gcc13}/bin:$PATH"
+            # hash -r
           '' + pkgs.riscv.shellHook + ''
             echo "================= bebop development environment activated ========================="
             echo "Enable nodes including:"
             echo "bebop: $(command -v bebop)"
             echo "riscv gcc: $(command -v riscv64-none-elf-gcc)"
             echo "verilator: $(command -v verilator)"
-            echo "gcc for P2E: $(gcc --version | head -1)"
             echo "==========================================================================="
           '';
         };
