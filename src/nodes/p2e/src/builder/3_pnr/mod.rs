@@ -22,18 +22,30 @@ impl PnrStep {
             return Err(format!("fpgaCompDir not found: {:?}", fpga_comp_dir));
         }
 
+        // Copy PNR_settings.tcl to output directory
+        let pnr_settings_src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src/builder/3_pnr/PNR_settings.tcl");
+        let pnr_settings_dst = self.output_dir.join("PNR_settings.tcl");
+
+        if pnr_settings_src.exists() {
+            std::fs::copy(&pnr_settings_src, &pnr_settings_dst)
+                .map_err(|e| format!("Failed to copy PNR_settings.tcl: {}", e))?;
+            log::info!("Copied PNR_settings.tcl to output directory");
+        } else {
+            log::warn!("PNR_settings.tcl not found in source directory");
+        }
+
         // Source sourceme.sh and run make
         let sourceme_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
         let make_cmd = format!(
-            "source {} && make -C {} all",
+            "cd {} && source {} && make -C fpgaCompDir clean && make -C fpgaCompDir all",
+            self.output_dir.display(),
             sourceme_path.display(),
-            fpga_comp_dir.display()
         );
 
         let status = Command::new("bash")
             .arg("-c")
             .arg(&make_cmd)
-            .current_dir(&self.output_dir)
             .status()
             .map_err(|e| format!("Failed to execute make: {}", e))?;
 

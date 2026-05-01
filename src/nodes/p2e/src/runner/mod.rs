@@ -1,5 +1,16 @@
-mod p2e_sim;
+mod runworkload;
 pub mod vdbg;
 
-pub use p2e_sim::{P2ESimulator, SimulationResult, SimulatorConfig};
+// Re-export simulation modules
+pub use runworkload::{P2ESimulator, SimulationResult, SimulatorConfig};
 pub use vdbg::VdbgSession;
+
+// Runner steps
+pub mod flashbitstream;
+pub mod init;
+pub mod workload;
+
+pub use flashbitstream::FlashBitstreamStep;
+pub use init::InitStep;
+pub use workload::RunWorkloadStep;
+

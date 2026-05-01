@@ -12,32 +12,31 @@ pub struct BitstreamBuilder {
 }
 
 impl BitstreamBuilder {
-    /// 从配置创建新的比特流构建器
+    /// build new bitstream builder from config
     pub fn new(config: BitstreamConfig) -> Self {
         Self { config }
     }
 
-    /// 执行完整构建流程
+    /// build full build process
     pub fn build(&self) -> Result<(), String> {
         log::info!("Starting P2E bitstream build...");
 
-        // Verify sourceme.sh exists
         self.setup_environment()?;
 
-        // 创建输出目录
+        // Create output directory
         std::fs::create_dir_all(&self.config.output_dir)
             .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
         self.verify_vvac_outputs()?;
 
-        // Step 1: vsyn - 综合
+        // Step 1: vsyn
         let vsyn = VsynStep::new(
             self.config.output_dir.clone(),
             self.config.vvac_top_module.clone(),
         );
         vsyn.run()?;
 
-        // Step 2: vcom - 系统编译
+        // Step 2: vcom
         let vcom = VcomStep::new(
             self.config.output_dir.clone(),
             self.config.vvac_top_module.clone(),
@@ -45,7 +44,7 @@ impl BitstreamBuilder {
         )?;
         vcom.run()?;
 
-        // Step 3: PNR - 布局布线
+        // Step 3: PNR 
         let pnr = PnrStep::new(self.config.output_dir.clone());
         pnr.run()?;
 
@@ -88,19 +87,19 @@ impl BitstreamBuilder {
         Ok(())
     }
 
-    /// 获取比特流路径
+    /// get bitstream path
     pub fn bitstream_path(&self) -> PathBuf {
         self.config.output_dir.join("fpgaCompDir/bitstream.bit")
     }
 
-    /// 获取 libvCtb.so 路径
+    /// get libvCtb.so path
     pub fn libvctb_path(&self) -> PathBuf {
         self.config
             .output_dir
             .join("vvacDir/runtimeDir/lib/lib_arm/libvCtb.so")
     }
 
-    /// 获取运行时配置路径
+    /// get runtime configuration path
     pub fn rtcfg_path(&self) -> PathBuf {
         self.config.output_dir.join("vvacDir/runtimeDir/rtcfg")
     }

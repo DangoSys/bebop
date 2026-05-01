@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const P2E_TOP: &str = "P2EHarness";
+const P2E_TOP: &str = "P2ETop";
 const SOURCE_ME: &str = "sourceme.sh";
 
 fn main() {
@@ -25,6 +25,38 @@ fn main() {
     let arch_dir = buckyball_root.join("arch");
     let out_dir = bebop_root.join("out");
 
+    // Clean old build artifacts before starting
+    println!("cargo:warning=Cleaning old build artifacts...");
+    if out_dir.exists() {
+        // Remove vvacDir
+        let vvac_dir = out_dir.join("vvacDir");
+        if vvac_dir.exists() {
+            fs::remove_dir_all(&vvac_dir).ok();
+            println!("cargo:warning=Removed old vvacDir");
+        }
+
+        // Remove .vm files
+        if let Ok(entries) = fs::read_dir(&out_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("vm") {
+                    fs::remove_file(&path).ok();
+                    println!("cargo:warning=Removed old {}", path.file_name().unwrap().to_str().unwrap());
+                }
+            }
+        }
+
+        // Remove .log files
+        if let Ok(entries) = fs::read_dir(&out_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("log") {
+                    fs::remove_file(&path).ok();
+                }
+            }
+        }
+    }
+
     let config = env::var("ARCH_CONFIG").expect(
         "ARCH_CONFIG environment variable is required. Example: ARCH_CONFIG=sims.p2e.P2EToyConfig",
     );
@@ -41,17 +73,26 @@ fn main() {
         &format!("ARCH_CONFIG={} does not look like a P2E build", config),
     );
 
-    let vsrcs = collect_files(&build_dir, &["v", "sv"]);
+    let mut vsrcs = collect_files(&build_dir, &["v", "sv"]);
     assert!(
         !vsrcs.is_empty(),
         "no Verilog/SystemVerilog files found under {}",
         build_dir.display()
     );
+
+    // Add XEPIC DDR4 IP stub
+    // Use the stub from src/ddr/ip directory
+    let ddr4_stub = manifest_dir.join("src/ddr/ip/xepic_ddr4_dc1_stub.sv");
+    assert_exists(&ddr4_stub, "xepic_ddr4_dc1 stub not found");
+    vsrcs.push(ddr4_stub);
+    println!("cargo:warning=Added xepic_ddr4_dc1 stub from src/ddr/ip");
+
     println!("cargo:rerun-if-changed={}", build_dir.display());
 
     fs::create_dir_all(&out_dir).expect("create p2e out directory");
     let flist = out_dir.join("p2e_vvac_filelist.f");
     write_flist(&flist, &vsrcs);
+
     let sourceme = manifest_dir.join(SOURCE_ME);
     assert_exists(&sourceme, "missing p2e sourceme script");
 
