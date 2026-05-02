@@ -53,13 +53,19 @@ impl PnrStep {
             return Err("PNR failed".to_string());
         }
 
-        let bitstream = self.output_dir.join("fpgaCompDir/bitstream.bit");
-        if !bitstream.exists() {
-            return Err(format!("Bitstream not generated: {:?}", bitstream));
+        // Copy bitstream from pnrDir to fpgaCompDir root
+        let bitstream_src = self.output_dir.join("fpgaCompDir/part_b0_f0/pnrDir/xepic_vvac_top_0_0.bit");
+        let bitstream_dst = self.output_dir.join("fpgaCompDir/bitstream.bit");
+
+        if !bitstream_src.exists() {
+            return Err(format!("Bitstream not generated: {:?}", bitstream_src));
         }
 
+        std::fs::copy(&bitstream_src, &bitstream_dst)
+            .map_err(|e| format!("Failed to copy bitstream: {}", e))?;
+
         log::info!("PNR completed");
-        log::info!("  Bitstream: {:?}", bitstream);
-        Ok(bitstream)
+        log::info!("  Bitstream: {:?}", bitstream_dst);
+        Ok(bitstream_dst)
     }
 }

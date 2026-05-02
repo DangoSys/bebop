@@ -25,7 +25,43 @@ fn main() {
     let arch_dir = buckyball_root.join("arch");
     let out_dir = bebop_root.join("out");
 
-    // Clean old build artifacts before starting
+    // Check if VVAC output already exists and can be reused
+    let libctb_dst = out_dir.join("libvCtb.so");
+    let vvac_dir = out_dir.join("vvacDir");
+    let wrapper_lib = out_dir.join("libctb_wrapper.a");
+
+    if libctb_dst.exists() && vvac_dir.exists() && wrapper_lib.exists() {
+        println!("cargo:warning=Reusing existing VVAC build (libvCtb.so, vvacDir, and wrapper found)");
+        println!("cargo:warning=To rebuild, set ARCH_CONFIG or delete {}", out_dir.display());
+        link_vvac(&libctb_dst);
+        println!("cargo:warning=✓ P2E build complete (reused existing VVAC)!");
+        return;
+    }
+
+    // If no existing VVAC output, ARCH_CONFIG is required
+    let config = match env::var("ARCH_CONFIG") {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("\n==========================================================");
+            eprintln!("ERROR: ARCH_CONFIG environment variable is required");
+            eprintln!("==========================================================");
+            eprintln!();
+            eprintln!("To build bebop-p2e, you must specify an architecture config:");
+            eprintln!();
+            eprintln!("  cargo build --features p2e --config=\"env.ARCH_CONFIG='sims.p2e.P2EToyConfig'\"");
+            eprintln!();
+            eprintln!("Or set it as an environment variable:");
+            eprintln!();
+            eprintln!("  export ARCH_CONFIG=sims.p2e.P2EToyConfig");
+            eprintln!("  cargo build --features p2e");
+            eprintln!();
+            eprintln!("After the first build, subsequent builds will reuse the VVAC output.");
+            eprintln!("==========================================================\n");
+            panic!("ARCH_CONFIG not set");
+        }
+    };
+
+    // Clean old build artifacts before starting fresh build
     println!("cargo:warning=Cleaning old build artifacts...");
     if out_dir.exists() {
         // Remove vvacDir
@@ -57,9 +93,6 @@ fn main() {
         }
     }
 
-    let config = env::var("ARCH_CONFIG").expect(
-        "ARCH_CONFIG environment variable is required. Example: ARCH_CONFIG=sims.p2e.P2EToyConfig",
-    );
     let build_dir = arch_dir.join("build").join(&config);
     assert_exists(
         &build_dir,
@@ -174,19 +207,29 @@ fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
     // Compile C++ wrapper to object file
     // Use vvacDir/runtimeDir/include for headers (where vvac installs them)
     let include_dir = out_dir.join("vvacDir/runtimeDir/include");
-    let status = Command::new("g++")
+
+    println!("cargo:warning=Compiling C++ wrapper with include dir: {}", include_dir.display());
+    println!("cargo:warning=Wrapper source: {}", wrapper_src.display());
+    println!("cargo:warning=Output object: {}", wrapper_obj.display());
+
+    let include_arg = format!("-I{}", include_dir.display());
+    let output = Command::new("g++")
         .args(&[
             "-c",
             "-fPIC",
             "-std=c++11",
-            "-I", &include_dir.display().to_string(),
+            &include_arg,
             &wrapper_src.display().to_string(),
             "-o", &wrapper_obj.display().to_string(),
         ])
-        .status()
+        .output()
         .expect("failed to compile C++ wrapper");
 
-    assert!(status.success(), "C++ wrapper compilation failed");
+    if !output.status.success() {
+        eprintln!("g++ stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("g++ stderr: {}", String::from_utf8_lossy(&output.stderr));
+        panic!("C++ wrapper compilation failed");
+    }
 
     // Create static library from object file
     let status = Command::new("ar")
@@ -208,9 +251,27 @@ fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
 
 fn link_vvac(libctb: &Path) {
     let lib_dir = libctb.parent().expect("libvCtb.so parent directory");
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    let lib_dir_str = lib_dir.display().to_string();
+
+    println!("cargo:warning=Setting RPATH to: {}", lib_dir_str);
+    println!("cargo:warning=libvCtb.so location: {}", libctb.display());
+
+    // Also copy libvCtb.so to target directory for easier access
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
+    let target_lib = out_dir.join("../../../libvCtb.so");
+    if let Err(e) = fs::copy(libctb, &target_lib) {
+        println!("cargo:warning=Failed to copy libvCtb.so to target: {}", e);
+    } else {
+        println!("cargo:warning=Copied libvCtb.so to {}", target_lib.display());
+    }
+
+    println!("cargo:rustc-link-search=native={}", lib_dir_str);
     println!("cargo:rustc-link-lib=dylib=vCtb");
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
+
+    // Use $ORIGIN to find library relative to executable
+    println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir_str);
+    println!("cargo:rustc-link-arg=-Wl,--enable-new-dtags");
     println!("cargo:rustc-cfg=vvac_linked");
 }
 
