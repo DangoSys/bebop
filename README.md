@@ -59,5 +59,5 @@ cargo run --features p2e  -- p2e \
 cargo run --features p2e  -- p2e \
     --runworkload \
     --image="<image-file-path>" \
-    --bitsteam="<bitstream-file-path>"
+    --bitstream="<bitstream-file-path>"
 ```
