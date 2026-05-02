@@ -50,6 +50,12 @@ pub enum Commands {
         buildbitstream: bool,
         #[arg(long, help = "Run the workload through VVAC CTB")]
         runworkload: bool,
+        #[arg(long, help = "Architecture configuration (e.g., sims.p2e.P2EToyConfig)")]
+        config: Option<String>,
+        #[arg(long, help = "Workload image file path")]
+        image: Option<std::path::PathBuf>,
+        #[arg(long, help = "Bitstream file path")]
+        bitstream: Option<std::path::PathBuf>,
     },
 }
 
@@ -63,9 +69,15 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
         Commands::P2e {
             buildbitstream,
             runworkload,
+            config,
+            image,
+            bitstream,
         } => run_p2e(P2ECli {
             buildbitstream,
             runworkload,
+            config,
+            image,
+            bitstream,
         }),
     }
 }
