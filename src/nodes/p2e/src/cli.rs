@@ -44,18 +44,89 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
     }
 
     if cli.runworkload {
-        log::info!("Running workload...");
+        log::info!("Running workload on P2E FPGA...");
 
-        let _image = cli.image.ok_or_else(|| Whatever::without_source(
+        let image = cli.image.ok_or_else(|| Whatever::without_source(
             "Workload image not specified. Use --image".to_string()
         ))?;
 
-        let _bitstream = cli.bitstream.ok_or_else(|| Whatever::without_source(
+        let bitstream = cli.bitstream.ok_or_else(|| Whatever::without_source(
             "Bitstream not specified. Use --bitstream".to_string()
         ))?;
 
-        // TODO: implement runworkload
-        return Err(Whatever::without_source("runworkload not yet implemented".to_string()));
+        // Validate paths
+        if !image.exists() {
+            return Err(Whatever::without_source(format!(
+                "Image file not found: {}",
+                image.display()
+            )));
+        }
+
+        if !bitstream.exists() {
+            return Err(Whatever::without_source(format!(
+                "Bitstream file not found: {}",
+                bitstream.display()
+            )));
+        }
+
+        // Default output directory
+        let output_dir = PathBuf::from("./out");
+        if !output_dir.exists() {
+            return Err(Whatever::without_source(format!(
+                "Output directory not found: {}. Please run buildbitstream first.",
+                output_dir.display()
+            )));
+        }
+
+        // Step 1: Flash bitstream to FPGA using vdbg
+        log::info!("Step 1: Flashing bitstream to FPGA using vdbg...");
+        use crate::runner::FlashBitstreamStep;
+        let flash_step = FlashBitstreamStep::new(&bitstream)
+            .output_dir(&output_dir)
+            .fpga_location("0.A");
+        flash_step.run()
+            .map_err(|e| Whatever::without_source(format!("Flash bitstream failed: {}", e)))?;
+
+        // Step 2: Load workload and run using vdbg
+        log::info!("Step 2: Loading workload and running on FPGA...");
+        use crate::runner::RunWorkloadStep;
+
+        let workload_step = RunWorkloadStep::new(
+            "0.A",  // FPGA location
+            &output_dir,
+            &image,
+        );
+
+        let result = workload_step.run()
+            .map_err(|e| Whatever::without_source(format!("Run workload failed: {}", e)))?;
+
+        // Step 3: Report results
+        log::info!("Workload completed successfully!");
+        log::info!("  Exit code: {}", result.exit_code);
+        log::info!("  Elapsed time: {:?}", result.elapsed);
+        log::info!("  Total cycles: {}", result.cycles);
+
+        if !result.uart_log.is_empty() {
+            log::info!("UART output:");
+            println!("{}", result.uart_log);
+        }
+
+        if result.exit_code != 0 {
+            return Err(Whatever::without_source(format!(
+                "Workload exited with non-zero code: {}",
+                result.exit_code
+            )));
+        }
+    }
+
+    // TODO: need to be fixed
+    // Workaround for VVAC library cleanup issue:
+    // The VVAC library (libvCtb.so) has global objects that cause segfault during
+    // normal program exit. We use std::process::exit(0) to skip global destructors.
+    // This is safe because all important resources (files, logs) have been flushed.
+    if cli.buildbitstream || cli.runworkload {
+        log::info!("Exiting bebop-p2e");
+        std::process::exit(0);
     }
 
     Ok(())
