@@ -267,6 +267,8 @@ fn link_vvac(libctb: &Path) {
 
     println!("cargo:rustc-link-search=native={}", lib_dir_str);
     println!("cargo:rustc-link-lib=dylib=vCtb");
+    println!("cargo:rustc-link-lib=static=ctb_wrapper");
+    println!("cargo:rustc-link-lib=dylib=stdc++");
 
     // Use $ORIGIN to find library relative to executable
     println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
