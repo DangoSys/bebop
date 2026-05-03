@@ -86,12 +86,15 @@ impl RunWorkloadStep {
         log::info!("Workflow completed");
         log::info!("  Elapsed: {:?}", elapsed);
 
-        // TODO: Parse UART log and exit code from vdbg output
+        // Get UART log and exit code from FFI
+        let uart_log = crate::ffi::uart_log();
+        let exit_code = crate::ffi::exit_code();
+
         Ok(SimulationResult {
-            exit_code: 0,
+            exit_code,
             elapsed,
             cycles: 0,
-            uart_log: String::new(),
+            uart_log,
         })
     }
 
@@ -141,7 +144,7 @@ impl RunWorkloadStep {
 set fpga_location "{}"
 set ddr_channel {}
 set image_path "{}"
-set run_cycles 55000000
+set run_cycles 500000000
 
 puts "=========================================="
 puts "P2E Workflow Starting"
