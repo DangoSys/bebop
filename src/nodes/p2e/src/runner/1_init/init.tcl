@@ -7,6 +7,21 @@ proc init_fpga {fpga_location} {
     # Wait for initialization
     after 1000
 
+    # Check DDR calibration complete
+    puts "Checking DDR calibration..."
+    set calib_done [get_value io_init_calib_complete]
+    if {$calib_done != 1} {
+        puts "ERROR: DDR calibration not complete (io_init_calib_complete = $calib_done)"
+        exit 1
+    }
+    puts "DDR calibration complete"
+
+    puts "FPGA initialized successfully"
+}
+
+proc reset_system {} {
+    puts "========== Resetting System =========="
+
     # Reset the system
     # Use io_sys_rstn which is declared in vcom_compile.tcl with write_net
     puts "Resetting system..."
@@ -14,5 +29,5 @@ proc init_fpga {fpga_location} {
     run 10000rclk
     force io_sys_rstn 1
 
-    puts "FPGA initialized successfully"
+    puts "System reset complete"
 }

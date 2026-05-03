@@ -141,22 +141,46 @@ impl RunWorkloadStep {
 set fpga_location "{}"
 set ddr_channel {}
 set image_path "{}"
+set run_cycles 55000000
 
 puts "=========================================="
 puts "P2E Workflow Starting"
 puts "=========================================="
 
-# Step 1: Flash bitstream
+# Load TCL modules
 source {}
+source {}
+source {}
+
+# Step 1: Flash bitstream
+puts "=========================================="
+puts "Step 1: Flashing Bitstream"
+puts "=========================================="
 flash_bitstream $fpga_location
 
-# Step 2: Initialize FPGA
-source {}
+# Step 2: Initialize FPGA and check DDR calibration
+puts "=========================================="
+puts "Step 2: Initializing FPGA"
+puts "=========================================="
 init_fpga $fpga_location
 
-# Step 3: Run workload
-source {}
-run_workload $fpga_location $ddr_channel $image_path
+# Step 3: Load image to DDR (after DDR is ready, BEFORE reset!)
+puts "=========================================="
+puts "Step 3: Loading Image to DDR"
+puts "=========================================="
+load_image $fpga_location $ddr_channel $image_path
+
+# Step 4: Reset system (after image is loaded)
+puts "=========================================="
+puts "Step 4: Resetting System"
+puts "=========================================="
+reset_system
+
+# Step 5: Run workload
+puts "=========================================="
+puts "Step 5: Running Workload"
+puts "=========================================="
+run_workload $run_cycles
 
 puts "=========================================="
 puts "P2E Workflow Completed"

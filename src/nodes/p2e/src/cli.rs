@@ -78,17 +78,8 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
             )));
         }
 
-        // Step 1: Flash bitstream to FPGA using vdbg
-        log::info!("Step 1: Flashing bitstream to FPGA using vdbg...");
-        use crate::runner::FlashBitstreamStep;
-        let flash_step = FlashBitstreamStep::new(&bitstream)
-            .output_dir(&output_dir)
-            .fpga_location("0.A");
-        flash_step.run()
-            .map_err(|e| Whatever::without_source(format!("Flash bitstream failed: {}", e)))?;
-
-        // Step 2: Load workload and run using vdbg
-        log::info!("Step 2: Loading workload and running on FPGA...");
+        // Run complete P2E workflow using vdbg
+        log::info!("Running complete P2E workflow (flash + init + workload)...");
         use crate::runner::RunWorkloadStep;
 
         let workload_step = RunWorkloadStep::new(
@@ -100,7 +91,7 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
         let result = workload_step.run()
             .map_err(|e| Whatever::without_source(format!("Run workload failed: {}", e)))?;
 
-        // Step 3: Report results
+        // Report results
         log::info!("Workload completed successfully!");
         log::info!("  Exit code: {}", result.exit_code);
         log::info!("  Elapsed time: {:?}", result.elapsed);
