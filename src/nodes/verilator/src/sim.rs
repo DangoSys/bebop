@@ -6,6 +6,18 @@ use std::ffi::CString;
 use std::io;
 use std::path::Path;
 use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
+
+pub fn setup_ctrlc_handler() {
+    ctrlc::set_handler(move || {
+        eprintln!("\nReceived Ctrl-C, stopping simulation...");
+        SHOULD_EXIT.store(true, Ordering::SeqCst);
+    })
+    .expect("Error setting Ctrl-C handler");
+}
 
 pub struct Simulator {
     context: *mut VerilatorContext,
@@ -31,8 +43,11 @@ impl Simulator {
                 ));
             }
 
-            // Pass command args
-            let c_args: Vec<CString> = args
+            // Pass command args (need to prepend program name for VPI)
+            let mut all_args = vec!["bebop-verilator".to_string()];
+            all_args.extend_from_slice(args);
+
+            let c_args: Vec<CString> = all_args
                 .iter()
                 .map(|s| CString::new(s.as_str()).unwrap())
                 .collect();
@@ -151,6 +166,10 @@ impl Simulator {
 
     pub fn run_batch(&mut self) {
         loop {
+            if SHOULD_EXIT.load(Ordering::SeqCst) {
+                eprintln!("Simulation interrupted by user");
+                break;
+            }
             if self.exec_once() {
                 break;
             }

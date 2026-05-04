@@ -199,10 +199,14 @@ fn write_flist(path: &Path, sources: &[PathBuf]) {
 
 fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
     let wrapper_src = manifest_dir.join("src/ctb_wrapper.cpp");
+    let dpi_impl_src = manifest_dir.join("src/dpi_impl.cpp");
     let wrapper_obj = out_dir.join("ctb_wrapper.o");
+    let dpi_impl_obj = out_dir.join("dpi_impl.o");
     let wrapper_lib = out_dir.join("libctb_wrapper.a");
+    let dpi_so = out_dir.join("libp2e_dpi.so");
 
     println!("cargo:rerun-if-changed={}", wrapper_src.display());
+    println!("cargo:rerun-if-changed={}", dpi_impl_src.display());
 
     // Compile C++ wrapper to object file
     // Use vvacDir/runtimeDir/include for headers (where vvac installs them)
@@ -210,9 +214,12 @@ fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
 
     println!("cargo:warning=Compiling C++ wrapper with include dir: {}", include_dir.display());
     println!("cargo:warning=Wrapper source: {}", wrapper_src.display());
-    println!("cargo:warning=Output object: {}", wrapper_obj.display());
+    println!("cargo:warning=DPI impl source: {}", dpi_impl_src.display());
+    println!("cargo:warning=Output objects: {}, {}", wrapper_obj.display(), dpi_impl_obj.display());
 
     let include_arg = format!("-I{}", include_dir.display());
+
+    // Compile ctb_wrapper.cpp
     let output = Command::new("g++")
         .args(&[
             "-c",
@@ -231,17 +238,66 @@ fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
         panic!("C++ wrapper compilation failed");
     }
 
-    // Create static library from object file
+    // Compile dpi_impl.cpp
+    let output = Command::new("g++")
+        .args(&[
+            "-c",
+            "-fPIC",
+            "-std=c++11",
+            &dpi_impl_src.display().to_string(),
+            "-o", &dpi_impl_obj.display().to_string(),
+        ])
+        .output()
+        .expect("failed to compile DPI implementation");
+
+    if !output.status.success() {
+        eprintln!("g++ stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("g++ stderr: {}", String::from_utf8_lossy(&output.stderr));
+        panic!("DPI implementation compilation failed");
+    }
+
+    // Create static library from both object files
     let status = Command::new("ar")
         .args(&[
             "rcs",
             &wrapper_lib.display().to_string(),
             &wrapper_obj.display().to_string(),
+            &dpi_impl_obj.display().to_string(),
         ])
         .status()
         .expect("failed to create wrapper library");
 
     assert!(status.success(), "wrapper library creation failed");
+
+    // Create shared library for DPI-C functions (for VVAC runtime)
+    println!("cargo:warning=Creating DPI-C shared library: {}", dpi_so.display());
+    let output = Command::new("g++")
+        .args(&[
+            "-shared",
+            "-fPIC",
+            "-std=c++11",
+            &dpi_impl_obj.display().to_string(),
+            "-o", &dpi_so.display().to_string(),
+        ])
+        .output()
+        .expect("failed to create DPI shared library");
+
+    if !output.status.success() {
+        eprintln!("g++ stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("g++ stderr: {}", String::from_utf8_lossy(&output.stderr));
+        panic!("DPI shared library creation failed");
+    }
+
+    // Copy DPI shared library to VVAC runtime directory
+    let vvac_lib_dir = out_dir.join("vvacDir/runtimeDir/lib/lib_arm");
+    if vvac_lib_dir.exists() {
+        let target_so = vvac_lib_dir.join("libp2e_dpi.so");
+        if let Err(e) = fs::copy(&dpi_so, &target_so) {
+            println!("cargo:warning=Failed to copy DPI library to VVAC: {}", e);
+        } else {
+            println!("cargo:warning=Copied DPI library to: {}", target_so.display());
+        }
+    }
 
     // Link the wrapper library
     println!("cargo:rustc-link-search=native={}", out_dir.display());

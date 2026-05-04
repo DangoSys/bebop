@@ -20,6 +20,7 @@ nix build
 
 ### Build
 
+<!-- CARGO_TARGET_DIR=target-xxx  -->
 ```
 cd bebop
 nix develop
@@ -44,8 +45,13 @@ cd bebop
 nix develop
 
 # run verilator
-cargo run --features verilator -- verilator \
-    --elf="<elf-file-path>"
+cargo run --features verilator \
+    --config="env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'" \
+    -- verilator \
+    --elf="<elf-file-path>" \
+    --log-dir="<log-file-directory-path>" \
+    --fst-dir="<fst-file-directory-path>" 
+
 
 # run bemu
 cargo run --features bemu -- bemu \
@@ -61,3 +67,10 @@ cargo run --features p2e  -- p2e \
     --image="<image-file-path>" \
     --bitstream="<bitstream-file-path>"
 ```
+
+cargo run --features verilator \
+    --config="env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'" \
+    -- verilator \
+    --elf="/home/wanghui/Code/buckyball/bb-tests/output/workloads/src/tutorial/tutorial-baremetal" \
+    --log-dir="/home/wanghui/Code/buckyball/arch/log/test_log" \
+    --fst-dir="/home/wanghui/Code/buckyball/arch/waveform/test_waveform" 
