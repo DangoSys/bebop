@@ -22,7 +22,7 @@ pub enum Commands {
     #[cfg(feature = "verilator")]
     /// Run the verilator flow.
     Verilator {
-        #[arg(value_name = "ELF")]
+        #[arg(long, value_name = "ELF")]
         elf: std::path::PathBuf,
         #[arg(
             value_name = "ARGS",
@@ -34,7 +34,7 @@ pub enum Commands {
     #[cfg(feature = "bemu")]
     /// Run the bemu emulator.
     Bemu {
-        #[arg(value_name = "ELF")]
+        #[arg(long, value_name = "ELF")]
         elf: std::path::PathBuf,
         #[arg(
             value_name = "ARGS",

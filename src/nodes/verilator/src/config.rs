@@ -4,10 +4,10 @@ use snafu::{Whatever, FromString};
 #[derive(Debug, Parser)]
 #[command(name = "bebop-verilator", about = "Bebop Verilator Simulator")]
 struct CliArgs {
-  #[arg(long, help = "Specify log file path (NDJSON trace)")]
-  log: String,
-  #[arg(long, help = "Specify FST waveform file path")]
-  fst: String,
+  #[arg(long, help = "Specify log directory (will create bdb.ndjson and stdout.log)")]
+  log_dir: String,
+  #[arg(long, help = "Specify waveform directory (will create waveform.fst)")]
+  fst_dir: String,
   #[arg(long, help = "Enable instruction trace")]
   itrace: bool,
   #[arg(long, help = "Enable memory trace")]
@@ -29,8 +29,8 @@ pub fn parse_args(
   let parsed = CliArgs::try_parse_from(argv)
     .map_err(|e| Whatever::without_source(e.to_string()))?;
   Ok((
-    parsed.log,
-    parsed.fst,
+    parsed.log_dir,
+    parsed.fst_dir,
     parsed.itrace,
     parsed.mtrace,
     parsed.pmctrace,

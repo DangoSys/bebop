@@ -33,9 +33,8 @@ fn main() {
     let jobs = env::var("NUM_JOBS").unwrap_or_else(|_| "1".to_string());
 
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed={}", native_dir.join("main.cc").display());
-    println!("cargo:rerun-if-changed={}", native_dir.join("main.h").display());
-    println!("cargo:rerun-if-env-changed=ARCH_CONFIG");
+    println!("cargo:rerun-if-changed={}", native_dir.join("verilator.cc").display());
+    // Don't rerun on ARCH_CONFIG change - only rebuild if source files change
 
     assert_exists(&arch_dir, "missing sibling `arch` repo");
 

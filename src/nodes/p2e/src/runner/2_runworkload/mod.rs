@@ -60,15 +60,20 @@ impl RunWorkloadStep {
         log::info!("Using sourceme.sh: {:?}", sourceme);
 
         // Run vdbg with sourced environment
+        let dpi_lib = self.output_dir.join("vvacDir/runtimeDir/lib/lib_arm/libp2e_dpi.so");
+        let dpi_lib_str = dpi_lib.display().to_string();
+
         let cmd = format!(
-            "source {} && cd {} && vdbg run.tcl",
+            "source {} && cd {} && LD_PRELOAD={} vdbg run.tcl",
             sourceme.display(),
             self.output_dir.canonicalize()
                 .map_err(|e| format!("Failed to canonicalize output_dir: {}", e))?
-                .display()
+                .display(),
+            dpi_lib_str
         );
 
         log::info!("Executing: {}", cmd);
+        log::info!("LD_PRELOAD: {}", dpi_lib_str);
 
         let start = std::time::Instant::now();
         let status = Command::new("bash")

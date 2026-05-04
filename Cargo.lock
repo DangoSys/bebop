@@ -95,6 +95,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "bebop-dasm"
+version = "0.1.0"
+
+[[package]]
 name = "bebop-dtb"
 version = "0.1.0"
 
@@ -128,9 +132,11 @@ version = "0.1.0"
 name = "bebop-verilator"
 version = "0.1.0"
 dependencies = [
+ "bebop-dasm",
  "bebop-uart",
  "cc",
  "clap",
+ "ctrlc",
  "goblin",
  "libc",
  "memmap2",

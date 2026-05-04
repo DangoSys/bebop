@@ -35,6 +35,10 @@ write_net -add {io_sys_rstn}
 # Define readable nets for runtime monitoring
 read_net -add {io_init_calib_complete}
 
+# Add trace for waveform capture
+# Trace entire BBTile (includes CPU, SCU, caches, etc.)
+trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile -depth 5
+
 # Create clock constraint (100MHz default)
 # Note: The top-level clock signal is 'io_user_clk', not 'user_clk'
 create_clock -sig_name ${top_module}.io_user_clk -frequency 100Mhz

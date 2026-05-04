@@ -12,7 +12,7 @@
   gcc = pkgs.gcc;
   boost = pkgs.boost.dev;
   python3 = pkgs.python3;
-  clangTools = pkgs.clang-tools;
+  # clangTools = pkgs.clang-tools;
   cargo = pkgs.cargo;
   rustc = pkgs.rustc;
   rustfmt = pkgs.rustfmt;
