@@ -45,8 +45,11 @@
             pkgs.verilator
             pkgs.bebop
             # Use gcc13 instead of gcc8 for P2E vvac builds
-            pkgs.gcc13  
-            # pkgs.gcc  
+            pkgs.gcc13
+            # pkgs.gcc
+
+            # P2E waveform tools
+            pkgs.p2e.gtkwave
           ] ++ pkgs.riscv.buildInputs;
 
           shellHook = ''

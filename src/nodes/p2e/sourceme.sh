@@ -26,8 +26,8 @@ export XEPIC_IP_HOME="$HPE_HOME/netlist_macro_packages"
 export XEPIC_VTECH_HOME="$HPE_HOME"/share/verilog
 
 # HPEC tools
-# export PATH="$HPEC_HOME/platform/linux64/bin:$PATH"
-# export PATH="$HPEC_HOME/bin:$PATH"
+export PATH="$HPEC_HOME/platform/linux64/bin:$PATH"
+export PATH="$HPEC_HOME/bin:$PATH"
 export PATH="$HPE_HOME/tools/xwave/bin:$PATH"
 
 
@@ -48,3 +48,6 @@ export VVAC_GEN="$CASE_HOME/vvacDir/vvac_by_mod/"
 export top_module="xepic_vvac_top"
 export VVAC_WORK_DIR="$CASE_HOME/vvacDir/"
 export NEWBACKDOOR=1
+
+# FusionDebug tool path
+export PATH="/home/tools/HPE_24.13.00.d024/tools/FusionDebug_24.09.00.a091.hotfix1_x64/bin:$PATH"

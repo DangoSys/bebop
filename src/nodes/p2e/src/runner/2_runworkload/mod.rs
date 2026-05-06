@@ -60,20 +60,17 @@ impl RunWorkloadStep {
         log::info!("Using sourceme.sh: {:?}", sourceme);
 
         // Run vdbg with sourced environment
-        let dpi_lib = self.output_dir.join("vvacDir/runtimeDir/lib/lib_arm/libp2e_dpi.so");
-        let dpi_lib_str = dpi_lib.display().to_string();
-
+        // Note: LD_PRELOAD disabled due to GLIBC version conflict
+        // DPI-C functions need to be linked differently
         let cmd = format!(
-            "source {} && cd {} && LD_PRELOAD={} vdbg run.tcl",
+            "source {} && cd {} && vdbg run.tcl",
             sourceme.display(),
             self.output_dir.canonicalize()
                 .map_err(|e| format!("Failed to canonicalize output_dir: {}", e))?
-                .display(),
-            dpi_lib_str
+                .display()
         );
 
         log::info!("Executing: {}", cmd);
-        log::info!("LD_PRELOAD: {}", dpi_lib_str);
 
         let start = std::time::Instant::now();
         let status = Command::new("bash")
@@ -149,7 +146,7 @@ impl RunWorkloadStep {
 set fpga_location "{}"
 set ddr_channel {}
 set image_path "{}"
-set run_cycles 500000000
+set run_cycles 100000000
 
 puts "=========================================="
 puts "P2E Workflow Starting"
@@ -172,21 +169,15 @@ puts "Step 2: Initializing FPGA"
 puts "=========================================="
 init_fpga $fpga_location
 
-# Step 3: Load image to DDR (after DDR is ready, BEFORE reset!)
+# Step 3: Load image to DDR (after DDR is ready)
 puts "=========================================="
 puts "Step 3: Loading Image to DDR"
 puts "=========================================="
 load_image $fpga_location $ddr_channel $image_path
 
-# Step 4: Reset system (after image is loaded)
+# Step 4: Run workload
 puts "=========================================="
-puts "Step 4: Resetting System"
-puts "=========================================="
-reset_system
-
-# Step 5: Run workload
-puts "=========================================="
-puts "Step 5: Running Workload"
+puts "Step 4: Running Workload"
 puts "=========================================="
 run_workload $run_cycles
 
