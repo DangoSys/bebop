@@ -1,5 +1,6 @@
 { pkgs }:
 
 {
-  # gcc9 = pkgs.gcc9;
+  # Waveform viewer and VCD tools (includes vcd2fst)
+  gtkwave = pkgs.gtkwave;
 }

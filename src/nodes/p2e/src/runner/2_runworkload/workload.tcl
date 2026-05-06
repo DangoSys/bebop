@@ -9,30 +9,42 @@ proc load_image {fpga_location ddr_channel image_path} {
 
     memory -write -fpga $fpga_location -channel $ddr_channel -file $image_path
     puts "Image loaded successfully"
+
+    # 15s
+    after 15000
 }
 
 proc run_workload {cycles} {
     puts "========== Running Workload =========="
-    puts "Running for $cycles cycles and capturing waveform..."
 
-    # Set trace size (capture last N cycles)
-    set trace_cycles 100000
-    puts "Setting trace size to $trace_cycles cycles"
-    set_trace_size $trace_cycles rclk
 
-    # Open trace database
-    puts "Opening trace database..."
-    tracedb -open wave -xedb -overwrite
+    # puts "Running simulation for $cycles cycles..."
+    # run $cycles rclk
 
-    # Add signals to trace
+    # Now capture waveform for a shorter period
+    # set trace_cycles 500000
+
+    # Capture waveform using trace in VCD format
+    puts "Opening trace database (VCD format)..."
+    tracedb -open wave -vcd -overwrite
+
+    # Add signals to trace (add all traced signals)
     puts "Adding signals to trace..."
     trace_signals -add *
 
-    # Run simulation
-    puts "Running simulation for $cycles cycles..."
-    run $cycles rclk
+    puts "Running simulation with trace..."
 
-    # Upload and close trace
+    # # Force enable timer interrupt by setting mie register
+    # puts "Forcing mie register to enable timer interrupt (MSIP + MTIE)..."
+    # force P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0.csr.reg_mie 'b0000000000000000000000000000000000000000000000000000000010001000
+
+    # # Force enable global interrupts
+    # puts "Forcing mstatus.mie to enable global interrupts..."
+    # force P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0.csr.reg_mstatus_mie 'b1
+
+    run $cycles rclk
+    
+
     puts "Uploading trace data..."
     tracedb -upload
 
@@ -40,6 +52,14 @@ proc run_workload {cycles} {
     tracedb -close
 
     puts "Workload completed"
-    puts "Waveform saved to wave.xedb"
-    puts "Use: fusiondebug -wdb wave.xedb to view waveform"
+    puts "Waveform saved to wave.vcd"
+
+    # Convert VCD to FST for smaller file size and faster loading
+    puts "Converting VCD to FST format..."
+    if {[catch {exec vcd2fst wave.vcd wave.fst} result]} {
+        puts "Warning: vcd2fst conversion failed: $result"
+    } else {
+        puts "FST waveform saved to wave.fst"
+        puts "You can view it with: gtkwave wave.fst"
+    }
 }

@@ -17,6 +17,7 @@ proc flash_bitstream {fpga_location} {
 
     # Download bitstream to FPGA
     download
+    after 1000
 
     puts "Bitstream flashed successfully"
 }

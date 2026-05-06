@@ -32,16 +32,36 @@ emulator_util -add {default 70}
 # Define writable nets for runtime control
 write_net -add {io_sys_rstn}
 
+# Add CLINT registers for runtime debugging and control
+# These allow us to read/write CLINT's mtime, mtimecmp, and ipi registers at runtime
+write_net -add {P2ETop.top.soc.clint_domain.clint.time_0}
+write_net -add {P2ETop.top.soc.clint_domain.clint.timecmp_0}
+write_net -add {P2ETop.top.soc.clint_domain.clint.ipi_0}
+
+# Add CSR registers for runtime debugging and control
+# These allow us to enable/disable interrupts at runtime
+write_net -add {P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0.csr.reg_mie}
+write_net -add {P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0.csr.reg_mstatus_mie}
+
 # Define readable nets for runtime monitoring
 read_net -add {io_init_calib_complete}
 
 # Add trace for waveform capture
-# Trace entire BBTile (includes CPU, SCU, caches, etc.)
-trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile -depth 5
+# IMPORTANT: Keep depth low to avoid suspending clocks (max 5000 probes per FPGA)
+# Only trace the core (CPU) to reduce probe count and avoid clock suspension
+trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0 -depth 3
 
-# Create clock constraint (100MHz default)
-# Note: The top-level clock signal is 'io_user_clk', not 'user_clk'
-create_clock -sig_name ${top_module}.io_user_clk -frequency 100Mhz
+# Create clock constraints
+# Reference config (VCU118) uses 5MHz for the main SoC clock
+#
+# IMPORTANT: vcom uses -sig_name and -frequency syntax (not Vivado XDC syntax)
+# The signal name should be the internal clock signal after the differential buffer
+# From P2ETopBlackBox, the input is: user_clk (single-ended, after IBUFDS)
+# The full hierarchical path is: xepic_vvac_top.P2ETop.top.user_clk
+
+# Main SoC clock (internal signal after IBUFDS) - 5MHz
+# The clock signal in P2ETopBlackBox is 'user_clk' (not 'io_user_clk')
+create_clock -sig_name ${top_module}.P2ETop.top.user_clk -frequency 5Mhz
 
 # Enable design rule mode
 set_dr_mode -add enable

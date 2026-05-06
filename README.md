@@ -68,9 +68,10 @@ cargo run --features p2e  -- p2e \
     --bitstream="<bitstream-file-path>"
 ```
 
-cargo run --features verilator \
+<!-- cargo run --features verilator \
     --config="env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'" \
     -- verilator \
     --elf="/home/wanghui/Code/buckyball/bb-tests/output/workloads/src/tutorial/tutorial-baremetal" \
     --log-dir="/home/wanghui/Code/buckyball/arch/log/test_log" \
-    --fst-dir="/home/wanghui/Code/buckyball/arch/waveform/test_waveform" 
+    --fst-dir="/home/wanghui/Code/buckyball/arch/waveform/test_waveform"  -->
+    
