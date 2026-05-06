@@ -1,53 +1,76 @@
 {
-  description = "Bebop emulator, host IPC, Spike and gem5 toolchain";
+  description = "bebop - A buckyball emulator written in Rust";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    spike-src = {
-      url = "github:riscv-software-src/riscv-isa-sim/45fe6c110aed80d5689752236ba0a668f093ce48";
-      flake = false;
-    };
-    gem5-src = {
-      url = "github:gem5/gem5/ddd4ae35adb0a3df1f1ba11e9a973a5c2f8c2944";
-      flake = false;
-    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, spike-src, gem5-src }:
+  outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        overlays = [ (import ./scripts/nix/overlay.nix { inherit spike-src gem5-src; }) ];
-        pkgs = import nixpkgs {
-          inherit system overlays;
+        overlays = [
+          (import ./scripts/nix/overlay.nix)
+        ];
+        pkgs = import nixpkgs { inherit system overlays; };
+        preCommitCfg = ./scripts/tools/pre-commit-config.yaml;
+        preCommitInstall = pkgs.writeShellApplication {
+          name = "bebop-pre-commit-install";
+          runtimeInputs = [ pkgs.base.preCommit ];
+          text = ''
+            exec pre-commit install --install-hooks --hook-type pre-commit -c ${preCommitCfg}
+          '';
         };
       in
       {
-        packages = {
-          bebop = pkgs.bebop;
-          host = pkgs.bebopHost;
-          spike = pkgs.bebopSpike;
-          gem5 = pkgs.bebopGem5;
-          default = pkgs.bebop;
-        };
-
         devShells.default = pkgs.mkShell {
           buildInputs = [
+            pkgs.base.autoconf
+            pkgs.base.automake
+            pkgs.base.libtool
+            pkgs.base.gnumake
+            pkgs.base.pkgConfig
+            # pkgs.base.clangTools
+            pkgs.base.cmake
+            pkgs.base.ninja
+            pkgs.base.dtc
+            pkgs.base.boost
+            pkgs.base.python3
+            pkgs.base.cargo
+            pkgs.base.rustc
+            pkgs.base.rustfmt
+            pkgs.base.clippy
+            pkgs.base.preCommit
+
+            pkgs.verilator
             pkgs.bebop
-            pkgs.bebopSpike
-            pkgs.bebopGem5
-            pkgs.rustc
-            pkgs.cargo
-            pkgs.pkg-config
-          ];
+            # Use gcc13 instead of gcc8 for P2E vvac builds
+            pkgs.gcc13
+            # pkgs.gcc
+
+            # P2E waveform tools
+            pkgs.p2e.gtkwave
+          ] ++ pkgs.riscv.buildInputs;
+
           shellHook = ''
-            echo "Bebop development shell"
-            echo " - bebop path: $(which bebop)"
-            echo " - spike path: $(which spike)"
-            echo " - gem5.opt path: $(which gem5.opt)"
+            # Put gcc13 at the front of PATH for P2E vvac builds
+            # export PATH="${pkgs.gcc13}/bin:$PATH"
+            # hash -r
+          '' + pkgs.riscv.shellHook + ''
+            echo "================= bebop development environment activated ========================="
+            echo "Enable nodes including:"
+            echo "bebop: $(command -v bebop)"
+            echo "riscv gcc: $(command -v riscv64-none-elf-gcc)"
+            echo "verilator: $(command -v verilator)"
+            echo "==========================================================================="
           '';
         };
 
-        formatter = pkgs.nixpkgs-fmt;
-      });
+        packages.default = pkgs.bebop;
+        apps.pre-commit-install = {
+          type = "app";
+          program = "${preCommitInstall}/bin/bebop-pre-commit-install";
+        };
+      }
+    );
 }

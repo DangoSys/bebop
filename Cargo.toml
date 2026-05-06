@@ -1,0 +1,38 @@
+[workspace]
+members = [".", "src/nodes/verilator", "src/nodes/bemu", "src/nodes/p2e"]
+resolver = "2"
+
+[package]
+name = "bebop"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "bebop"
+path = "src/main.rs"
+
+[lib]
+name = "bebop"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[features]
+default = []
+verilator = ["dep:bebop-verilator"]
+bemu = ["dep:bebop-bemu"]
+p2e = ["dep:bebop-p2e"]
+build-bitstream = ["bebop-p2e?/build-bitstream"]
+
+[dependencies]
+bebop-verilator = { path = "src/nodes/verilator", optional = true }
+bebop-bemu = { path = "src/nodes/bemu", optional = true }
+bebop-p2e = { path = "src/nodes/p2e", optional = true }
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
+log = "0.4"
+env_logger = "0.11"
+nix = { version = "0.29", features = ["fs", "mman", "signal", "process"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+ctrlc = "3"
+camino = "1.1"
+snafu = "0.8"

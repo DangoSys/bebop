@@ -1,7 +1,29 @@
 target/
 build/
-m5out/
-result
 
-*.json
+node_modules/
+pnpm-lock.yaml
+dist/
+
+pkg/
+result/
+result
+out/
+
+# Native / Spike / workload build artifacts
 *.o
+*.a
+*.so
+*.dylib
+*.dll
+
+.codex/
+.claude/
+log.txt
+
+nohup.out
+vcom.key
+vcom.log
+jm_vcom.log
+work_lib/
+build.log
