@@ -1,53 +1,79 @@
 # Initialize FPGA and DDR4
 # This script is called by run.tcl
 
+# Reset的逻辑：
+# 系统io_sys_rstn=0启动reset，io_sys_rstn=1释放reset
+# 对于设计soc_reset=1启动reset，soc_reset=0释放reset
+# soc_reset = !io_sys_rstn || !c0_init_calib_complete
+# 而ddr的reset又依赖io_sys_rstn
+# 所以一个正确的初始化流程应该是io_sys_rstn=0，然后cpu和ddr都被初始化
+# ddr初始化完成后c0_init_calib_complete=1，此时将io_sys_rstn=1释放ddr和CPU
+# 总结：io_sys_rstn=0 -> c0_init_calib_complete=1 -> io_sys_rstn=1
+
 proc init_fpga {fpga_location} {
     puts "========== Initializing FPGA =========="
 
     # Initialize reset sequence (similar to p2e_ddr4_backdoor example)
     # Hold reset longer to ensure CLINT and other modules are properly initialized
     puts "Initializing reset sequence..."
-    # force io_sys_rstn 0
-    # run 10000rclk
-    # force io_sys_rstn 1
-    # run 10000rclk
+
+    # Open waveform capture for the reset sequence to debug PC initialization
+    puts "Opening reset-phase waveform capture..."
+    # set_trace_size 100000 rclk
+    # tracedb -open wave_reset -vcd -overwrite
+    # trace_signals -add *
+
     force io_sys_rstn 0
     run 10000rclk
     force io_sys_rstn 1
-    run 1000000rclk
+    # run 1200000rclk
 
-    # Run a few cycles after reset to let registers initialize
-    puts "Running post-reset cycles..."
-    run 1000000rclk
+    # force 
 
-    # Read CLINT registers after reset to check initialization
-    # puts "========== Reading CLINT Registers (After Reset) =========="
-    # set mtime_after_reset [get_value P2ETop.top.soc.clint_domain.clint.time_0]
-    # set mtimecmp_after_reset [get_value P2ETop.top.soc.clint_domain.clint.timecmp_0]
-    # set ipi_after_reset [get_value P2ETop.top.soc.clint_domain.clint.ipi_0]
+    # puts "Closing reset-phase waveform capture..."
+    # tracedb -upload
+    # tracedb -close
+    # exec vcd2fst wave_reset.vcd wave_reset.fst
+    # puts "Reset waveform saved to wave_reset.fst"
 
-    # puts "  CLINT time_0 (mtime)     = $mtime_after_reset"
-    # puts "  CLINT timecmp_0          = $mtimecmp_after_reset"
-    # puts "  CLINT ipi_0              = $ipi_after_reset"
-    # puts "============================================================"
+    # # Periodic waveform capture: every 1000000 rclk, dump the first 100000 rclk
+    # # Total: 100 cycles * 1000000 rclk = 100000000 rclk
+    # puts "Starting periodic waveform capture (100 cycles)..."
+    # for {set i 0} {$i < 10} {incr i} {
+    #     puts "Periodic capture cycle $i: dumping first 100000 rclk..."
+    #     tracedb -open wave_init_$i -vcd -overwrite
+    #     trace_signals -add *
+    #     run 100000 rclk
+    #     tracedb -upload
+    #     tracedb -close
+    #     exec vcd2fst wave_init_$i.vcd wave_init_$i.fst
+    #     puts "Periodic capture cycle $i: running remaining 900000 rclk (no trace)..."
+    #     run 9900000 rclk
+    # }
+    # puts "Periodic waveform capture complete."
 
-    # Run simulation in background to let DDR calibration complete
-    puts "Starting DDR calibration (running in background)..."
-    run -nowait
-    after 2000
-    stop
 
-    # Check DDR calibration status
-    puts "Checking DDR calibration status..."
-    set calib_done [get_value io_init_calib_complete]
-    puts "  io_init_calib_complete = $calib_done"
+
+    # Poll DDR calibration status: run a chunk of cycles, then check, repeat until done
+    puts "Polling DDR calibration status..."
+    set calib_done "'b0"
+
+    for {set i 0} {$i < 100000} {incr i} {
+        run 100 rclk
+        set calib_done [get_value io_init_calib_complete]
+        puts "  Iteration $i: io_init_calib_complete = $calib_done"
+
+        if {$calib_done != "'b0"} {
+            break
+        }
+    }
 
     if {$calib_done == "'b0"} {
-        puts "ERROR: DDR calibration failed"
+        puts "ERROR: DDR calibration failed after 100 iterations"
         exit 1
     }
 
-    puts "DDR calibration complete!"
+    puts "DDR calibration complete after $i iterations!"
 
     # Don't run here - let CPU start executing after program is loaded
     # run 100000000 rclk
@@ -94,14 +120,3 @@ proc init_fpga {fpga_location} {
     # puts "FPGA initialized successfully"
 }
 
-# proc reset_system {} {
-#     puts "========== Resetting System =========="
-
-#     # Reset the system before running workload
-#     puts "Resetting system..."
-#     force io_sys_rstn 0
-#     run 10000rclk
-#     force io_sys_rstn 1
-
-#     puts "System reset complete"
-# }

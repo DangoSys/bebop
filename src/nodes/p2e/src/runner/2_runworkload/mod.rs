@@ -146,7 +146,7 @@ impl RunWorkloadStep {
 set fpga_location "{}"
 set ddr_channel {}
 set image_path "{}"
-set run_cycles 100000000
+set run_cycles 1000000
 
 puts "=========================================="
 puts "P2E Workflow Starting"
@@ -200,8 +200,8 @@ exit
         // Try to find sourceme.sh in common locations
         let candidates = vec![
             PathBuf::from("sourceme.sh"),
-            PathBuf::from("./sourceme.sh"),
-            self.output_dir.join("../sourceme.sh"),
+            // PathBuf::from("./sourceme.sh"),
+            // self.output_dir.join("../sourceme.sh"),
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh"),
         ];
 

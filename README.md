@@ -7,8 +7,6 @@ A buckyball emulator written in Rust
 
 ```
 git clone https://github.com/DangoSys/bebop.git
-cd bebop
-git checkout next
 ```
 
 2. Build the simulator
