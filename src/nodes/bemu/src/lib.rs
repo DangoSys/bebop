@@ -1,4 +1,3 @@
-mod config;
 mod sim;
 
 #[path = "../native/ffi.rs"]

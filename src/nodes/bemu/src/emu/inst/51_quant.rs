@@ -1,6 +1,6 @@
 //===- 51_quant.rs - QUANT instruction (quantization) ----------------------===//
 
-use super::super::bank::{BankConfig, BankMap, BANK_NUM, BANK_SIZE};
+use super::super::bank::{BANK_NUM, BANK_SIZE};
 use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
 use super::instruction::{ExecContext, Instruction};
 

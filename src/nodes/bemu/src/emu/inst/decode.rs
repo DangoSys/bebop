@@ -5,8 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-use super::super::bank::{BankConfig, BankMap, BANK_NUM};
-use super::instruction::ExecContext;
+use super::super::bank::{BankMap, BANK_NUM};
 
 // Re-export from instruction_register
 pub use super::instruction_register::{cycles_after_issue, execute_known};

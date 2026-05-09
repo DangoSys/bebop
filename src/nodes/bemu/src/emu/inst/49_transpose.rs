@@ -1,8 +1,8 @@
 //===- 49_transpose.rs - TRANSPOSE instruction ------------------------------===//
 
-use super::super::bank::{BankConfig, BankMap, BANK_NUM, MATRIX_SIZE};
+use super::super::bank::{BANK_NUM, MATRIX_SIZE};
 use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
-use super::instruction::{ExecContext, Instruction};
+use super::instruction::{Instruction, ExecContext};
 
 const TRANSPOSE_M: usize = 16;
 

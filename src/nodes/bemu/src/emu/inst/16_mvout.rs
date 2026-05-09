@@ -1,6 +1,6 @@
 //===- 16_mvout.rs - MVOUT instruction (bank to memory) --------------------===//
 
-use super::super::bank::{mem_write, BankConfig, BankMap, BANK_NUM, BANK_SIZE, MATRIX_SIZE};
+use super::super::bank::{mem_write, BANK_NUM, BANK_SIZE, MATRIX_SIZE};
 use super::decode::{pbank, rs1_b0, rs1_iter, xs2_mem_stride};
 use super::instruction::{ExecContext, Instruction};
 

@@ -59,7 +59,11 @@ fn exec_loop_impl(memory: &mut [u8]) -> u64 {
 }
 
 fn latency_impl(funct: u32) -> u64 {
-    if funct == 105 { 256 } else { 1 }
+    if funct == 105 {
+        256
+    } else {
+        1
+    }
 }
 
 // Individual instruction types for each funct

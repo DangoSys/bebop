@@ -1,6 +1,6 @@
 //===- 32_mset.rs - MSET instruction (bank allocation) ---------------------===//
 
-use super::super::bank::{BankConfig, BankMap, BANK_NUM};
+use super::super::bank::{BankConfig, BANK_NUM};
 use super::decode::{rs1_b0, xs2_mset};
 use super::instruction::{ExecContext, Instruction};
 

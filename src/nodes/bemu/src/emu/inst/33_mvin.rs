@@ -1,6 +1,6 @@
 //===- 33_mvin.rs - MVIN instruction (memory to bank) ----------------------===//
 
-use super::super::bank::{mem_read, BankConfig, BankMap, BANK_NUM, BANK_SIZE, MATRIX_SIZE};
+use super::super::bank::{mem_read, BANK_NUM, BANK_SIZE, MATRIX_SIZE};
 use super::decode::{pbank, rs1_b0, rs1_iter, xs2_mem_stride};
 use super::instruction::{ExecContext, Instruction};
 

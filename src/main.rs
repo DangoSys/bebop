@@ -32,8 +32,8 @@ pub enum Commands {
     Bemu {
         #[arg(long, value_name = "ELF")]
         elf: std::path::PathBuf,
-        #[arg(value_name = "ARGS", trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
+        #[arg(long, value_name = "DIR")]
+        log_dir: Option<std::path::PathBuf>,
     },
     #[cfg(feature = "p2e")]
     /// Run the P2E FPGA flow.
@@ -56,7 +56,7 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
         #[cfg(feature = "verilator")]
         Commands::Verilator { elf, args } => run_verilator(VerilatorCli { elf, args }),
         #[cfg(feature = "bemu")]
-        Commands::Bemu { elf, args } => run_bemu(BemuCli { elf, args }),
+        Commands::Bemu { elf, log_dir } => run_bemu(BemuCli { elf, log_dir }),
         #[cfg(feature = "p2e")]
         Commands::P2e {
             buildbitstream,

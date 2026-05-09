@@ -17,36 +17,27 @@
 // BEMU (Buckyball Emulator) wraps Spike ISA simulator with custom RoCC
 // instructions for Buckyball accelerator emulation.
 //
-// Flow: BemuCli -> BemuConfig -> run_spike (FFI)
-//
 //===----------------------------------------------------------------------===//
 
 use snafu::{OptionExt, ResultExt, Whatever};
 use std::path::PathBuf;
 
-use crate::config::BemuConfig;
 use crate::ffi::run_spike;
+
+// Default configuration
+const DEFAULT_ISA: &str = "rv64gc";
+const DEFAULT_PROCS: usize = 1;
+const DEFAULT_MEM_MB: usize = 2048;
 
 #[derive(Debug, Clone)]
 pub struct BemuCli {
     pub elf: PathBuf,
-    pub args: Vec<String>,
+    pub log_dir: Option<PathBuf>,
 }
 
 pub fn run(cli: BemuCli) -> Result<(), Whatever> {
-    let config = BemuConfig::parse(cli.args)?;
-    run_simulation(cli.elf, config)
-}
+    let elf_path = cli.elf.to_str().whatever_context("invalid elf path")?;
+    let log_path = cli.log_dir.as_ref().and_then(|d| d.to_str());
 
-fn run_simulation(elf: PathBuf, config: BemuConfig) -> Result<(), Whatever> {
-    let elf_path = elf.to_str().whatever_context("invalid elf path")?;
-
-    run_spike(
-        &config.isa,
-        config.procs,
-        config.mem_mb,
-        elf_path,
-        config.log.as_deref(),
-    )
-    .whatever_context("spike execution failed")
+    run_spike(DEFAULT_ISA, DEFAULT_PROCS, DEFAULT_MEM_MB, elf_path, log_path).whatever_context("spike execution failed")
 }
