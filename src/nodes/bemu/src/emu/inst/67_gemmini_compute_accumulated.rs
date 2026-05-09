@@ -1,6 +1,6 @@
 //===- 67_gemmini_compute_accumulated.rs - GEMMINI_COMPUTE_ACCUMULATED -----===//
 
-use super::super::bank::{BANK_NUM};
+use super::super::bank::BANK_NUM;
 use super::bank_matrix::{read_i32_nn, read_i8_nn, write_i32_nn};
 use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
 use super::instruction::{ExecContext, Instruction};

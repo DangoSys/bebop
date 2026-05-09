@@ -2,7 +2,7 @@
 
 use super::super::bank::{BANK_NUM, BANK_SIZE};
 use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
-use super::instruction::{Instruction, ExecContext};
+use super::instruction::{ExecContext, Instruction};
 
 pub struct Dequant;
 

@@ -172,7 +172,6 @@ fn collect_files_inner(root: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
     }
 }
 
-
 fn get_verilator_root(obj_dir: &Path, topname: &str) -> PathBuf {
     let mk = obj_dir.join(format!("V{topname}.mk"));
     let contents = fs::read_to_string(&mk).expect("read generated V*.mk");

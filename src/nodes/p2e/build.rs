@@ -1,8 +1,26 @@
+//===-------- build.rs - Build P2E simulation workflow --------------------===//
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+//===----------------------------------------------------------------------===//
+//
+//===----------------------------------------------------------------------===//
+
+use duct::cmd;
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 const P2E_TOP: &str = "P2ETop";
 const SOURCE_ME: &str = "sourceme.sh";
@@ -13,88 +31,42 @@ fn main() {
     println!("cargo:rerun-if-env-changed=VSRC_PATH");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let bebop_root = manifest_dir
+    let out_dir = manifest_dir
         .ancestors()
         .nth(3)
         .expect("p2e crate should live under bebop/src/nodes/p2e")
-        .to_path_buf();
-    let out_dir = bebop_root.join("out");
-
+        .join("out");
     let libctb_dst = out_dir.join("libvCtb.so");
-    let vvac_dir = out_dir.join("vvacDir");
-    let wrapper_lib = out_dir.join("libctb_wrapper.a");
 
-    // Check if VVAC output already exists and can be reused
-    if libctb_dst.exists() && vvac_dir.exists() && wrapper_lib.exists() {
-        println!("cargo:warning=Reusing existing VVAC build (libvCtb.so, vvacDir, and wrapper found)");
-        println!(
-            "cargo:warning=To rebuild, set VSRC_PATH or delete {}",
-            out_dir.display()
-        );
-        link_vvac(&libctb_dst);
-        println!("cargo:warning=✓ P2E build complete (reused existing VVAC)!");
-        return;
-    }
-
-    // If no existing VVAC output, VSRC_PATH is required
+    // VSRC_PATH is required
     let vsrc_path = env::var("VSRC_PATH").expect(
         "VSRC_PATH environment variable is required. Example: VSRC_PATH=/home/wanghui/Code/buckyball/arch/build/sims.p2e.P2EToyConfig",
     );
     let build_dir = PathBuf::from(&vsrc_path);
 
-    // Clean old build artifacts before starting fresh build
+    let sourceme = manifest_dir.join(SOURCE_ME);
+    assert_exists(&sourceme, "missing p2e sourceme script");
+
+    //===----------------------------------------------------------------------===//
+    // 1. Clean old build artifacts every time before build
+    // if you want to save your old build artifacts (like bitstream.bit),
+    // it suggest setting --out-dir to a different directory (default is ./out)
+    //===----------------------------------------------------------------------===//
     println!("cargo:warning=Cleaning old build artifacts...");
-    if out_dir.exists() {
-        // Remove vvacDir
-        let vvac_dir = out_dir.join("vvacDir");
-        if vvac_dir.exists() {
-            fs::remove_dir_all(&vvac_dir).ok();
-            println!("cargo:warning=Removed old vvacDir");
-        }
+    clean_build_artifacts(&out_dir);
 
-        // Remove .vm files
-        if let Ok(entries) = fs::read_dir(&out_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("vm") {
-                    fs::remove_file(&path).ok();
-                    println!(
-                        "cargo:warning=Removed old {}",
-                        path.file_name().unwrap().to_str().unwrap()
-                    );
-                }
-            }
-        }
-
-        // Remove .log files
-        if let Ok(entries) = fs::read_dir(&out_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("log") {
-                    fs::remove_file(&path).ok();
-                }
-            }
-        }
-    }
-
+    //===----------------------------------------------------------------------===//
+    // 2. Pre-process Verilog sources
+    //===----------------------------------------------------------------------===//
     assert_exists(
         &build_dir,
-        &format!(
-            "missing Verilog source directory at VSRC_PATH={}; generate Verilog first",
-            vsrc_path
-        ),
+        &format!("missing Verilog source directory at VSRC_PATH={}", vsrc_path),
     );
     assert_exists(
         &build_dir.join(format!("{P2E_TOP}.sv")),
         &format!("VSRC_PATH={} does not look like a P2E build", vsrc_path),
     );
-
     let mut vsrcs = collect_files(&build_dir, &["v", "sv"]);
-    assert!(
-        !vsrcs.is_empty(),
-        "no Verilog/SystemVerilog files found under {}",
-        build_dir.display()
-    );
 
     // Add XEPIC DDR4 IP stub
     // Use the stub from src/ddr/ip directory
@@ -102,19 +74,22 @@ fn main() {
     assert_exists(&ddr4_stub, "xepic_ddr4_dc1 stub not found");
     vsrcs.push(ddr4_stub);
     println!("cargo:warning=Added xepic_ddr4_dc1 stub from src/ddr/ip");
-
     println!("cargo:rerun-if-changed={}", build_dir.display());
 
     fs::create_dir_all(&out_dir).expect("create p2e out directory");
     let flist = out_dir.join("p2e_vvac_filelist.f");
     write_flist(&flist, &vsrcs);
 
-    let sourceme = manifest_dir.join(SOURCE_ME);
-    assert_exists(&sourceme, "missing p2e sourceme script");
-
     println!("cargo:warning=Removing empty module instantiations from Verilog...");
     remove_empty_module_instantiations(&build_dir);
 
+    //===----------------------------------------------------------------------===//
+    // 3. Run vvac to generate vvacDir and libvCtb.so
+    //
+    // why need rebuild?
+    //  vvac will generate empty module stubs, we need to add them to the filelist
+    //
+    //===----------------------------------------------------------------------===//
     println!("cargo:warning=Running vvac (first pass) to generate empty module stubs...");
     run_vvac(&out_dir, &sourceme, &flist, P2E_TOP);
 
@@ -126,15 +101,10 @@ fn main() {
         run_vvac(&out_dir, &sourceme, &flist, P2E_TOP);
     }
 
-    // vvac already compiled and installed libvCtb.so, just copy it
     println!("cargo:warning=Copying libvCtb.so from vvac output...");
     let libctb_src = out_dir.join("vvacDir/runtimeDir/lib/lib_arm/libvCtb.so");
     let libctb_dst = out_dir.join("libvCtb.so");
-    assert!(
-        libctb_src.exists(),
-        "libvCtb.so not found at {}. vvac may have failed.",
-        libctb_src.display()
-    );
+    assert_exists(&libctb_src, "libvCtb.so not found. vvac may have failed");
     fs::copy(&libctb_src, &libctb_dst).expect("copy libvCtb.so");
     println!(
         "cargo:warning=Copied libvCtb.so from {} to {}",
@@ -142,39 +112,40 @@ fn main() {
         libctb_dst.display()
     );
 
+    //===----------------------------------------------------------------------===//
+    // 4. Build Cpp from vvac to export DPI-C functions (CTB managemen) to Rust
+    //===----------------------------------------------------------------------===//
     println!("cargo:warning=Building C++ wrapper for Rust FFI...");
     build_cpp_wrapper(&manifest_dir, &out_dir);
 
+    //===----------------------------------------------------------------------===//
+    // 5. Link Cpp wrapper with bebop
+    //===----------------------------------------------------------------------===//
+    println!("cargo:warning=Linking vvac and C++ wrapper...");
     link_vvac(&libctb_dst);
 
-    println!("cargo:warning=✓ P2E VVAC build complete!");
+    println!("cargo:warning=P2E VVAC build complete!");
 }
 
 fn run_vvac(out_dir: &Path, sourceme: &Path, flist: &Path, top: &str) {
-    // Run vvac directly with HPE toolchain environment (no Nix wrapper needed)
-    // sourceme.sh now sources HPE GCC 8.3.0 which provides clang-format and other tools
-    let script = format!(
-        "cd {} && source {} && vvac -bc -f {} -top {} 2>&1 | tee {}",
-        sh_quote(&out_dir.display().to_string()),
-        sh_quote(&sourceme.display().to_string()),
-        sh_quote(&flist.display().to_string()),
-        sh_quote(top),
-        sh_quote(&out_dir.join("vvac_build.log").display().to_string()),
+    let vvac_cmd = format!(
+        "source {} && vvac -bc -f {} -top {}",
+        sourceme.display(),
+        flist.display(),
+        top
     );
 
-    let status = Command::new("bash")
-        .arg("-lc")
-        .arg(&script)
-        .status()
-        .expect("failed to execute vvac");
-
-    if !status.success() {
-        panic!("vvac failed. Check log: {}", out_dir.join("vvac_build.log").display());
-    }
-}
-
-fn sh_quote(value: impl AsRef<str>) -> String {
-    value.as_ref().replace('\'', "'\\''")
+    cmd!("bash", "-c", &vvac_cmd)
+        .dir(out_dir)
+        .stdout_to_stderr()
+        .run()
+        .unwrap_or_else(|e| {
+            panic!(
+                "vvac failed: {}. Check log: {}",
+                e,
+                out_dir.join("vvac_build.log").display()
+            )
+        });
 }
 
 fn write_flist(path: &Path, sources: &[PathBuf]) {
@@ -193,51 +164,36 @@ fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
 
     println!("cargo:rerun-if-changed={}", wrapper_src.display());
 
-    // Compile C++ wrapper to object file
-    // Use vvacDir/runtimeDir/include for headers (where vvac installs them)
     let include_dir = out_dir.join("vvacDir/runtimeDir/include");
+    let include_arg = format!("-I{}", include_dir.display());
 
-    println!(
-        "cargo:warning=Compiling C++ wrapper with include dir: {}",
-        include_dir.display()
-    );
+    println!("cargo:warning=Compiling C++ wrapper include: {}", include_dir.display());
     println!("cargo:warning=Wrapper source: {}", wrapper_src.display());
     println!("cargo:warning=Output object: {}", wrapper_obj.display());
 
-    let include_arg = format!("-I{}", include_dir.display());
-
     // Compile ctb_wrapper.cpp
-    let output = Command::new("g++")
-        .args(&[
-            "-c",
-            "-fPIC",
-            "-std=c++11",
-            &include_arg,
-            &wrapper_src.display().to_string(),
-            "-o",
-            &wrapper_obj.display().to_string(),
-        ])
-        .output()
-        .expect("failed to compile C++ wrapper");
-
-    if !output.status.success() {
-        eprintln!("g++ stdout: {}", String::from_utf8_lossy(&output.stdout));
-        eprintln!("g++ stderr: {}", String::from_utf8_lossy(&output.stderr));
-        panic!("C++ wrapper compilation failed");
-    }
+    cmd!(
+        "g++",
+        "-c",
+        "-fPIC",
+        "-std=c++11",
+        &include_arg,
+        wrapper_src.to_str().unwrap(),
+        "-o",
+        wrapper_obj.to_str().unwrap()
+    )
+    .run()
+    .expect("failed to compile C++ wrapper");
 
     // Create static library from wrapper object file
-    // DPI-C functions (scu_uart_write, scu_sim_exit) are implemented in Rust (ffi.rs)
-    let status = Command::new("ar")
-        .args(&[
-            "rcs",
-            &wrapper_lib.display().to_string(),
-            &wrapper_obj.display().to_string(),
-        ])
-        .status()
-        .expect("failed to create wrapper library");
-
-    assert!(status.success(), "wrapper library creation failed");
+    cmd!(
+        "ar",
+        "rcs",
+        wrapper_lib.to_str().unwrap(),
+        wrapper_obj.to_str().unwrap()
+    )
+    .run()
+    .expect("failed to create wrapper library");
 
     // Link the wrapper library
     println!("cargo:rustc-link-search=native={}", out_dir.display());
@@ -252,7 +208,7 @@ fn link_vvac(libctb: &Path) {
     println!("cargo:warning=Setting RPATH to: {}", lib_dir_str);
     println!("cargo:warning=libvCtb.so location: {}", libctb.display());
 
-    // Also copy libvCtb.so to target directory for easier access
+    // Copy libvCtb.so to target directory for easier access
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let target_lib = out_dir.join("../../../libvCtb.so");
     if let Err(e) = fs::copy(libctb, &target_lib) {
@@ -271,6 +227,29 @@ fn link_vvac(libctb: &Path) {
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir_str);
     println!("cargo:rustc-link-arg=-Wl,--enable-new-dtags");
     println!("cargo:rustc-cfg=vvac_linked");
+}
+
+fn clean_build_artifacts(out_dir: &Path) {
+    if !out_dir.exists() {
+        return;
+    }
+
+    let vvac_dir = out_dir.join("vvacDir");
+    if vvac_dir.exists() {
+        fs::remove_dir_all(&vvac_dir).ok();
+        println!("cargo:warning=Removed old vvacDir");
+    }
+
+    if let Ok(entries) = fs::read_dir(out_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension().and_then(OsStr::to_str) {
+                if ext == "vm" || ext == "log" {
+                    fs::remove_file(&path).ok();
+                }
+            }
+        }
+    }
 }
 
 fn assert_exists(path: &Path, message: &str) {
@@ -320,7 +299,6 @@ fn add_missing_empty_modules(out_dir: &Path) -> bool {
         "work_DebugCustomXbar.sv",
         "work_IntSyncCrossingSource_n1x1_Registered.sv",
         "work_NullIntSource.sv",
-        // IntXbar_i0_o0 is removed from DigitalTop.sv, not added to filelist
     ];
 
     let mut added_count = 0;
@@ -347,10 +325,7 @@ fn add_missing_empty_modules(out_dir: &Path) -> bool {
         new_content.push('\n');
 
         fs::write(&filelist_path, new_content).expect("Failed to write updated VVAC filelist");
-        println!(
-            "cargo:warning=Added {} missing empty modules to VVAC filelist",
-            added_count
-        );
+        println!("cargo:warning=Added {} empty modules to VVAC filelist", added_count);
         true
     } else {
         println!("cargo:warning=No missing empty modules found");
@@ -359,8 +334,6 @@ fn add_missing_empty_modules(out_dir: &Path) -> bool {
 }
 
 fn remove_empty_module_instantiations(build_dir: &Path) {
-    // Remove empty module instantiations from DigitalTop.sv
-    // These modules have no ports and no connections, so they can be safely removed
     let digital_top = build_dir.join("DigitalTop.sv");
     if !digital_top.exists() {
         println!("cargo:warning=DigitalTop.sv not found, skipping empty module removal");
@@ -369,34 +342,30 @@ fn remove_empty_module_instantiations(build_dir: &Path) {
 
     let content = fs::read_to_string(&digital_top).expect("Failed to read DigitalTop.sv");
 
-    // Pattern to match empty module instantiations:
-    // IntSyncCrossingSource_n1x1_Registered intsource ();
-    // NullIntSource null_int_source ();
-    // IntXbar_i0_o0 ibus_int_bus ();
-    let patterns = [
-        r"IntSyncCrossingSource_n1x1_Registered\s+\w+\s*\(\s*\)\s*;",
-        r"NullIntSource\s+\w+\s*\(\s*\)\s*;",
-        r"IntXbar_i0_o0\s+\w+\s*\(\s*\)\s*;",
+    // Empty module patterns: ModuleName instance_name ();
+    let empty_modules = [
+        "IntSyncCrossingSource_n1x1_Registered",
+        "NullIntSource",
+        "IntXbar_i0_o0",
     ];
 
-    let mut new_content = content.clone();
     let mut removed_count = 0;
+    let new_content: String = content
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            let should_remove = empty_modules
+                .iter()
+                .any(|module| trimmed.contains(module) && trimmed.ends_with("();"));
 
-    for pattern in &patterns {
-        let re = regex::Regex::new(pattern).expect("Invalid regex pattern");
-        let matches: Vec<_> = re.find_iter(&new_content).collect();
-
-        if !matches.is_empty() {
-            for m in &matches {
-                println!(
-                    "cargo:warning=Removing empty module instantiation: {}",
-                    m.as_str().trim()
-                );
+            if should_remove {
+                println!("cargo:warning=Removing empty module instantiation: {}", trimmed);
                 removed_count += 1;
             }
-            new_content = re.replace_all(&new_content, "").to_string();
-        }
-    }
+            !should_remove
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     if removed_count > 0 {
         fs::write(&digital_top, new_content).expect("Failed to write updated DigitalTop.sv");

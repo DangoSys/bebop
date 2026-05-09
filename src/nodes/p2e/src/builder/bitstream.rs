@@ -20,8 +20,7 @@ impl BitstreamBuilder {
 
         self.setup_environment()?;
 
-        std::fs::create_dir_all(&self.output_dir)
-            .map_err(|e| format!("Failed to create output directory: {}", e))?;
+        std::fs::create_dir_all(&self.output_dir).map_err(|e| format!("Failed to create output directory: {}", e))?;
 
         self.verify_vvac_outputs()?;
 
@@ -30,13 +29,8 @@ impl BitstreamBuilder {
         vsyn.run()?;
 
         // Step 2: vcom
-        let vcom_tcl = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/builder/2_vcom/vcom_compile.tcl");
-        let vcom = VcomStep::new(
-            self.output_dir.clone(),
-            "xepic_vvac_top".to_string(),
-            vcom_tcl,
-        )?;
+        let vcom_tcl = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/builder/2_vcom/vcom_compile.tcl");
+        let vcom = VcomStep::new(self.output_dir.clone(), "xepic_vvac_top".to_string(), vcom_tcl)?;
         vcom.run()?;
 
         // Step 3: PNR

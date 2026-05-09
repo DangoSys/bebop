@@ -41,8 +41,6 @@ struct RuntimeState {
     initialized: bool,
     uart_log: Vec<u8>,
     exit_code: Option<i32>,
-    last_mmio_addr: u64,
-    last_mmio_data: u64,
 }
 
 static STATE: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
@@ -57,10 +55,6 @@ pub fn reset_runtime_state() {
 
 pub fn mark_initialized() {
     state().lock().unwrap().initialized = true;
-}
-
-pub fn is_initialized() -> bool {
-    state().lock().unwrap().initialized
 }
 
 pub fn check_exit() -> bool {
@@ -78,8 +72,6 @@ pub fn uart_log() -> String {
 
 pub fn host_mmio_write(addr: u64, data: u64) -> i32 {
     let mut guard = state().lock().unwrap();
-    guard.last_mmio_addr = addr;
-    guard.last_mmio_data = data;
 
     if addr == SIM_EXIT_ADDR {
         guard.exit_code = Some((data & 0xffff_ffff) as i32);
@@ -97,35 +89,6 @@ pub fn host_mmio_write(addr: u64, data: u64) -> i32 {
     }
 
     0
-}
-
-pub fn host_mmio_read(addr: u64) -> u64 {
-    if (UART_BASE_ADDR..UART_BASE_ADDR + UART_SIZE).contains(&addr) {
-        let offset = addr - UART_BASE_ADDR;
-        if offset == 5 {
-            return 0x60;
-        }
-    }
-
-    0
-}
-
-pub fn wait_cycles(cycles: u32) -> Result<(), String> {
-    #[cfg(vvac_linked)]
-    {
-        let _ = cycles;
-        // TODO: Implement cycle advancement using vvac API
-        Ok(())
-    }
-
-    #[cfg(not(vvac_linked))]
-    {
-        let _ = cycles;
-        Err(
-            "VVAC is not linked; generate out/vvacDir/runtimeDir/lib/lib_arm/libvCtb.so and rebuild before running P2E"
-                .to_string(),
-        )
-    }
 }
 
 // ============================================================================

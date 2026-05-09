@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use snafu::{Whatever};
+use snafu::Whatever;
 
 #[cfg(feature = "verilator")]
 use bebop_verilator::{run as run_verilator, VerilatorCli};
@@ -8,7 +8,7 @@ use bebop_verilator::{run as run_verilator, VerilatorCli};
 use bebop_bemu::{run as run_bemu, BemuCli};
 
 #[cfg(feature = "p2e")]
-use bebop_p2e::{run as run_p2e, P2ECli, BitstreamBuilder};
+use bebop_p2e::{run as run_p2e, BitstreamBuilder, P2ECli};
 
 #[derive(Debug, Parser)]
 #[command(name = "bebop", about = "Bebop CLI")]
@@ -99,23 +99,26 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
             log_dir,
         } => {
             if buildbitstream {
-                let vsrc_dir = vsrc_dir.ok_or_else(|| Whatever::without_source("--vsrc-dir is required for buildbitstream".to_string()))?;
+                let vsrc_dir = vsrc_dir
+                    .ok_or_else(|| Whatever::without_source("--vsrc-dir is required for buildbitstream".to_string()))?;
 
                 // Build bitstream using BitstreamBuilder
                 let builder = BitstreamBuilder::new(vsrc_dir, output_dir);
-                builder.build()
-                    .map_err(|e| Whatever::without_source(e))?;
+                builder.build().map_err(|e| Whatever::without_source(e))?;
 
                 Ok(())
             } else if runworkload {
-                let image = image.ok_or_else(|| Whatever::without_source("--image is required for runworkload".to_string()))?;
+                let image =
+                    image.ok_or_else(|| Whatever::without_source("--image is required for runworkload".to_string()))?;
                 run_p2e(P2ECli {
                     image,
                     output: output_dir,
                     log: log_dir,
                 })
             } else {
-                Err(Whatever::without_source("Must specify either --buildbitstream or --runworkload".to_string()))
+                Err(Whatever::without_source(
+                    "Must specify either --buildbitstream or --runworkload".to_string(),
+                ))
             }
         }
     }

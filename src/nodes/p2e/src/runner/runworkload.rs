@@ -13,12 +13,7 @@ pub struct SimulationResult {
 /// Run P2E simulation - main entry point
 ///
 /// This is the main entry point for P2E simulation, similar to Verilator's run_batch().
-pub fn run(
-    fpga_location: &str,
-    case_home: &Path,
-    rtcfg_path: &Path,
-    image: &Path,
-) -> Result<SimulationResult, String> {
+pub fn run(fpga_location: &str, case_home: &Path, rtcfg_path: &Path, image: &Path) -> Result<SimulationResult, String> {
     log::info!("P2E Simulation Starting");
     log::info!("  FPGA: {}", fpga_location);
     log::info!("  Case Home: {}", case_home.display());
@@ -64,11 +59,7 @@ pub fn run(
 }
 
 /// Initialize simulation (CTB)
-fn init_sim(
-    fpga_location: &str,
-    case_home: &Path,
-    rtcfg_path: &Path,
-) -> Result<(), String> {
+fn init_sim(fpga_location: &str, case_home: &Path, rtcfg_path: &Path) -> Result<(), String> {
     // Configure VVAC environment
     configure_vvac_environment();
     ffi::reset_runtime_state();
@@ -141,8 +132,7 @@ exit
     );
 
     let tcl_path = case_home.join("load_image.tcl");
-    std::fs::write(&tcl_path, tcl_script)
-        .map_err(|e| format!("Failed to write load_image.tcl: {}", e))?;
+    std::fs::write(&tcl_path, tcl_script).map_err(|e| format!("Failed to write load_image.tcl: {}", e))?;
 
     // Run vdbg to execute the TCL script
     let cmd = format!(
@@ -186,13 +176,12 @@ fn find_sourceme(case_home: &Path) -> Result<std::path::PathBuf, String> {
 
 /// Run workload until exit
 fn run_workload() -> Result<SimulationResult, String> {
-
     let started = Instant::now();
     let mut cycles: u64 = 0;
 
     // Advance 1000 cycles per step
-    let step_cycles = 1000;  
-    let poll_interval = Duration::from_millis(10);  // Poll every 10ms
+    let step_cycles = 1000;
+    let poll_interval = Duration::from_millis(10); // Poll every 10ms
 
     loop {
         // Check if simulation should exit
@@ -208,14 +197,8 @@ fn run_workload() -> Result<SimulationResult, String> {
             });
         }
 
-        // Advance simulation
-        ffi::wait_cycles(step_cycles)?;
-        cycles += step_cycles as u64;
-
         // Sleep to avoid busy-waiting
-        if !poll_interval.is_zero() {
-            std::thread::sleep(poll_interval);
-        }
+        std::thread::sleep(poll_interval);
     }
 }
 
@@ -228,8 +211,8 @@ fn run_until_exit_internal() -> Result<SimulationResult, String> {
     let started = Instant::now();
     let mut cycles: u64 = 0;
 
-    let step_cycles = 1000;  // Advance 1000 cycles per step
-    let poll_interval = Duration::from_millis(10);  // Poll every 10ms
+    let step_cycles = 1000; // Advance 1000 cycles per step
+    let poll_interval = Duration::from_millis(10); // Poll every 10ms
 
     loop {
         // Check if simulation should exit
@@ -245,14 +228,8 @@ fn run_until_exit_internal() -> Result<SimulationResult, String> {
             });
         }
 
-        // Advance simulation
-        ffi::wait_cycles(step_cycles)?;
-        cycles += step_cycles as u64;
-
         // Sleep to avoid busy-waiting
-        if !poll_interval.is_zero() {
-            std::thread::sleep(poll_interval);
-        }
+        std::thread::sleep(poll_interval);
     }
 }
 
@@ -266,7 +243,7 @@ fn configure_vvac_environment() {
     std::env::set_var("RBMGR_LOG_LEVEL", "0");
     std::env::set_var("RBMGR_DUMP_DATA", "1");
     std::env::set_var("RTL_DBG_SIZE", "128");
-    std::env::set_var("VMRI_WORK_MODE", "3");  // Onboard mode
-    std::env::set_var("VVAC_WORK_MODE", "0");  // Onboard mode
+    std::env::set_var("VMRI_WORK_MODE", "3"); // Onboard mode
+    std::env::set_var("VVAC_WORK_MODE", "0"); // Onboard mode
     log::info!("Running P2E in onboard mode");
 }

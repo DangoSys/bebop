@@ -1,6 +1,6 @@
 //===- 48_im2col.rs - IM2COL instruction -----------------------------------===//
 
-use super::super::bank::{BANK_NUM};
+use super::super::bank::BANK_NUM;
 use super::decode::{pbank, rs1_b0, rs1_b2};
 use super::instruction::{ExecContext, Instruction};
 

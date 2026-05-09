@@ -35,7 +35,9 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
         )));
     }
 
-    let case_home = cli.output.canonicalize()
+    let case_home = cli
+        .output
+        .canonicalize()
         .map_err(|e| Whatever::without_source(format!("Failed to canonicalize output: {}", e)))?;
 
     let rtcfg_path = case_home.join("vvacDir/runtimeDir/rtcfg");
@@ -59,12 +61,8 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
     log::info!("  UART Log: {}", uart_log_path.display());
 
     // Run simulation
-    let result = crate::runner::run(
-        FPGA_LOCATION,
-        &case_home,
-        &rtcfg_path,
-        &cli.image,
-    ).map_err(|e| Whatever::without_source(format!("Simulation failed: {}", e)))?;
+    let result = crate::runner::run(FPGA_LOCATION, &case_home, &rtcfg_path, &cli.image)
+        .map_err(|e| Whatever::without_source(format!("Simulation failed: {}", e)))?;
 
     // Save UART log
     std::fs::write(&uart_log_path, &result.uart_log)
@@ -93,4 +91,3 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
     log::info!("Exiting bebop-p2e");
     std::process::exit(0);
 }
-

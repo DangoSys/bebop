@@ -1,9 +1,9 @@
 //===- 64_mul_warp16.rs - MUL_WARP16 instruction ---------------------------===//
 
-use super::super::bank::{BANK_NUM};
+use super::super::bank::BANK_NUM;
 use super::bank_matrix::{read_i32_nn, read_i8_k_rows, write_i32_nn};
 use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
-use super::instruction::{Instruction, ExecContext};
+use super::instruction::{ExecContext, Instruction};
 
 const WARP_M: usize = 16;
 const WARP_N: usize = 16;
