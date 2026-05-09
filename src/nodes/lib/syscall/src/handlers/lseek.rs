@@ -1,12 +1,7 @@
-use std::io::{Seek, SeekFrom};
 use crate::state::SyscallState;
+use std::io::{Seek, SeekFrom};
 
-pub fn handle_lseek(
-    state: &mut SyscallState,
-    fd: u64,
-    offset: i64,
-    whence: i32,
-) -> (u64, bool) {
+pub fn handle_lseek(state: &mut SyscallState, fd: u64, offset: i64, whence: i32) -> (u64, bool) {
     if let Some(file) = state.open_files.get_mut(&fd) {
         let pos = match whence {
             0 => SeekFrom::Start(offset as u64),

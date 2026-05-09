@@ -50,10 +50,7 @@ impl InitStep {
 
     fn run_init_script(&self, tcl_path: &PathBuf) -> Result<(), String> {
         let status = Command::new("vivado")
-            .args(&[
-                "-mode", "batch",
-                "-source", tcl_path.to_str().unwrap(),
-            ])
+            .args(&["-mode", "batch", "-source", tcl_path.to_str().unwrap()])
             .status()
             .map_err(|e| format!("Failed to execute init script: {}", e))?;
 

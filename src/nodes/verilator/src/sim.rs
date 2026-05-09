@@ -28,11 +28,7 @@ pub struct Simulator {
 }
 
 impl Simulator {
-    pub fn new(
-        fst_path: &Path,
-        coverage: bool,
-        args: &[String],
-    ) -> io::Result<Self> {
+    pub fn new(fst_path: &Path, coverage: bool, args: &[String]) -> io::Result<Self> {
         unsafe {
             // Create context
             let context = verilator_context_new();
@@ -47,10 +43,7 @@ impl Simulator {
             let mut all_args = vec!["bebop-verilator".to_string()];
             all_args.extend_from_slice(args);
 
-            let c_args: Vec<CString> = all_args
-                .iter()
-                .map(|s| CString::new(s.as_str()).unwrap())
-                .collect();
+            let c_args: Vec<CString> = all_args.iter().map(|s| CString::new(s.as_str()).unwrap()).collect();
             let c_argv: Vec<*const i8> = c_args.iter().map(|s| s.as_ptr()).collect();
             verilator_context_command_args(context, c_argv.len() as i32, c_argv.as_ptr());
 
@@ -58,10 +51,7 @@ impl Simulator {
             let trace = verilator_trace_new();
             if trace.is_null() {
                 verilator_context_free(context);
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "Failed to create trace",
-                ));
+                return Err(io::Error::new(io::ErrorKind::Other, "Failed to create trace"));
             }
 
             // Create top module
@@ -69,10 +59,7 @@ impl Simulator {
             if top.is_null() {
                 verilator_trace_free(trace);
                 verilator_context_free(context);
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "Failed to create top module",
-                ));
+                return Err(io::Error::new(io::ErrorKind::Other, "Failed to create top module"));
             }
 
             // Enable tracing
@@ -85,10 +72,7 @@ impl Simulator {
                 verilator_top_free(top);
                 verilator_trace_free(trace);
                 verilator_context_free(context);
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "Failed to open FST file",
-                ));
+                return Err(io::Error::new(io::ErrorKind::Other, "Failed to open FST file"));
             }
 
             println!("Waveform will be saved to: {}", fst_path.display());
@@ -144,12 +128,12 @@ impl Simulator {
 
     pub fn exec_once(&mut self) -> bool {
         unsafe {
-            // Posedge: clock=1, eval, check MMIO
+            // Posedge: clock=1, eval (SCU DPI-C functions called automatically from RTL)
             verilator_top_set_clock(self.top, 1);
             verilator_top_eval(self.top);
 
-            // Check MMIO (returns true if sim should exit)
-            let should_exit = mmio::mmio_tick(self.top);
+            // Check if SCU triggered sim_exit
+            let should_exit = mmio::should_exit();
 
             verilator_context_time_inc(self.context, 1);
             let time = verilator_context_time(self.context);

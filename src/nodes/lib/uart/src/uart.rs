@@ -1,5 +1,5 @@
-use std::io::{self, Write};
 use crate::constants::*;
+use std::io::{self, Write};
 
 pub struct Uart {
     /// Interrupt Enable Register
@@ -60,9 +60,7 @@ impl Uart {
                 self.ier = byte;
                 true
             }
-            UART_FCR => {
-                true
-            }
+            UART_FCR => true,
             UART_LCR => {
                 self.lcr = byte;
                 true

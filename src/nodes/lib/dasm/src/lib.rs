@@ -66,17 +66,20 @@ fn disassemble(inst: u32) -> String {
     let funct7 = inst >> 25;
 
     match opcode {
-        0x37 => format!("lui x{}, 0x{:x}", rd, inst >> 12), // LUI
+        0x37 => format!("lui x{}, 0x{:x}", rd, inst >> 12),   // LUI
         0x17 => format!("auipc x{}, 0x{:x}", rd, inst >> 12), // AUIPC
-        0x6f => { // JAL
+        0x6f => {
+            // JAL
             let imm = decode_jtype_imm(inst);
             format!("jal x{}, {}", rd, imm as i32)
         }
-        0x67 => { // JALR
+        0x67 => {
+            // JALR
             let imm = decode_itype_imm(inst);
             format!("jalr x{}, {}(x{})", rd, imm as i32, rs1)
         }
-        0x63 => { // Branch
+        0x63 => {
+            // Branch
             let imm = decode_btype_imm(inst);
             let mnemonic = match funct3 {
                 0x0 => "beq",
@@ -89,7 +92,8 @@ fn disassemble(inst: u32) -> String {
             };
             format!("{} x{}, x{}, {}", mnemonic, rs1, rs2, imm as i32)
         }
-        0x03 => { // Load
+        0x03 => {
+            // Load
             let imm = decode_itype_imm(inst);
             let mnemonic = match funct3 {
                 0x0 => "lb",
@@ -103,7 +107,8 @@ fn disassemble(inst: u32) -> String {
             };
             format!("{} x{}, {}(x{})", mnemonic, rd, imm as i32, rs1)
         }
-        0x23 => { // Store
+        0x23 => {
+            // Store
             let imm = decode_stype_imm(inst);
             let mnemonic = match funct3 {
                 0x0 => "sb",
@@ -114,7 +119,8 @@ fn disassemble(inst: u32) -> String {
             };
             format!("{} x{}, {}(x{})", mnemonic, rs2, imm as i32, rs1)
         }
-        0x13 => { // I-type ALU
+        0x13 => {
+            // I-type ALU
             let imm = decode_itype_imm(inst);
             let mnemonic = match funct3 {
                 0x0 => "addi",
@@ -130,7 +136,8 @@ fn disassemble(inst: u32) -> String {
             };
             format!("{} x{}, x{}, {}", mnemonic, rd, rs1, imm as i32)
         }
-        0x1b => { // I-type ALU (32-bit)
+        0x1b => {
+            // I-type ALU (32-bit)
             let imm = decode_itype_imm(inst);
             let mnemonic = match funct3 {
                 0x0 => "addiw",
@@ -141,7 +148,8 @@ fn disassemble(inst: u32) -> String {
             };
             format!("{} x{}, x{}, {}", mnemonic, rd, rs1, imm as i32)
         }
-        0x33 => { // R-type ALU
+        0x33 => {
+            // R-type ALU
             let mnemonic = match (funct7, funct3) {
                 (0x00, 0x0) => "add",
                 (0x20, 0x0) => "sub",
@@ -165,7 +173,8 @@ fn disassemble(inst: u32) -> String {
             };
             format!("{} x{}, x{}, x{}", mnemonic, rd, rs1, rs2)
         }
-        0x3b => { // R-type ALU (32-bit)
+        0x3b => {
+            // R-type ALU (32-bit)
             let mnemonic = match (funct7, funct3) {
                 (0x00, 0x0) => "addw",
                 (0x20, 0x0) => "subw",
@@ -181,7 +190,8 @@ fn disassemble(inst: u32) -> String {
             };
             format!("{} x{}, x{}, x{}", mnemonic, rd, rs1, rs2)
         }
-        0x73 => { // System
+        0x73 => {
+            // System
             match funct3 {
                 0x0 if inst == 0x00000073 => "ecall".to_string(),
                 0x0 if inst == 0x00100073 => "ebreak".to_string(),

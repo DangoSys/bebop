@@ -18,7 +18,6 @@ out/
 *.dll
 
 .codex/
-.claude/
 log.txt
 
 nohup.out

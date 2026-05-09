@@ -1,4 +1,4 @@
-use crate::constants::{GUEST_MEM_BASE, LOW_ALIAS_BASE, PAGE_SIZE, ERR_INVAL, ERR_NOMEM};
+use crate::constants::{ERR_INVAL, ERR_NOMEM, GUEST_MEM_BASE, LOW_ALIAS_BASE, PAGE_SIZE};
 
 pub fn handle_mprotect(addr: u64, len: u64, _prot: u64, memory: &[u8]) -> (u64, bool) {
     if len == 0 {

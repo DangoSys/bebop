@@ -28,11 +28,13 @@ impl VcomStep {
     pub fn run(&self) -> Result<PathBuf, String> {
         log::info!("Running vcom system build...");
 
-        let abs_tcl = std::fs::canonicalize(&self.vcom_tcl)
-            .map_err(|e| format!("Failed to resolve vcom_tcl path: {}", e))?;
+        let abs_tcl =
+            std::fs::canonicalize(&self.vcom_tcl).map_err(|e| format!("Failed to resolve vcom_tcl path: {}", e))?;
 
         // Copy hw-config.hdf to output directory
-        let hw_config_src = self.vcom_tcl.parent()
+        let hw_config_src = self
+            .vcom_tcl
+            .parent()
             .ok_or("Failed to get vcom_tcl parent directory")?
             .join("hw-config.hdf");
         let hw_config_dst = self.output_dir.join("hw-config.hdf");

@@ -1,7 +1,7 @@
-use std::path::PathBuf;
+use snafu::{FromString, Whatever};
 use std::fs::{File, OpenOptions};
 use std::os::unix::io::{AsRawFd, FromRawFd};
-use snafu::{Whatever, FromString};
+use std::path::PathBuf;
 
 use crate::{config, dram, mmio, sim, trace};
 
@@ -30,8 +30,7 @@ struct VerilatorConfig {
 
 impl VerilatorConfig {
     fn parse(cli: VerilatorCli) -> Result<Self, Whatever> {
-        let (log_dir, fst_dir, itrace, mtrace, pmctrace, ctrace, banktrace) =
-            config::parse_args(cli.args)?;
+        let (log_dir, fst_dir, itrace, mtrace, pmctrace, ctrace, banktrace) = config::parse_args(cli.args)?;
 
         // Check for coverage env var
         let coverage = std::env::var("BEBOP_VERILATOR_COVERAGE")
@@ -171,4 +170,3 @@ impl VerilatorConfig {
         Ok(())
     }
 }
-

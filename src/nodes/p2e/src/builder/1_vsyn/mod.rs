@@ -28,8 +28,8 @@ impl VsynStep {
 
         let output_vm = self.output_dir.join(format!("{}.vm", self.vvac_top_module));
 
-        let abs_filelist = std::fs::canonicalize(&filelist)
-            .map_err(|e| format!("Failed to resolve filelist path: {}", e))?;
+        let abs_filelist =
+            std::fs::canonicalize(&filelist).map_err(|e| format!("Failed to resolve filelist path: {}", e))?;
         let abs_output_vm = self
             .output_dir
             .canonicalize()

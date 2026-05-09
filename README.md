@@ -1,20 +1,18 @@
 # bebop-next
-A buckyball emulator written in Rust
+An agile simulation framework for NPUs.
+
+Currently support: emulator (bemu), verilator, FPGA (P2E)
 
 ### Quick start
 
-1. Setup the repo
 
 ```
 git clone https://github.com/DangoSys/bebop.git
-```
-
-2. Build the simulator
-
-```
 cd bebop
 nix build
 ```
+
+
 
 ### Build
 

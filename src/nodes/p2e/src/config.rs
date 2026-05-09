@@ -1,5 +1,5 @@
 use clap::Parser;
-use snafu::{Whatever, whatever};
+use snafu::{whatever, Whatever};
 use std::path::PathBuf;
 
 pub const OUT_DIR: &str = "./out";
@@ -10,7 +10,10 @@ pub const CTB_FPGA_ID: &str = "P0";
 #[derive(Debug, Parser)]
 #[command(name = "bebop-p2e", about = "Bebop P2E FPGA flow")]
 pub struct CliArgs {
-    #[arg(long, help = "Build bitstream for the specified config (e.g., sims.p2e.P2EToyConfig)")]
+    #[arg(
+        long,
+        help = "Build bitstream for the specified config (e.g., sims.p2e.P2EToyConfig)"
+    )]
     pub buildbitstream: Option<String>,
 
     #[arg(long, help = "Run workload on FPGA")]

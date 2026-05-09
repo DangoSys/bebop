@@ -8,13 +8,7 @@ pub fn latency(xs1: u64, _xs2: u64) -> u64 {
 }
 
 /// BFP matmul: same as cpu_matmul — C[i][j] = sum_k A[i][k]*B[k][j].
-pub fn exec(
-    xs1: u64,
-    _xs2: u64,
-    banks: &mut [Vec<u8>],
-    cfgs: &[BankConfig],
-    bank_map: &BankMap,
-) -> u64 {
+pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig], bank_map: &BankMap) -> u64 {
     let op1 = rs1_b0(xs1);
     let op2 = rs1_b1(xs1);
     let wr = rs1_b2(xs1);
@@ -22,10 +16,7 @@ pub fn exec(
     if op1 >= BANK_NUM as u64 || op2 >= BANK_NUM as u64 || wr >= BANK_NUM as u64 {
         panic!("bfp: invalid bank_id");
     }
-    if !cfgs[op1 as usize].allocated
-        || !cfgs[op2 as usize].allocated
-        || !cfgs[wr as usize].allocated
-    {
+    if !cfgs[op1 as usize].allocated || !cfgs[op2 as usize].allocated || !cfgs[wr as usize].allocated {
         panic!("bfp: bank not allocated");
     }
     if cfgs[wr as usize].cols != 4 {

@@ -26,7 +26,7 @@ vvac_cfg_map -dir ./vvacDir
 # Load hardware configuration
 emulator_spec -add {file ./hw-config.hdf}
 
-# Set FPGA resource utilization limit (70% like p2e_ddr4_backdoor)
+# Set FPGA resource utilization limit
 emulator_util -add {default 70}
 
 # Define writable nets for runtime control

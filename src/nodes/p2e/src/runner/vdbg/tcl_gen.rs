@@ -8,9 +8,7 @@ pub struct TclGenerator {
 #[allow(dead_code)]
 impl TclGenerator {
     pub fn new() -> Self {
-        Self {
-            commands: Vec::new(),
-        }
+        Self { commands: Vec::new() }
     }
 
     /// 设置设计目录
@@ -28,10 +26,8 @@ impl TclGenerator {
 
     /// 设置 PHC 电压
     pub fn set_phc_vol(mut self, id: &str, bank: &str, voltage: f32) -> Self {
-        self.commands.push(format!(
-            "set_phc_vol -id {} -bank {} -voltage {}",
-            id, bank, voltage
-        ));
+        self.commands
+            .push(format!("set_phc_vol -id {} -bank {} -voltage {}", id, bank, voltage));
         self
     }
 
@@ -53,13 +49,7 @@ impl TclGenerator {
     }
 
     /// DDR backdoor 读取
-    pub fn memory_read<P: AsRef<Path>>(
-        mut self,
-        fpga_id: &str,
-        addr: u64,
-        size: usize,
-        output: P,
-    ) -> Self {
+    pub fn memory_read<P: AsRef<Path>>(mut self, fpga_id: &str, addr: u64, size: usize, output: P) -> Self {
         let end_addr = addr + size as u64 - 1;
         self.commands.push(format!(
             "memory -read -fpga {} -channel 0 -file {} -start {:#x} -end {:#x}",
@@ -103,8 +93,7 @@ impl TclGenerator {
 
     /// 获取信号值
     pub fn get_value(mut self, signal: &str, var: &str) -> Self {
-        self.commands
-            .push(format!("set {} [get_value {}]", var, signal));
+        self.commands.push(format!("set {} [get_value {}]", var, signal));
         self
     }
 

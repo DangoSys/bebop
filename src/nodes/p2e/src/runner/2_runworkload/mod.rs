@@ -1,4 +1,4 @@
-use crate::runner::{SimulationResult};
+use crate::runner::SimulationResult;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
@@ -50,8 +50,7 @@ impl RunWorkloadStep {
         // Generate main run.tcl script that orchestrates everything
         let tcl_script = self.generate_run_tcl();
         let tcl_path = self.output_dir.join("run.tcl");
-        std::fs::write(&tcl_path, tcl_script)
-            .map_err(|e| format!("Failed to write run.tcl: {}", e))?;
+        std::fs::write(&tcl_path, tcl_script).map_err(|e| format!("Failed to write run.tcl: {}", e))?;
 
         log::info!("Generated run.tcl: {:?}", tcl_path);
 
@@ -65,7 +64,8 @@ impl RunWorkloadStep {
         let cmd = format!(
             "source {} && cd {} && vdbg run.tcl",
             sourceme.display(),
-            self.output_dir.canonicalize()
+            self.output_dir
+                .canonicalize()
                 .map_err(|e| format!("Failed to canonicalize output_dir: {}", e))?
                 .display()
         );
@@ -110,20 +110,17 @@ impl RunWorkloadStep {
         }
 
         // Check if TCL template files exist
-        let flash_tcl = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/runner/0_flashbitstream/flash.tcl");
+        let flash_tcl = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner/0_flashbitstream/flash.tcl");
         if !flash_tcl.exists() {
             return Err(format!("flash.tcl template not found: {}", flash_tcl.display()));
         }
 
-        let init_tcl = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/runner/1_init/init.tcl");
+        let init_tcl = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner/1_init/init.tcl");
         if !init_tcl.exists() {
             return Err(format!("init.tcl template not found: {}", init_tcl.display()));
         }
 
-        let workload_tcl = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/runner/2_runworkload/workload.tcl");
+        let workload_tcl = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner/2_runworkload/workload.tcl");
         if !workload_tcl.exists() {
             return Err(format!("workload.tcl template not found: {}", workload_tcl.display()));
         }
@@ -132,12 +129,9 @@ impl RunWorkloadStep {
     }
 
     fn generate_run_tcl(&self) -> String {
-        let flash_tcl = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/runner/0_flashbitstream/flash.tcl");
-        let init_tcl = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/runner/1_init/init.tcl");
-        let workload_tcl = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/runner/2_runworkload/workload.tcl");
+        let flash_tcl = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner/0_flashbitstream/flash.tcl");
+        let init_tcl = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner/1_init/init.tcl");
+        let workload_tcl = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner/2_runworkload/workload.tcl");
 
         format!(
             r#"# Main run script for P2E workflow

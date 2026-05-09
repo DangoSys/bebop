@@ -1,4 +1,4 @@
-use crate::constants::{GUEST_MEM_BASE, ERR_INVAL, ERR_FAULT};
+use crate::constants::{ERR_FAULT, ERR_INVAL, GUEST_MEM_BASE};
 
 pub fn handle_getcwd(buf_addr: u64, size: usize, memory: &mut [u8]) -> (u64, bool) {
     if size < 2 {

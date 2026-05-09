@@ -5,14 +5,7 @@ pub fn latency(xs1: u64, _xs2: u64) -> u64 {
     rs1_iter(xs1).max(1)
 }
 
-pub fn exec(
-    xs1: u64,
-    xs2: u64,
-    memory: &[u8],
-    banks: &mut [Vec<u8>],
-    cfgs: &[BankConfig],
-    bank_map: &BankMap,
-) -> u64 {
+pub fn exec(xs1: u64, xs2: u64, memory: &[u8], banks: &mut [Vec<u8>], cfgs: &[BankConfig], bank_map: &BankMap) -> u64 {
     let bank_id = rs1_b0(xs1);
     let depth = rs1_iter(xs1);
     let (mem_addr, stride) = xs2_mem_stride(xs2);
@@ -32,9 +25,7 @@ pub fn exec(
         let addr = mem_addr + i * line_bytes as u64 * actual_stride;
         let bank_offset = (i as usize) * line_bytes;
         if bank_offset + line_bytes > BANK_SIZE {
-            panic!(
-                "mvin: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}"
-            );
+            panic!("mvin: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
         }
         for j in 0..line_bytes {
             banks[p][bank_offset + j] = mem_read(memory, addr + j as u64);

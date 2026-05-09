@@ -50,13 +50,13 @@
 
             # P2E waveform tools
             pkgs.p2e.gtkwave
-          ] ++ pkgs.riscv.buildInputs;
+          ] ++ pkgs.riscv.buildInputs ++ pkgs.bemu.buildInputs;
 
           shellHook = ''
             # Put gcc13 at the front of PATH for P2E vvac builds
             # export PATH="${pkgs.gcc13}/bin:$PATH"
             # hash -r
-          '' + pkgs.riscv.shellHook + ''
+          '' + pkgs.riscv.shellHook + pkgs.bemu.shellHook + ''
             echo "================= bebop development environment activated ========================="
             echo "Enable nodes including:"
             echo "bebop: $(command -v bebop)"

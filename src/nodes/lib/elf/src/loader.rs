@@ -1,8 +1,8 @@
+use crate::constants::*;
+use crate::types::*;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::collections::HashMap;
-use crate::types::*;
-use crate::constants::*;
 
 fn read_shdrs(file: &mut File, ehdr: &Elf64Ehdr) -> Result<Vec<Elf64Shdr>, String> {
     file.seek(SeekFrom::Start(ehdr.e_shoff))
@@ -94,11 +94,7 @@ pub struct TlsInfo {
 
 /// Load ELF file into memory
 /// Returns (entry point address, optional TLS info)
-pub fn load_elf(
-    path: &str,
-    mem_base: &mut [u8],
-    mem_base_addr: u64,
-) -> Result<(u64, Option<TlsInfo>), String> {
+pub fn load_elf(path: &str, mem_base: &mut [u8], mem_base_addr: u64) -> Result<(u64, Option<TlsInfo>), String> {
     let mut file = File::open(path).map_err(|e| format!("Failed to open ELF file: {}", e))?;
 
     // Read ELF header
@@ -266,13 +262,10 @@ pub fn load_elf(
                         // Write the actual function address to the target
                         if target_addr >= mem_base_addr && target_addr + 8 <= mem_base_addr + mem_base.len() as u64 {
                             let target_offset = (target_addr - mem_base_addr) as usize;
-                            mem_base[target_offset..target_offset + 8]
-                                .copy_from_slice(&resolved_addr.to_le_bytes());
+                            mem_base[target_offset..target_offset + 8].copy_from_slice(&resolved_addr.to_le_bytes());
                         }
-
                     }
                 }
-
             }
         }
     }
@@ -301,9 +294,7 @@ pub fn load_elf(
                     break;
                 }
 
-                let dyn_entry: Elf64Dyn = unsafe {
-                    std::ptr::read(mem_base[dyn_entry_offset..].as_ptr() as *const _)
-                };
+                let dyn_entry: Elf64Dyn = unsafe { std::ptr::read(mem_base[dyn_entry_offset..].as_ptr() as *const _) };
 
                 match dyn_entry.d_tag {
                     DT_RELA => rela_addr = Some(dyn_entry.d_val),
@@ -331,9 +322,8 @@ pub fn load_elf(
                             break;
                         }
 
-                        let rela: Elf64Rela = unsafe {
-                            std::ptr::read(mem_base[rela_entry_offset..].as_ptr() as *const _)
-                        };
+                        let rela: Elf64Rela =
+                            unsafe { std::ptr::read(mem_base[rela_entry_offset..].as_ptr() as *const _) };
 
                         let r_type = (rela.r_info & 0xffffffff) as u32;
 
@@ -358,7 +348,8 @@ pub fn load_elf(
                                 resolved_vaddr
                             };
 
-                            if target_addr >= mem_base_addr && target_addr + 8 <= mem_base_addr + mem_base.len() as u64 {
+                            if target_addr >= mem_base_addr && target_addr + 8 <= mem_base_addr + mem_base.len() as u64
+                            {
                                 let target_offset = (target_addr - mem_base_addr) as usize;
                                 mem_base[target_offset..target_offset + 8]
                                     .copy_from_slice(&resolved_addr.to_le_bytes());

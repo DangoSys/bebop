@@ -87,7 +87,7 @@ fn write_trace(json: &str) {
 
 // Instruction trace
 pub fn itrace(
-    is_issue: u8,  // 2=alloc, 1=issue, 0=complete
+    is_issue: u8, // 2=alloc, 1=issue, 0=complete
     rob_id: u32,
     domain_id: u32,
     funct: u32,
@@ -220,5 +220,3 @@ pub fn ctrace(subcmd: u8, ctr_id: u32, tag: u64, elapsed: u64, cycle: u64) {
 
     write_trace(&json);
 }
-
-

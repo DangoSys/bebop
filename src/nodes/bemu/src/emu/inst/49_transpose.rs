@@ -9,13 +9,7 @@ pub fn latency(xs1: u64, _xs2: u64) -> u64 {
 /// Row-major A[M][K] (M=16 lanes) after mvin → Aᵀ[K][M] row-major at dst.
 const TRANSPOSE_M: usize = 16;
 
-pub fn exec(
-    xs1: u64,
-    xs2: u64,
-    banks: &mut [Vec<u8>],
-    cfgs: &[BankConfig],
-    bank_map: &BankMap,
-) -> u64 {
+pub fn exec(xs1: u64, xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig], bank_map: &BankMap) -> u64 {
     let op1 = rs1_b0(xs1);
     let wr = rs1_b2(xs1);
     let iter = rs1_iter(xs1);

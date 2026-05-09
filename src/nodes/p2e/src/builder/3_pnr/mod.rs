@@ -23,8 +23,7 @@ impl PnrStep {
         }
 
         // Copy PNR_settings.tcl to output directory
-        let pnr_settings_src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/builder/3_pnr/PNR_settings.tcl");
+        let pnr_settings_src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/builder/3_pnr/PNR_settings.tcl");
         let pnr_settings_dst = self.output_dir.join("PNR_settings.tcl");
 
         if pnr_settings_src.exists() {
@@ -54,15 +53,16 @@ impl PnrStep {
         }
 
         // Copy bitstream from pnrDir to fpgaCompDir root
-        let bitstream_src = self.output_dir.join("fpgaCompDir/part_b0_f0/pnrDir/xepic_vvac_top_0_0.bit");
+        let bitstream_src = self
+            .output_dir
+            .join("fpgaCompDir/part_b0_f0/pnrDir/xepic_vvac_top_0_0.bit");
         let bitstream_dst = self.output_dir.join("fpgaCompDir/bitstream.bit");
 
         if !bitstream_src.exists() {
             return Err(format!("Bitstream not generated: {:?}", bitstream_src));
         }
 
-        std::fs::copy(&bitstream_src, &bitstream_dst)
-            .map_err(|e| format!("Failed to copy bitstream: {}", e))?;
+        std::fs::copy(&bitstream_src, &bitstream_dst).map_err(|e| format!("Failed to copy bitstream: {}", e))?;
 
         log::info!("PNR completed");
         log::info!("  Bitstream: {:?}", bitstream_dst);

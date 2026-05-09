@@ -11,10 +11,6 @@ edition = "2021"
 name = "bebop"
 path = "src/main.rs"
 
-[lib]
-name = "bebop"
-crate-type = ["rlib", "cdylib", "staticlib"]
-
 [features]
 default = []
 verilator = ["dep:bebop-verilator"]

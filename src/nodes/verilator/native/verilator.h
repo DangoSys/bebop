@@ -29,10 +29,10 @@ void verilator_top_set_reset(void* top, uint8_t val);
 uint8_t verilator_top_get_clock(void* top);
 uint8_t verilator_top_get_reset(void* top);
 
-// MMIO signals
-uint8_t verilator_top_get_mmio_fire(void* top);
-uint64_t verilator_top_get_mmio_fire_addr(void* top);
-uint64_t verilator_top_get_mmio_fire_data(void* top);
+// SCU state query (DPI-C functions are called from RTL automatically)
+bool verilator_scu_has_exit();
+int32_t verilator_scu_exit_code();
+void verilator_scu_reset();
 
 // FST trace
 void* verilator_trace_new();

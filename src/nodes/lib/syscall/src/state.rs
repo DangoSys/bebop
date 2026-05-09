@@ -1,13 +1,9 @@
-use std::fs::File;
-use std::collections::HashMap;
-use std::sync::Mutex;
 use once_cell::sync::Lazy;
-use crate::constants::*;
-use crate::utils::*;
+use std::collections::HashMap;
+use std::fs::File;
+use std::sync::Mutex;
 
-pub static SYSCALL_STATE: Lazy<Mutex<SyscallState>> = Lazy::new(|| {
-    Mutex::new(SyscallState::new())
-});
+pub static SYSCALL_STATE: Lazy<Mutex<SyscallState>> = Lazy::new(|| Mutex::new(SyscallState::new()));
 
 pub struct SyscallState {
     pub open_files: HashMap<u64, File>,

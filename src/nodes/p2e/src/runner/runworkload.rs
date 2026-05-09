@@ -12,11 +12,7 @@ pub struct SimulatorConfig {
 }
 
 impl SimulatorConfig {
-    pub fn new(
-        fpga_id: impl Into<String>,
-        case_home: impl Into<PathBuf>,
-        rtcfg_path: impl Into<PathBuf>,
-    ) -> Self {
+    pub fn new(fpga_id: impl Into<String>, case_home: impl Into<PathBuf>, rtcfg_path: impl Into<PathBuf>) -> Self {
         Self {
             fpga_id: fpga_id.into(),
             case_home: case_home.into(),

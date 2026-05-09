@@ -1,13 +1,13 @@
 // DRAM simulation and ELF loading
 
-use goblin::elf::{Elf, program_header::PT_LOAD};
+use goblin::elf::{program_header::PT_LOAD, Elf};
 use memmap2::MmapMut;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
-use std::sync::OnceLock;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 
 static MEMORY: OnceLock<Mutex<HashMap<u64, MmapMut>>> = OnceLock::new();
 
@@ -26,21 +26,17 @@ pub fn load_elf(elf_path: &Path, mem_base: u64, mem_size: usize) -> io::Result<(
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
 
-    let elf = Elf::parse(&buffer).map_err(|e| {
-        io::Error::new(io::ErrorKind::InvalidData, format!("ELF parse error: {}", e))
-    })?;
+    let elf = Elf::parse(&buffer)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("ELF parse error: {}", e)))?;
 
     if elf.header.e_machine != goblin::elf::header::EM_RISCV {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Not a RISC-V ELF file",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Not a RISC-V ELF file"));
     }
 
     let mut memory = get_memory().lock().unwrap();
-    let mmap = memory.get_mut(&mem_base).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::NotFound, "Memory not initialized")
-    })?;
+    let mmap = memory
+        .get_mut(&mem_base)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Memory not initialized"))?;
 
     let mut loaded = 0;
     for ph in &elf.program_headers {

@@ -1,6 +1,6 @@
 use crate::constants::{GUEST_MEM_BASE, PAGE_SIZE};
 use crate::state::SyscallState;
-use crate::utils::{align_up, align_down};
+use crate::utils::{align_down, align_up};
 
 pub fn handle_brk(state: &mut SyscallState, addr: u64, memory: &[u8]) -> (u64, bool) {
     let mem_end = GUEST_MEM_BASE + memory.len() as u64;

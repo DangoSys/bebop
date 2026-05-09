@@ -24,11 +24,7 @@ pub enum Commands {
     Verilator {
         #[arg(long, value_name = "ELF")]
         elf: std::path::PathBuf,
-        #[arg(
-            value_name = "ARGS",
-            trailing_var_arg = true,
-            allow_hyphen_values = true
-        )]
+        #[arg(value_name = "ARGS", trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
     #[cfg(feature = "bemu")]
@@ -36,11 +32,7 @@ pub enum Commands {
     Bemu {
         #[arg(long, value_name = "ELF")]
         elf: std::path::PathBuf,
-        #[arg(
-            value_name = "ARGS",
-            trailing_var_arg = true,
-            allow_hyphen_values = true
-        )]
+        #[arg(value_name = "ARGS", trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
     #[cfg(feature = "p2e")]

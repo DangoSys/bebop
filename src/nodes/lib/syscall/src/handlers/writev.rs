@@ -1,6 +1,6 @@
-use std::io::Write;
 use crate::constants::{ERR_FAULT, ERR_INVAL};
 use crate::state::SyscallState;
+use std::io::Write;
 
 pub fn handle_writev(
     state: &mut SyscallState,

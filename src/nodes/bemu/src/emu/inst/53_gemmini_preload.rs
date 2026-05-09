@@ -8,13 +8,7 @@ pub fn latency(xs1: u64, _xs2: u64) -> u64 {
     n.saturating_mul(n)
 }
 
-pub fn exec(
-    xs1: u64,
-    _xs2: u64,
-    banks: &mut [Vec<u8>],
-    cfgs: &[BankConfig],
-    bank_map: &BankMap,
-) -> u64 {
+pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig], bank_map: &BankMap) -> u64 {
     let op1 = rs1_b0(xs1);
     let wr = rs1_b2(xs1);
     let n = rs1_iter(xs1) as usize;

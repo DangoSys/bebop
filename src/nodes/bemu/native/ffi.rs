@@ -1,10 +1,10 @@
-use std::sync::Mutex;
-use std::os::raw::c_char;
-use once_cell::sync::Lazy;
-use bebop_elf::load_elf;
-use bebop_syscall::{handle_syscall, get_exit_code};
 use bebop_dtb::DtbBuilder;
+use bebop_elf::load_elf;
+use bebop_syscall::{get_exit_code, handle_syscall};
 use bebop_uart::Uart;
+use once_cell::sync::Lazy;
+use std::os::raw::c_char;
+use std::sync::Mutex;
 
 use crate::bank::{BankConfig, BankMap, BANK_NUM, BANK_SIZE};
 use crate::inst;
@@ -13,15 +13,14 @@ const DRAM_BASE: u64 = 0x80000000;
 const DTB_ADDR: u64 = 0x80000000 + (1 << 20); // 1MB after DRAM_BASE
 const UART_BASE: u64 = 0x60020000; // UART base address (matches test workloads)
 
-static EMU_STATE: Lazy<Mutex<EmuState>> = Lazy::new(|| {
-    Mutex::new(EmuState::new())
-});
+static EMU_STATE: Lazy<Mutex<EmuState>> = Lazy::new(|| Mutex::new(EmuState::new()));
 
 struct EmuState {
     memory: Vec<u8>,
     banks: Vec<Vec<u8>>,
     bank_cfgs: Vec<BankConfig>,
     bank_map: BankMap,
+    total_lat: u64,
     uart: Uart,
 }
 
@@ -33,6 +32,7 @@ impl EmuState {
             banks: vec![vec![0; BANK_SIZE]; BANK_NUM],
             bank_cfgs: vec![BankConfig::default(); BANK_NUM],
             bank_map: BankMap::new(BANK_NUM),
+            total_lat: 0,
             uart: Uart::new(),
         }
     }
@@ -43,6 +43,7 @@ impl EmuState {
         }
         self.bank_cfgs.fill(BankConfig::default());
         self.bank_map = BankMap::new(BANK_NUM);
+        self.total_lat = 0;
     }
 }
 
@@ -60,39 +61,27 @@ pub extern "C" fn buckyball_reset() {
 #[no_mangle]
 pub extern "C" fn buckyball_exec(funct7: u8, xs1: u64, xs2: u64) -> u64 {
     let mut state = EMU_STATE.lock().unwrap();
-    let EmuState { memory, banks, bank_cfgs, bank_map, uart: _ } = &mut *state;
-
-    inst::decode::execute_known(
-        funct7 as u32,
-        xs1,
-        xs2,
+    let lat = inst::exec_latency::cycles_after_issue(funct7 as u32, xs1, xs2);
+    state.total_lat += lat;
+    let EmuState {
         memory,
         banks,
         bank_cfgs,
         bank_map,
-    ).unwrap_or_else(|| {
-        panic!("unknown funct7: {}", funct7)
-    })
+        uart: _,
+        ..
+    } = &mut *state;
+
+    inst::decode::execute_known(funct7 as u32, xs1, xs2, memory, banks, bank_cfgs, bank_map)
+        .unwrap_or_else(|| panic!("unknown funct7: {}", funct7))
 }
 
 /// Handle system call from guest program
 /// Returns (result, should_exit)
 #[no_mangle]
-pub extern "C" fn handle_syscall_ffi(
-    syscall_num: u64,
-    a0: u64,
-    a1: u64,
-    a2: u64,
-    a3: u64,
-    a4: u64,
-    a5: u64,
-) -> u64 {
+pub extern "C" fn handle_syscall_ffi(syscall_num: u64, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
     let mut state = EMU_STATE.lock().unwrap();
-    let (result, _should_exit) = handle_syscall(
-        syscall_num,
-        a0, a1, a2, a3, a4, a5,
-        &mut state.memory,
-    );
+    let (result, _should_exit) = handle_syscall(syscall_num, a0, a1, a2, a3, a4, a5, &mut state.memory);
     result
 }
 
@@ -140,13 +129,7 @@ extern "C" {
     ) -> i32;
 }
 
-pub fn run_spike(
-    isa: &str,
-    procs: usize,
-    mem_mb: usize,
-    elf_path: &str,
-    log_path: Option<&str>,
-) -> Result<(), String> {
+pub fn run_spike(isa: &str, procs: usize, mem_mb: usize, elf_path: &str, log_path: Option<&str>) -> Result<(), String> {
     use std::ffi::CString;
 
     let mut state = EMU_STATE.lock().unwrap();
@@ -238,6 +221,11 @@ pub fn run_spike(
             uart_ptr,
         )
     };
+    let total_lat = {
+        let state = EMU_STATE.lock().unwrap();
+        state.total_lat
+    };
+    eprintln!("[INFO] total latency: {}", total_lat);
 
     if ret == 0 {
         Ok(())

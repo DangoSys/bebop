@@ -1,6 +1,8 @@
-use crate::constants::{GUEST_MEM_BASE, PAGE_SIZE, MAP_PRIVATE, MAP_ANONYMOUS, ANON_RESERVE_COMMIT_LIMIT, ERR_INVAL, ERR_NOMEM};
+use crate::constants::{
+    ANON_RESERVE_COMMIT_LIMIT, ERR_INVAL, ERR_NOMEM, GUEST_MEM_BASE, MAP_ANONYMOUS, MAP_PRIVATE, PAGE_SIZE,
+};
 use crate::state::SyscallState;
-use crate::utils::{align_up, align_down};
+use crate::utils::{align_down, align_up};
 
 pub fn handle_mmap(
     state: &mut SyscallState,
@@ -23,9 +25,8 @@ pub fn handle_mmap(
         state.mmap_base = align_down(mem_end - PAGE_SIZE, PAGE_SIZE);
     }
     let length_aligned = align_up(length, PAGE_SIZE);
-    let is_anon_private = (flags & (MAP_PRIVATE | MAP_ANONYMOUS)) == (MAP_PRIVATE | MAP_ANONYMOUS)
-        && fd == -1
-        && offset == 0;
+    let is_anon_private =
+        (flags & (MAP_PRIVATE | MAP_ANONYMOUS)) == (MAP_PRIVATE | MAP_ANONYMOUS) && fd == -1 && offset == 0;
     let commit_len = if is_anon_private && length_aligned > ANON_RESERVE_COMMIT_LIMIT {
         ANON_RESERVE_COMMIT_LIMIT
     } else {

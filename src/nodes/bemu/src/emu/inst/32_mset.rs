@@ -5,13 +5,7 @@ pub fn latency(_xs1: u64, _xs2: u64) -> u64 {
     1
 }
 
-pub fn exec(
-    xs1: u64,
-    xs2: u64,
-    cfgs: &mut [BankConfig],
-    banks: &mut [Vec<u8>],
-    bank_map: &mut BankMap,
-) -> u64 {
+pub fn exec(xs1: u64, xs2: u64, cfgs: &mut [BankConfig], banks: &mut [Vec<u8>], bank_map: &mut BankMap) -> u64 {
     let bank_id = rs1_b0(xs1);
     let (_, col, alloc) = xs2_mset(xs2);
     if bank_id >= BANK_NUM as u64 {

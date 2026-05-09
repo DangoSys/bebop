@@ -1,7 +1,7 @@
 mod constants;
-mod types;
 mod loader;
+mod types;
 
 pub use constants::*;
-pub use types::*;
 pub use loader::load_elf;
+pub use types::*;

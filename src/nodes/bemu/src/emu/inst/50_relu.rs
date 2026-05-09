@@ -47,8 +47,5 @@ pub fn exec(xs1: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig], bank_map: &Ban
         }
         return 0;
     }
-    panic!(
-        "relu: unsupported layout src_cols={} dst_cols={}",
-        sc.cols, dc.cols
-    );
+    panic!("relu: unsupported layout src_cols={} dst_cols={}", sc.cols, dc.cols);
 }

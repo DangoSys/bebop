@@ -18,8 +18,9 @@ fn main() {
     let arch_dir = bb_root.join("arch");
 
     // Get config from ARCH_CONFIG environment variable (required)
-    let config = env::var("ARCH_CONFIG")
-        .expect("ARCH_CONFIG environment variable is required. Example: ARCH_CONFIG=sims.verilator.BuckyballToyVerilatorConfig");
+    let config = env::var("ARCH_CONFIG").expect(
+        "ARCH_CONFIG environment variable is required. Example: ARCH_CONFIG=sims.verilator.BuckyballToyVerilatorConfig",
+    );
 
     // Build directory is now arch/build/<config>/
     let build_dir = arch_dir.join("build").join(&config);
@@ -39,15 +40,19 @@ fn main() {
     assert_exists(&arch_dir, "missing sibling `arch` repo");
 
     // Get config from ARCH_CONFIG environment variable (required)
-    let config = env::var("ARCH_CONFIG")
-        .expect("ARCH_CONFIG environment variable is required. Example: ARCH_CONFIG=sims.verilator.BuckyballToyVerilatorConfig");
+    let config = env::var("ARCH_CONFIG").expect(
+        "ARCH_CONFIG environment variable is required. Example: ARCH_CONFIG=sims.verilator.BuckyballToyVerilatorConfig",
+    );
 
     // Build directory is now arch/build/<config>/
     let build_dir = arch_dir.join("build").join(&config);
 
     assert_exists(
         &build_dir,
-        &format!("missing `arch/build/{}`; generate Verilog first with config: {}", config, config)
+        &format!(
+            "missing `arch/build/{}`; generate Verilog first with config: {}",
+            config, config
+        ),
     );
     assert_exists(&result_dir, "missing `result` directory");
 
@@ -124,7 +129,7 @@ fn main() {
 
     // Link against required libraries
     println!("cargo:rustc-link-lib=static=bebop_verilator_native");
-    println!("cargo:rustc-link-lib=stdc++");  // C++ standard library
+    println!("cargo:rustc-link-lib=stdc++"); // C++ standard library
 
     // Link against DRAMSim2
     let dramsim2_dir = bb_root.join("arch/thirdparty/chipyard/tools/DRAMSim2");
@@ -153,7 +158,7 @@ fn main() {
         }
     }
 
-    println!("cargo:rustc-link-lib=z");  // zlib for compression
+    println!("cargo:rustc-link-lib=z"); // zlib for compression
 }
 
 fn env_flag(name: &str) -> bool {
@@ -207,10 +212,7 @@ fn should_keep_csrc(path: &Path) -> bool {
         return false;
     }
     if file_name == "SimDRAM.cc" && !path.to_string_lossy().contains("/src/csrc/") {
-        panic!(
-            "unexpected testchipip SimDRAM.cc in BBSim build: {}",
-            path.display()
-        );
+        panic!("unexpected testchipip SimDRAM.cc in BBSim build: {}", path.display());
     }
     if matches!(file_name, "testchip_tsi.cc" | "testchip_htif.cc" | "SimTSI.cc") {
         panic!("unexpected TSI source in BBSim build: {}", path.display());
@@ -321,4 +323,3 @@ fn run_verilator(
         panic!("verilator failed with status {status}");
     }
 }
-

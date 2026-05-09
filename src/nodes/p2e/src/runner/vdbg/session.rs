@@ -104,24 +104,15 @@ impl VdbgSession {
             return Err(format!("File not found: {}", file));
         }
 
-        let file = std::fs::canonicalize(file)
-            .map_err(|e| format!("Failed to resolve memory input file: {}", e))?;
-        let tcl = self
-            .tcl_prelude()
-            .memory_write(&self.fpga_id, addr, &file)
-            .build();
+        let file = std::fs::canonicalize(file).map_err(|e| format!("Failed to resolve memory input file: {}", e))?;
+        let tcl = self.tcl_prelude().memory_write(&self.fpga_id, addr, &file).build();
         self.exec_tcl(&tcl)?;
         Ok(())
     }
 
     /// DDR backdoor 读取
     pub fn memory_read(&self, addr: u64, size: usize, output: &str) -> Result<(), String> {
-        log::info!(
-            "Reading memory at 0x{:x} ({} bytes) to {}",
-            addr,
-            size,
-            output
-        );
+        log::info!("Reading memory at 0x{:x} ({} bytes) to {}", addr, size, output);
 
         let tcl = self
             .tcl_prelude()
@@ -173,9 +164,7 @@ impl VdbgSession {
     }
 
     fn tcl_prelude(&self) -> TclGenerator {
-        TclGenerator::new()
-            .design(&self.work_dir)
-            .hw_server(&self.hw_server)
+        TclGenerator::new().design(&self.work_dir).hw_server(&self.hw_server)
     }
 }
 

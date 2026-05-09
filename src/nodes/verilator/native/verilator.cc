@@ -5,6 +5,12 @@
 #include "verilated.h"
 #include "verilated_fst_c.h"
 
+#include <cstdio>
+#include <cstdint>
+#include <vector>
+#include <mutex>
+#include <string>
+
 #if VM_COVERAGE
 #include "verilated_cov.h"
 #endif
@@ -77,17 +83,48 @@ extern "C" uint8_t verilator_top_get_reset(void* top) {
     return static_cast<VBBSimHarness*>(top)->reset;
 }
 
-// MMIO signals
-extern "C" uint8_t verilator_top_get_mmio_fire(void* top) {
-    return static_cast<VBBSimHarness*>(top)->io_mmio_fire;
+// =============================================================================
+// SCU DPI-C interface
+// Called from RTL via DPI-C when software writes to SCU registers
+// (0x6000_0000 for sim_exit, 0x6002_0000 for UART).
+// State is queryable from Rust via verilator_scu_*() helpers below.
+// =============================================================================
+static std::vector<uint8_t> g_uart_log;
+static int32_t g_exit_code = 0;
+static bool g_has_exit = false;
+static std::mutex g_scu_mutex;
+
+extern "C" void scu_uart_write(uint32_t hart_id, uint8_t ch) {
+    std::lock_guard<std::mutex> lock(g_scu_mutex);
+    g_uart_log.push_back(ch);
+    putchar(ch);
+    fflush(stdout);
 }
 
-extern "C" uint64_t verilator_top_get_mmio_fire_addr(void* top) {
-    return static_cast<VBBSimHarness*>(top)->io_mmio_fire_addr;
+extern "C" void scu_sim_exit(uint32_t hart_id, int32_t code) {
+    std::lock_guard<std::mutex> lock(g_scu_mutex);
+    g_exit_code = code;
+    g_has_exit = true;
+    printf("\n[SCU] sim_exit called: hart_id=%u, exit_code=%d\n", hart_id, code);
+    fflush(stdout);
 }
 
-extern "C" uint64_t verilator_top_get_mmio_fire_data(void* top) {
-    return static_cast<VBBSimHarness*>(top)->io_mmio_fire_data;
+// Helpers callable from Rust to query SCU state
+extern "C" bool verilator_scu_has_exit() {
+    std::lock_guard<std::mutex> lock(g_scu_mutex);
+    return g_has_exit;
+}
+
+extern "C" int32_t verilator_scu_exit_code() {
+    std::lock_guard<std::mutex> lock(g_scu_mutex);
+    return g_exit_code;
+}
+
+extern "C" void verilator_scu_reset() {
+    std::lock_guard<std::mutex> lock(g_scu_mutex);
+    g_uart_log.clear();
+    g_exit_code = 0;
+    g_has_exit = false;
 }
 
 // FST trace

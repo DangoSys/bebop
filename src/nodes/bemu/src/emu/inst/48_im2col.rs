@@ -24,13 +24,7 @@ pub fn latency(_xs1: u64, xs2: u64) -> u64 {
 }
 
 /// Row-major input A[M][K] in bank (after mvin), output flattened im2col windows to wr bank.
-pub fn exec(
-    xs1: u64,
-    xs2: u64,
-    banks: &mut [Vec<u8>],
-    cfgs: &[BankConfig],
-    bank_map: &BankMap,
-) -> u64 {
+pub fn exec(xs1: u64, xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig], bank_map: &BankMap) -> u64 {
     let op1 = rs1_b0(xs1);
     let wr = rs1_b2(xs1);
     if op1 >= BANK_NUM as u64 || wr >= BANK_NUM as u64 {

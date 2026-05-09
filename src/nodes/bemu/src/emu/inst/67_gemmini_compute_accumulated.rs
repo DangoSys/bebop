@@ -7,13 +7,7 @@ pub fn latency(xs1: u64, _xs2: u64) -> u64 {
     n.saturating_mul(n).saturating_mul(n) / 4 + n.saturating_mul(n)
 }
 
-pub fn exec(
-    xs1: u64,
-    _xs2: u64,
-    banks: &mut [Vec<u8>],
-    cfgs: &[BankConfig],
-    bank_map: &BankMap,
-) -> u64 {
+pub fn exec(xs1: u64, _xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig], bank_map: &BankMap) -> u64 {
     let op_a = rs1_b0(xs1);
     let op_b = rs1_b1(xs1);
     let wr = rs1_b2(xs1);
@@ -21,10 +15,7 @@ pub fn exec(
     if op_a >= BANK_NUM as u64 || op_b >= BANK_NUM as u64 || wr >= BANK_NUM as u64 {
         panic!("gemmini_compute_accumulated: invalid bank_id");
     }
-    if !cfgs[op_a as usize].allocated
-        || !cfgs[op_b as usize].allocated
-        || !cfgs[wr as usize].allocated
-    {
+    if !cfgs[op_a as usize].allocated || !cfgs[op_b as usize].allocated || !cfgs[wr as usize].allocated {
         panic!("gemmini_compute_accumulated: bank not allocated");
     }
     if n == 0 || n > 64 {

@@ -1,4 +1,4 @@
-use crate::constants::{GUEST_MEM_BASE, ERR_FAULT};
+use crate::constants::{ERR_FAULT, GUEST_MEM_BASE};
 
 pub fn handle_getrandom(buf_addr: u64, len: usize, _flags: u64, memory: &mut [u8]) -> (u64, bool) {
     if len == 0 {

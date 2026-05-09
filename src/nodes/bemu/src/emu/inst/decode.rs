@@ -2,10 +2,9 @@
 //! (`FIELD`, `BB_BANK0`..`BB_BANK2`, `BB_ITER`).
 use super::super::bank::{BankConfig, BankMap, BANK_NUM};
 use super::{
-    f00_fence, f01_barrier, f02_gemmini_config, f03_gemmini_flush, f04_bdb_counter, f16_mvout,
-    f32_mset, f33_mvin, f48_im2col, f49_transpose, f50_relu, f51_quant, f52_dequant,
-    f53_gemmini_preload, f64_mul_warp16, f65_bfp, f66_gemmini_compute_preloaded,
-    f67_gemmini_compute_accumulated, f80_gemmini_loop_ws, f96_gemmini_loop_conv_ws,
+    f00_fence, f01_barrier, f02_gemmini_config, f03_gemmini_flush, f04_bdb_counter, f16_mvout, f32_mset, f33_mvin,
+    f48_im2col, f49_transpose, f50_relu, f51_quant, f52_dequant, f53_gemmini_preload, f64_mul_warp16, f65_bfp,
+    f66_gemmini_compute_preloaded, f67_gemmini_compute_accumulated, f80_gemmini_loop_ws, f96_gemmini_loop_conv_ws,
 };
 
 pub const FUNCT_MVOUT: u32 = 16;
@@ -124,11 +123,7 @@ pub fn build_sync_plan(funct: u32, xs1: u64, xs2: u64, cfgs: &[BankConfig]) -> S
     p.depth = depth as u32;
     p.stride = if stride_raw == 0 { 1 } else { stride_raw };
     p.line_blocks = if c.cols == 0 { 1 } else { c.cols as u32 };
-    p.flags = if funct == FUNCT_MVIN {
-        SYNC_IN
-    } else {
-        SYNC_OUT
-    };
+    p.flags = if funct == FUNCT_MVIN { SYNC_IN } else { SYNC_OUT };
     p
 }
 
@@ -158,12 +153,8 @@ pub fn execute_known(
         FUNCT_DEQUANT => f52_dequant::exec(xs1, xs2, banks, cfgs, bank_map),
         FUNCT_GEMMINI_PRELOAD => f53_gemmini_preload::exec(xs1, xs2, banks, cfgs, bank_map),
         FUNCT_BFP => f65_bfp::exec(xs1, xs2, banks, cfgs, bank_map),
-        FUNCT_GEMMINI_COMPUTE_PRELOADED => {
-            f66_gemmini_compute_preloaded::exec(xs1, xs2, banks, cfgs, bank_map)
-        }
-        FUNCT_GEMMINI_COMPUTE_ACCUMULATED => {
-            f67_gemmini_compute_accumulated::exec(xs1, xs2, banks, cfgs, bank_map)
-        }
+        FUNCT_GEMMINI_COMPUTE_PRELOADED => f66_gemmini_compute_preloaded::exec(xs1, xs2, banks, cfgs, bank_map),
+        FUNCT_GEMMINI_COMPUTE_ACCUMULATED => f67_gemmini_compute_accumulated::exec(xs1, xs2, banks, cfgs, bank_map),
         FUNCT_GEMMINI_LOOP_WS_CONFIG_BOUNDS
         | FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_A
         | FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_B

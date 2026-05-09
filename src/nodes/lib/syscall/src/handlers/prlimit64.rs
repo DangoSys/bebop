@@ -1,12 +1,6 @@
-use crate::constants::{GUEST_MEM_BASE, ERR_INVAL, ERR_FAULT};
+use crate::constants::{ERR_FAULT, ERR_INVAL, GUEST_MEM_BASE};
 
-pub fn handle_prlimit64(
-    pid: u64,
-    resource: u64,
-    _new_limit: u64,
-    old_limit: u64,
-    memory: &mut [u8],
-) -> (u64, bool) {
+pub fn handle_prlimit64(pid: u64, resource: u64, _new_limit: u64, old_limit: u64, memory: &mut [u8]) -> (u64, bool) {
     if pid != 0 {
         return ((ERR_INVAL as u64), false);
     }

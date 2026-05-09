@@ -364,12 +364,11 @@ int spike_run_raw(
 
     // Run until sim_exit or syscall exit
     int step_count = 0;
-    const int max_steps = 10000000; // 10M steps timeout
     reg_t prev_pc = state->pc;
 
     const uint64_t SYSCALL_MAGIC_ADDR = 0x80000000 + mem_size - 0x1000;
 
-    while (!simif.exit_requested && !should_exit() && step_count < max_steps) {
+    while (!simif.exit_requested && !should_exit()) {
         try {
             // Check if we're at the magic trap target
             if (state->pc == SYSCALL_MAGIC_ADDR) {
@@ -524,11 +523,6 @@ int spike_run_raw(
 
     if (log_file) {
         fclose(log_file);
-    }
-
-    if (step_count >= max_steps) {
-        fprintf(stderr, "[WARNING] Execution timeout after %d steps\n", max_steps);
-        return 1;
     }
 
     return should_exit() ? get_exit_code_ffi() : 0;

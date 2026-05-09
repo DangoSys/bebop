@@ -1,12 +1,6 @@
 use crate::constants::GUEST_MEM_BASE;
 
-pub fn handle_rt_sigaction(
-    signum: u64,
-    _act: u64,
-    oldact: u64,
-    sigsetsize: u64,
-    memory: &mut [u8],
-) -> (u64, bool) {
+pub fn handle_rt_sigaction(signum: u64, _act: u64, oldact: u64, sigsetsize: u64, memory: &mut [u8]) -> (u64, bool) {
     if signum == 0 || signum > 64 {
         return ((-1i64 as u64), false);
     }

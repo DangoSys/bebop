@@ -32,7 +32,10 @@ fn main() {
 
     if libctb_dst.exists() && vvac_dir.exists() && wrapper_lib.exists() {
         println!("cargo:warning=Reusing existing VVAC build (libvCtb.so, vvacDir, and wrapper found)");
-        println!("cargo:warning=To rebuild, set ARCH_CONFIG or delete {}", out_dir.display());
+        println!(
+            "cargo:warning=To rebuild, set ARCH_CONFIG or delete {}",
+            out_dir.display()
+        );
         link_vvac(&libctb_dst);
         println!("cargo:warning=✓ P2E build complete (reused existing VVAC)!");
         return;
@@ -77,7 +80,10 @@ fn main() {
                 let path = entry.path();
                 if path.extension().and_then(|s| s.to_str()) == Some("vm") {
                     fs::remove_file(&path).ok();
-                    println!("cargo:warning=Removed old {}", path.file_name().unwrap().to_str().unwrap());
+                    println!(
+                        "cargo:warning=Removed old {}",
+                        path.file_name().unwrap().to_str().unwrap()
+                    );
                 }
             }
         }
@@ -153,7 +159,11 @@ fn main() {
         libctb_src.display()
     );
     fs::copy(&libctb_src, &libctb_dst).expect("copy libvCtb.so");
-    println!("cargo:warning=Copied libvCtb.so from {} to {}", libctb_src.display(), libctb_dst.display());
+    println!(
+        "cargo:warning=Copied libvCtb.so from {} to {}",
+        libctb_src.display(),
+        libctb_dst.display()
+    );
 
     println!("cargo:warning=Building C++ wrapper for Rust FFI...");
     build_cpp_wrapper(&manifest_dir, &out_dir);
@@ -182,10 +192,7 @@ fn run_vvac(out_dir: &Path, sourceme: &Path, flist: &Path, top: &str) {
         .expect("failed to execute vvac");
 
     if !status.success() {
-        panic!(
-            "vvac failed. Check log: {}",
-            out_dir.join("vvac_build.log").display()
-        );
+        panic!("vvac failed. Check log: {}", out_dir.join("vvac_build.log").display());
     }
 }
 
@@ -204,23 +211,21 @@ fn write_flist(path: &Path, sources: &[PathBuf]) {
 
 fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
     let wrapper_src = manifest_dir.join("src/ctb_wrapper.cpp");
-    let dpi_impl_src = manifest_dir.join("src/dpi_impl.cpp");
     let wrapper_obj = out_dir.join("ctb_wrapper.o");
-    let dpi_impl_obj = out_dir.join("dpi_impl.o");
     let wrapper_lib = out_dir.join("libctb_wrapper.a");
-    let dpi_so = out_dir.join("libp2e_dpi.so");
 
     println!("cargo:rerun-if-changed={}", wrapper_src.display());
-    println!("cargo:rerun-if-changed={}", dpi_impl_src.display());
 
     // Compile C++ wrapper to object file
     // Use vvacDir/runtimeDir/include for headers (where vvac installs them)
     let include_dir = out_dir.join("vvacDir/runtimeDir/include");
 
-    println!("cargo:warning=Compiling C++ wrapper with include dir: {}", include_dir.display());
+    println!(
+        "cargo:warning=Compiling C++ wrapper with include dir: {}",
+        include_dir.display()
+    );
     println!("cargo:warning=Wrapper source: {}", wrapper_src.display());
-    println!("cargo:warning=DPI impl source: {}", dpi_impl_src.display());
-    println!("cargo:warning=Output objects: {}, {}", wrapper_obj.display(), dpi_impl_obj.display());
+    println!("cargo:warning=Output object: {}", wrapper_obj.display());
 
     let include_arg = format!("-I{}", include_dir.display());
 
@@ -232,7 +237,8 @@ fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
             "-std=c++11",
             &include_arg,
             &wrapper_src.display().to_string(),
-            "-o", &wrapper_obj.display().to_string(),
+            "-o",
+            &wrapper_obj.display().to_string(),
         ])
         .output()
         .expect("failed to compile C++ wrapper");
@@ -243,66 +249,18 @@ fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
         panic!("C++ wrapper compilation failed");
     }
 
-    // Compile dpi_impl.cpp
-    let output = Command::new("g++")
-        .args(&[
-            "-c",
-            "-fPIC",
-            "-std=c++11",
-            &dpi_impl_src.display().to_string(),
-            "-o", &dpi_impl_obj.display().to_string(),
-        ])
-        .output()
-        .expect("failed to compile DPI implementation");
-
-    if !output.status.success() {
-        eprintln!("g++ stdout: {}", String::from_utf8_lossy(&output.stdout));
-        eprintln!("g++ stderr: {}", String::from_utf8_lossy(&output.stderr));
-        panic!("DPI implementation compilation failed");
-    }
-
-    // Create static library from both object files
+    // Create static library from wrapper object file
+    // DPI-C functions (scu_uart_write, scu_sim_exit) are implemented in Rust (ffi.rs)
     let status = Command::new("ar")
         .args(&[
             "rcs",
             &wrapper_lib.display().to_string(),
             &wrapper_obj.display().to_string(),
-            &dpi_impl_obj.display().to_string(),
         ])
         .status()
         .expect("failed to create wrapper library");
 
     assert!(status.success(), "wrapper library creation failed");
-
-    // Create shared library for DPI-C functions (for VVAC runtime)
-    println!("cargo:warning=Creating DPI-C shared library: {}", dpi_so.display());
-    let output = Command::new("g++")
-        .args(&[
-            "-shared",
-            "-fPIC",
-            "-std=c++11",
-            &dpi_impl_obj.display().to_string(),
-            "-o", &dpi_so.display().to_string(),
-        ])
-        .output()
-        .expect("failed to create DPI shared library");
-
-    if !output.status.success() {
-        eprintln!("g++ stdout: {}", String::from_utf8_lossy(&output.stdout));
-        eprintln!("g++ stderr: {}", String::from_utf8_lossy(&output.stderr));
-        panic!("DPI shared library creation failed");
-    }
-
-    // Copy DPI shared library to VVAC runtime directory
-    let vvac_lib_dir = out_dir.join("vvacDir/runtimeDir/lib/lib_arm");
-    if vvac_lib_dir.exists() {
-        let target_so = vvac_lib_dir.join("libp2e_dpi.so");
-        if let Err(e) = fs::copy(&dpi_so, &target_so) {
-            println!("cargo:warning=Failed to copy DPI library to VVAC: {}", e);
-        } else {
-            println!("cargo:warning=Copied DPI library to: {}", target_so.display());
-        }
-    }
 
     // Link the wrapper library
     println!("cargo:rustc-link-search=native={}", out_dir.display());
@@ -360,10 +318,7 @@ fn collect_files_inner(root: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
         let Some(ext) = path.extension().and_then(OsStr::to_str) else {
             continue;
         };
-        if exts
-            .iter()
-            .any(|candidate| candidate.eq_ignore_ascii_case(ext))
-        {
+        if exts.iter().any(|candidate| candidate.eq_ignore_ascii_case(ext)) {
             out.push(path);
         }
     }
@@ -379,8 +334,7 @@ fn add_missing_empty_modules(out_dir: &Path) -> bool {
         return false;
     }
 
-    let content = fs::read_to_string(&filelist_path)
-        .expect("Failed to read VVAC filelist");
+    let content = fs::read_to_string(&filelist_path).expect("Failed to read VVAC filelist");
 
     let vvac_dir = out_dir.join("vvacDir/vvac_by_mod");
 
@@ -389,6 +343,7 @@ fn add_missing_empty_modules(out_dir: &Path) -> bool {
         "work_DebugCustomXbar.sv",
         "work_IntSyncCrossingSource_n1x1_Registered.sv",
         "work_NullIntSource.sv",
+        // IntXbar_i0_o0 is removed from DigitalTop.sv, not added to filelist
     ];
 
     let mut added_count = 0;
@@ -414,9 +369,11 @@ fn add_missing_empty_modules(out_dir: &Path) -> bool {
         new_content.push_str(&new_lines.join("\n"));
         new_content.push('\n');
 
-        fs::write(&filelist_path, new_content)
-            .expect("Failed to write updated VVAC filelist");
-        println!("cargo:warning=Added {} missing empty modules to VVAC filelist", added_count);
+        fs::write(&filelist_path, new_content).expect("Failed to write updated VVAC filelist");
+        println!(
+            "cargo:warning=Added {} missing empty modules to VVAC filelist",
+            added_count
+        );
         true
     } else {
         println!("cargo:warning=No missing empty modules found");
@@ -433,15 +390,16 @@ fn remove_empty_module_instantiations(build_dir: &Path) {
         return;
     }
 
-    let content = fs::read_to_string(&digital_top)
-        .expect("Failed to read DigitalTop.sv");
+    let content = fs::read_to_string(&digital_top).expect("Failed to read DigitalTop.sv");
 
     // Pattern to match empty module instantiations:
     // IntSyncCrossingSource_n1x1_Registered intsource ();
     // NullIntSource null_int_source ();
+    // IntXbar_i0_o0 ibus_int_bus ();
     let patterns = [
         r"IntSyncCrossingSource_n1x1_Registered\s+\w+\s*\(\s*\)\s*;",
         r"NullIntSource\s+\w+\s*\(\s*\)\s*;",
+        r"IntXbar_i0_o0\s+\w+\s*\(\s*\)\s*;",
     ];
 
     let mut new_content = content.clone();
@@ -453,7 +411,10 @@ fn remove_empty_module_instantiations(build_dir: &Path) {
 
         if !matches.is_empty() {
             for m in &matches {
-                println!("cargo:warning=Removing empty module instantiation: {}", m.as_str().trim());
+                println!(
+                    "cargo:warning=Removing empty module instantiation: {}",
+                    m.as_str().trim()
+                );
                 removed_count += 1;
             }
             new_content = re.replace_all(&new_content, "").to_string();
@@ -461,9 +422,11 @@ fn remove_empty_module_instantiations(build_dir: &Path) {
     }
 
     if removed_count > 0 {
-        fs::write(&digital_top, new_content)
-            .expect("Failed to write updated DigitalTop.sv");
-        println!("cargo:warning=Removed {} empty module instantiations from DigitalTop.sv", removed_count);
+        fs::write(&digital_top, new_content).expect("Failed to write updated DigitalTop.sv");
+        println!(
+            "cargo:warning=Removed {} empty module instantiations from DigitalTop.sv",
+            removed_count
+        );
     } else {
         println!("cargo:warning=No empty module instantiations found in DigitalTop.sv");
     }

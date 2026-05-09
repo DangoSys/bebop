@@ -1,13 +1,7 @@
-use std::io::Read;
 use crate::state::SyscallState;
+use std::io::Read;
 
-pub fn handle_read(
-    state: &mut SyscallState,
-    fd: u64,
-    buf_addr: u64,
-    count: usize,
-    memory: &mut [u8],
-) -> (u64, bool) {
+pub fn handle_read(state: &mut SyscallState, fd: u64, buf_addr: u64, count: usize, memory: &mut [u8]) -> (u64, bool) {
     if fd == 0 {
         (0, false)
     } else if let Some(file) = state.open_files.get_mut(&fd) {

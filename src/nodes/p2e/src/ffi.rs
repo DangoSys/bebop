@@ -31,8 +31,8 @@ mod raw {
         #[link_name = "_ZN3ctb6ctbMgr4quitEv"]
         pub fn ctb_quit(ctb: *mut ICtbMgr);
 
-        /// C++: p2e_scu_0_hart_id()
-        pub fn p2e_scu_0_hart_id() -> u32;
+        /// C++: scu_0_hart_id()
+        pub fn scu_0_hart_id() -> u32;
     }
 }
 
@@ -121,7 +121,10 @@ pub fn wait_cycles(cycles: u32) -> Result<(), String> {
     #[cfg(not(vvac_linked))]
     {
         let _ = cycles;
-        Err("VVAC is not linked; generate out/vvacDir/runtimeDir/lib/lib_arm/libvCtb.so and rebuild before running P2E".to_string())
+        Err(
+            "VVAC is not linked; generate out/vvacDir/runtimeDir/lib/lib_arm/libvCtb.so and rebuild before running P2E"
+                .to_string(),
+        )
     }
 }
 
@@ -137,32 +140,38 @@ pub extern "C" fn p2e_init() {
 }
 
 #[no_mangle]
-pub extern "C" fn p2e_uart_write(_hart_id: i32, ch: u8) {
-    let _ = host_mmio_write(UART_BASE_ADDR, ch as u64);
+pub extern "C" fn scu_uart_write(_hart_id: u32, ch: u32) {
+    log::debug!("scu_uart_write: hart_id = {}, ch = 0x{:x}", _hart_id, ch);
+    let _ = host_mmio_write(UART_BASE_ADDR, (ch & 0xff) as u64);
 }
 
 #[no_mangle]
-pub extern "C" fn p2e_sim_exit(_hart_id: i32, code: i32) {
-    let _ = host_mmio_write(SIM_EXIT_ADDR, code as u32 as u64);
+pub extern "C" fn scu_sim_exit(_hart_id: u32, code: u32) {
+    log::debug!("scu_sim_exit: hart_id = {}, code = 0x{:x}", _hart_id, code);
+    let _ = host_mmio_write(SIM_EXIT_ADDR, code as u64);
 }
 
 #[no_mangle]
 pub extern "C" fn scu_mmio_write(addr: u32, data: u32) -> i32 {
+    log::debug!("scu_mmio_write: addr = 0x{:x}, data = 0x{:x}", addr, data);
     host_mmio_write(addr as u64, data as u64)
 }
 
 #[no_mangle]
 pub extern "C" fn scu_mmio_read(addr: u32) -> u32 {
+    log::debug!("scu_mmio_read: addr = 0x{:x}", addr);
     host_mmio_read(addr as u64) as u32
 }
 
 #[no_mangle]
 pub extern "C" fn p2e_mmio_write(addr: u64, data: u64) -> i32 {
+    log::debug!("p2e_mmio_write: addr = 0x{:x}, data = 0x{:x}", addr, data);
     host_mmio_write(addr, data)
 }
 
 #[no_mangle]
 pub extern "C" fn p2e_mmio_read(addr: u64) -> u64 {
+    log::debug!("p2e_mmio_read: addr = 0x{:x}", addr);
     host_mmio_read(addr)
 }
 

@@ -1,4 +1,4 @@
-use crate::constants::{GUEST_MEM_BASE, ERR_FAULT, ERR_NOTTY};
+use crate::constants::{ERR_FAULT, ERR_NOTTY, GUEST_MEM_BASE};
 
 pub fn handle_ioctl(_fd: i64, req: u64, argp: u64, memory: &mut [u8]) -> (u64, bool) {
     let mem_end = GUEST_MEM_BASE + memory.len() as u64;

@@ -2,9 +2,9 @@ use crate::config::BitstreamConfig;
 use std::path::PathBuf;
 use std::process::Command;
 
-use super::vsyn::VsynStep;
-use super::vcom::VcomStep;
 use super::pnr::PnrStep;
+use super::vcom::VcomStep;
+use super::vsyn::VsynStep;
 
 /// 比特流构建器
 pub struct BitstreamBuilder {
@@ -30,10 +30,7 @@ impl BitstreamBuilder {
         self.verify_vvac_outputs()?;
 
         // Step 1: vsyn
-        let vsyn = VsynStep::new(
-            self.config.output_dir.clone(),
-            self.config.vvac_top_module.clone(),
-        );
+        let vsyn = VsynStep::new(self.config.output_dir.clone(), self.config.vvac_top_module.clone());
         vsyn.run()?;
 
         // Step 2: vcom
@@ -44,7 +41,7 @@ impl BitstreamBuilder {
         )?;
         vcom.run()?;
 
-        // Step 3: PNR 
+        // Step 3: PNR
         let pnr = PnrStep::new(self.config.output_dir.clone());
         pnr.run()?;
 
@@ -56,8 +53,7 @@ impl BitstreamBuilder {
 
     fn setup_environment(&self) -> Result<(), String> {
         // Verify sourceme.sh exists
-        let sourceme_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("sourceme.sh");
+        let sourceme_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
 
         if !sourceme_path.exists() {
             return Err(format!("sourceme.sh not found at {:?}", sourceme_path));
@@ -94,9 +90,7 @@ impl BitstreamBuilder {
 
     /// get libvCtb.so path
     pub fn libvctb_path(&self) -> PathBuf {
-        self.config
-            .output_dir
-            .join("vvacDir/runtimeDir/lib/lib_arm/libvCtb.so")
+        self.config.output_dir.join("vvacDir/runtimeDir/lib/lib_arm/libvCtb.so")
     }
 
     /// get runtime configuration path

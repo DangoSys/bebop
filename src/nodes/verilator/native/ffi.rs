@@ -41,10 +41,10 @@ extern "C" {
     pub fn verilator_top_get_clock(top: *mut VerilatorTop) -> u8;
     pub fn verilator_top_get_reset(top: *mut VerilatorTop) -> u8;
 
-    // MMIO signals
-    pub fn verilator_top_get_mmio_fire(top: *mut VerilatorTop) -> u8;
-    pub fn verilator_top_get_mmio_fire_addr(top: *mut VerilatorTop) -> u64;
-    pub fn verilator_top_get_mmio_fire_data(top: *mut VerilatorTop) -> u64;
+    // SCU state query (DPI-C functions are called from RTL automatically)
+    pub fn verilator_scu_has_exit() -> bool;
+    pub fn verilator_scu_exit_code() -> i32;
+    pub fn verilator_scu_reset();
 
     // FST trace
     pub fn verilator_trace_new() -> *mut VerilatorTrace;

@@ -1,4 +1,4 @@
-use crate::constants::{GUEST_MEM_BASE, ERR_FAULT, ERR_INVAL, ERR_NOENT};
+use crate::constants::{ERR_FAULT, ERR_INVAL, ERR_NOENT, GUEST_MEM_BASE};
 
 pub fn handle_readlinkat(
     _dirfd: i64,

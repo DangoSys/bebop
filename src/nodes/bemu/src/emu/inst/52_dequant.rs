@@ -5,13 +5,7 @@ pub fn latency(xs1: u64, _xs2: u64) -> u64 {
     rs1_iter(xs1).max(1)
 }
 
-pub fn exec(
-    xs1: u64,
-    xs2: u64,
-    banks: &mut [Vec<u8>],
-    cfgs: &[BankConfig],
-    bank_map: &BankMap,
-) -> u64 {
+pub fn exec(xs1: u64, xs2: u64, banks: &mut [Vec<u8>], cfgs: &[BankConfig], bank_map: &BankMap) -> u64 {
     let src = rs1_b0(xs1);
     let dst = rs1_b2(xs1);
     let depth = rs1_iter(xs1) as usize;
@@ -24,10 +18,7 @@ pub fn exec(
         panic!("dequant: bank not allocated");
     }
     if sc.cols != 1 || dc.cols != 4 {
-        panic!(
-            "dequant: unsupported layout src_cols={} dst_cols={}",
-            sc.cols, dc.cols
-        );
+        panic!("dequant: unsupported layout src_cols={} dst_cols={}", sc.cols, dc.cols);
     }
     let ps = pbank(bank_map, src);
     let pd = pbank(bank_map, dst);

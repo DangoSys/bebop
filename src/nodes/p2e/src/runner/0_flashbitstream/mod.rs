@@ -34,24 +34,17 @@ impl FlashBitstreamStep {
         log::info!("  Output Dir: {:?}", self.output_dir);
 
         if !self.bitstream_path.exists() {
-            return Err(format!(
-                "Bitstream not found: {}",
-                self.bitstream_path.display()
-            ));
+            return Err(format!("Bitstream not found: {}", self.bitstream_path.display()));
         }
 
         if !self.output_dir.exists() {
-            return Err(format!(
-                "Output directory not found: {}",
-                self.output_dir.display()
-            ));
+            return Err(format!("Output directory not found: {}", self.output_dir.display()));
         }
 
         // Generate TCL script for vdbg
         let tcl_script = self.generate_vdbg_tcl();
         let tcl_path = self.output_dir.join("flash_bitstream.tcl");
-        std::fs::write(&tcl_path, tcl_script)
-            .map_err(|e| format!("Failed to write TCL script: {}", e))?;
+        std::fs::write(&tcl_path, tcl_script).map_err(|e| format!("Failed to write TCL script: {}", e))?;
 
         log::info!("Generated vdbg TCL script: {:?}", tcl_path);
 
@@ -64,10 +57,12 @@ impl FlashBitstreamStep {
         let cmd = format!(
             "source {} && cd {} && vdbg {}",
             sourceme.display(),
-            self.output_dir.canonicalize()
+            self.output_dir
+                .canonicalize()
                 .map_err(|e| format!("Failed to canonicalize output_dir: {}", e))?
                 .display(),
-            tcl_path.file_name()
+            tcl_path
+                .file_name()
                 .ok_or("Invalid TCL path")?
                 .to_str()
                 .ok_or("Invalid TCL filename")?

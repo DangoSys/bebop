@@ -1,13 +1,7 @@
-use std::io::Write;
 use crate::state::SyscallState;
+use std::io::Write;
 
-pub fn handle_write(
-    state: &mut SyscallState,
-    fd: u64,
-    buf_addr: u64,
-    count: usize,
-    memory: &[u8],
-) -> (u64, bool) {
+pub fn handle_write(state: &mut SyscallState, fd: u64, buf_addr: u64, count: usize, memory: &[u8]) -> (u64, bool) {
     if fd == 1 || fd == 2 {
         if buf_addr < 0x80000000 || buf_addr + count as u64 > 0x80000000 + memory.len() as u64 {
             return ((-1i64 as u64), false);

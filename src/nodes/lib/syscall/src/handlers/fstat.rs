@@ -1,4 +1,4 @@
-use crate::constants::{GUEST_MEM_BASE, ERR_FAULT, ERR_BADF};
+use crate::constants::{ERR_BADF, ERR_FAULT, GUEST_MEM_BASE};
 
 pub fn handle_fstat(fd: i64, stat_addr: u64, memory: &mut [u8]) -> (u64, bool) {
     let stat_size = 112usize;

@@ -1,5 +1,5 @@
-use std::fs::OpenOptions;
 use crate::state::SyscallState;
+use std::fs::OpenOptions;
 
 pub fn handle_openat(
     state: &mut SyscallState,
@@ -31,12 +31,24 @@ pub fn handle_openat(
     };
 
     let mut opts = OpenOptions::new();
-    if flags & 0x0001 != 0 { opts.write(true); }
-    if flags & 0x0002 != 0 { opts.read(true).write(true); }
-    if flags & 0x0040 != 0 { opts.create(true); }
-    if flags & 0x0200 != 0 { opts.truncate(true); }
-    if flags & 0x0400 != 0 { opts.append(true); }
-    if flags == 0 { opts.read(true); }
+    if flags & 0x0001 != 0 {
+        opts.write(true);
+    }
+    if flags & 0x0002 != 0 {
+        opts.read(true).write(true);
+    }
+    if flags & 0x0040 != 0 {
+        opts.create(true);
+    }
+    if flags & 0x0200 != 0 {
+        opts.truncate(true);
+    }
+    if flags & 0x0400 != 0 {
+        opts.append(true);
+    }
+    if flags == 0 {
+        opts.read(true);
+    }
 
     match opts.open(path) {
         Ok(file) => {

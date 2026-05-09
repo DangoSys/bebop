@@ -65,12 +65,7 @@ impl DtbBuilder {
         self.property(name, &[]);
     }
 
-    pub fn build_minimal(
-        mem_base: u64,
-        mem_size: u64,
-        initrd_start: Option<u64>,
-        initrd_end: Option<u64>,
-    ) -> Vec<u8> {
+    pub fn build_minimal(mem_base: u64, mem_size: u64, initrd_start: Option<u64>, initrd_end: Option<u64>) -> Vec<u8> {
         let mut builder = Self::new();
 
         builder.begin_node("");
