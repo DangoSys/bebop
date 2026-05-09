@@ -1,6 +1,5 @@
 pub mod bank_matrix;
 pub mod decode;
-pub mod exec_latency;
 #[path = "00_fence.rs"]
 pub mod f00_fence;
 #[path = "01_barrier.rs"]
@@ -42,3 +41,5 @@ pub mod f80_gemmini_loop_ws;
 #[path = "96_gemmini_loop_conv_ws.rs"]
 pub mod f96_gemmini_loop_conv_ws;
 pub mod gemmini_state;
+pub mod instruction;
+pub mod instruction_register;

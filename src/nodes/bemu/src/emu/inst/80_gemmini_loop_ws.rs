@@ -1,36 +1,26 @@
+//===- 80_gemmini_loop_ws.rs - GEMMINI_LOOP_WS instruction -----------------===//
+
 use super::gemmini_state::{gemini, mem_i32_le, mem_i8, mem_write_i32};
+use super::instruction::{ExecContext, Instruction};
 
-use super::decode::{
-    FUNCT_GEMMINI_LOOP_WS, FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_A, FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_B,
-    FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_C, FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_D, FUNCT_GEMMINI_LOOP_WS_CONFIG_BOUNDS,
-    FUNCT_GEMMINI_LOOP_WS_CONFIG_STRIDES_AB, FUNCT_GEMMINI_LOOP_WS_CONFIG_STRIDES_DC,
-};
-
-pub fn latency(funct: u32, _xs1: u64, _xs2: u64) -> u64 {
-    if funct == FUNCT_GEMMINI_LOOP_WS {
-        256
-    } else {
-        1
-    }
-}
-
-pub fn exec_cfg(funct: u32, xs2: u64) -> u64 {
+// Shared implementation
+fn exec_cfg_impl(funct: u32, xs2: u64) -> u64 {
     let mut g = gemini().lock().unwrap();
     match funct {
-        FUNCT_GEMMINI_LOOP_WS_CONFIG_BOUNDS => {
+        80 => {
             g.loop_ws.max_k = xs2 & 0xffff;
             g.loop_ws.max_j = (xs2 >> 16) & 0xffff;
             g.loop_ws.max_i = (xs2 >> 32) & 0xffff;
         }
-        FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_A => g.loop_ws.addr_a = xs2 & ((1u64 << 39) - 1),
-        FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_B => g.loop_ws.addr_b = xs2 & ((1u64 << 39) - 1),
-        FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_D => g.loop_ws.addr_d = xs2 & ((1u64 << 39) - 1),
-        FUNCT_GEMMINI_LOOP_WS_CONFIG_ADDR_C => g.loop_ws.addr_c = xs2 & ((1u64 << 39) - 1),
-        FUNCT_GEMMINI_LOOP_WS_CONFIG_STRIDES_AB => {
+        81 => g.loop_ws.addr_a = xs2 & ((1u64 << 39) - 1),
+        82 => g.loop_ws.addr_b = xs2 & ((1u64 << 39) - 1),
+        83 => g.loop_ws.addr_d = xs2 & ((1u64 << 39) - 1),
+        84 => g.loop_ws.addr_c = xs2 & ((1u64 << 39) - 1),
+        85 => {
             g.loop_ws.stride_a = xs2 & 0xffff_ffff;
             g.loop_ws.stride_b = xs2 >> 32;
         }
-        FUNCT_GEMMINI_LOOP_WS_CONFIG_STRIDES_DC => {
+        86 => {
             g.loop_ws.stride_d = xs2 & 0xffff_ffff;
             g.loop_ws.stride_c = xs2 >> 32;
         }
@@ -39,8 +29,7 @@ pub fn exec_cfg(funct: u32, xs2: u64) -> u64 {
     0
 }
 
-/// OS CISC: mat_a_t^T * mat_b = mat_a * mat_b — use a[k][i] from memory.
-pub fn exec_loop(memory: &mut [u8]) -> u64 {
+fn exec_loop_impl(memory: &mut [u8]) -> u64 {
     let lw = gemini().lock().unwrap().loop_ws.clone();
     let n = lw.stride_a as usize;
     if n == 0 || n > 64 {
@@ -67,4 +56,97 @@ pub fn exec_loop(memory: &mut [u8]) -> u64 {
         }
     }
     0
+}
+
+fn latency_impl(funct: u32) -> u64 {
+    if funct == 87 { 256 } else { 1 }
+}
+
+// Individual instruction types for each funct
+pub struct GemminiLoopWsConfigBounds;
+impl Instruction for GemminiLoopWsConfigBounds {
+    const FUNCT: u32 = 80;
+    fn exec(_xs1: u64, xs2: u64, _ctx: &mut ExecContext) -> u64 {
+        exec_cfg_impl(Self::FUNCT, xs2)
+    }
+    fn latency(_xs1: u64, _xs2: u64) -> u64 {
+        latency_impl(Self::FUNCT)
+    }
+}
+
+pub struct GemminiLoopWsConfigAddrA;
+impl Instruction for GemminiLoopWsConfigAddrA {
+    const FUNCT: u32 = 81;
+    fn exec(_xs1: u64, xs2: u64, _ctx: &mut ExecContext) -> u64 {
+        exec_cfg_impl(Self::FUNCT, xs2)
+    }
+    fn latency(_xs1: u64, _xs2: u64) -> u64 {
+        latency_impl(Self::FUNCT)
+    }
+}
+
+pub struct GemminiLoopWsConfigAddrB;
+impl Instruction for GemminiLoopWsConfigAddrB {
+    const FUNCT: u32 = 82;
+    fn exec(_xs1: u64, xs2: u64, _ctx: &mut ExecContext) -> u64 {
+        exec_cfg_impl(Self::FUNCT, xs2)
+    }
+    fn latency(_xs1: u64, _xs2: u64) -> u64 {
+        latency_impl(Self::FUNCT)
+    }
+}
+
+pub struct GemminiLoopWsConfigAddrD;
+impl Instruction for GemminiLoopWsConfigAddrD {
+    const FUNCT: u32 = 83;
+    fn exec(_xs1: u64, xs2: u64, _ctx: &mut ExecContext) -> u64 {
+        exec_cfg_impl(Self::FUNCT, xs2)
+    }
+    fn latency(_xs1: u64, _xs2: u64) -> u64 {
+        latency_impl(Self::FUNCT)
+    }
+}
+
+pub struct GemminiLoopWsConfigAddrC;
+impl Instruction for GemminiLoopWsConfigAddrC {
+    const FUNCT: u32 = 84;
+    fn exec(_xs1: u64, xs2: u64, _ctx: &mut ExecContext) -> u64 {
+        exec_cfg_impl(Self::FUNCT, xs2)
+    }
+    fn latency(_xs1: u64, _xs2: u64) -> u64 {
+        latency_impl(Self::FUNCT)
+    }
+}
+
+pub struct GemminiLoopWsConfigStridesAB;
+impl Instruction for GemminiLoopWsConfigStridesAB {
+    const FUNCT: u32 = 85;
+    fn exec(_xs1: u64, xs2: u64, _ctx: &mut ExecContext) -> u64 {
+        exec_cfg_impl(Self::FUNCT, xs2)
+    }
+    fn latency(_xs1: u64, _xs2: u64) -> u64 {
+        latency_impl(Self::FUNCT)
+    }
+}
+
+pub struct GemminiLoopWsConfigStridesDC;
+impl Instruction for GemminiLoopWsConfigStridesDC {
+    const FUNCT: u32 = 86;
+    fn exec(_xs1: u64, xs2: u64, _ctx: &mut ExecContext) -> u64 {
+        exec_cfg_impl(Self::FUNCT, xs2)
+    }
+    fn latency(_xs1: u64, _xs2: u64) -> u64 {
+        latency_impl(Self::FUNCT)
+    }
+}
+
+pub struct GemminiLoopWs;
+impl Instruction for GemminiLoopWs {
+    const FUNCT: u32 = 87;
+    fn exec(_xs1: u64, _xs2: u64, ctx: &mut ExecContext) -> u64 {
+        exec_loop_impl(ctx.memory)
+    }
+    fn latency(_xs1: u64, _xs2: u64) -> u64 {
+        latency_impl(Self::FUNCT)
+    }
 }

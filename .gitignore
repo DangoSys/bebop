@@ -28,4 +28,3 @@ work_lib/
 build.log
 
 bemu.log
-**/verilator/gen/BebopBuckyballSubsystemCosim.sv

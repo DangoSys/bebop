@@ -90,48 +90,44 @@ proc run_workload {cycles} {
         close $fp
     }
 
-    puts "\n========== Running Normal Trace (without address fix) =========="
+    puts "\n========== Running Normal Trace =========="
+
+    # 先运行 10000 个周期（warm-up）
+    puts "Running initial 10000 cycles (warm-up)..."
     set_trace_size 10000 rclk
+    run 10000 rclk
+    puts "Warm-up completed at [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
 
-    # Capture waveform using trace in VCD format
-    # puts "Opening trace database (VCD format)..."
-    # tracedb -open wave -vcd -overwrite
+    # 然后每 10 个周期存一个波形，总共存 1000 个波形（覆盖 10000 个周期）
+    puts "\n========== Starting fine-grained trace (10 cycles per wave) =========="
+    set_trace_size 10 rclk
 
-    # # Add signals to trace (add all traced signals)
-    # puts "Adding signals to trace..."
-    # trace_signals -add *
+    for {set i 0} {$i < 1000} {incr i} {
+        set cycle_start [expr 10000 + $i * 10]
+        set cycle_end [expr $cycle_start + 10]
 
-    # puts "Running simulation with trace..."
+        puts "wave_ultra_$i: cycles $cycle_start - $cycle_end at [clock format [clock seconds] -format {%H:%M:%S}]"
 
+        tracedb -open wave_ultra_$i -vcd -overwrite
+        trace_signals -add *
 
-    # run $cycles rclk
+        run 10 rclk
 
+        tracedb -upload
+        tracedb -close
 
-    # puts "Uploading trace data..."
-    # tracedb -upload
-
-    # puts "Closing trace database..."
-    # tracedb -close
-
-    for {set i 0} {$i < 10} {incr i} {
-        tracedb -open wave_mb$i -vcd -overwrite;
-        trace_signals -add *;
-        run 10000 rclk;
-        tracedb -upload;
-        tracedb -close;
-        exec vcd2fst wave_mb$i.vcd wave_mb$i.fst
+        # 每 9 个波形转换一次 FST（避免太多 vcd2fst 进程）
+        if {[expr $i % 9] == 8} {
+            puts "Converting waves [expr $i - 8] to $i to FST..."
+            for {set j [expr $i - 8]} {$j <= $i} {incr j} {
+                if {[catch {exec vcd2fst wave_ultra_$j.vcd wave_ultra_$j.fst} err]} {
+                    puts "Warning: vcd2fst failed for wave_ultra_$j: $err"
+                }
+            }
+        }
     }
 
-
-    puts "Workload completed"
-    puts "Waveform saved to wave.vcd"
-
-    # Convert VCD to FST for smaller file size and faster loading
-    # puts "Converting VCD to FST format..."
-    # if {[catch {exec vcd2fst wave.vcd wave.fst} result]} {
-    #     puts "Warning: vcd2fst conversion failed: $result"
-    # } else {
-    #     puts "FST waveform saved to wave.fst"
-    #     puts "You can view it with: gtkwave wave.fst"
-    # }
+    puts "\n========== Fine-grained trace completed =========="
+    puts "Total cycles: 20000 (10000 warm-up + 10000 traced)"
+    puts "Waveforms: wave_ultra_0.vcd to wave_ultra_999.vcd (10 cycles each)"
 }

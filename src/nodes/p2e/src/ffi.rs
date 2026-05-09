@@ -140,15 +140,37 @@ pub extern "C" fn p2e_init() {
 }
 
 #[no_mangle]
-pub extern "C" fn scu_uart_write(_hart_id: u32, ch: u32) {
+pub extern "C" fn scu_uart_write(_hart_id: u32, ch: u32, ack: *mut u8) {
+    // 无条件写入文件，用于验证函数是否被调用
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/scu_uart_debug.log")
+    {
+        let _ = writeln!(f, "scu_uart_write called: hart_id={}, ch=0x{:x}", _hart_id, ch);
+    }
+
     log::debug!("scu_uart_write: hart_id = {}, ch = 0x{:x}", _hart_id, ch);
     let _ = host_mmio_write(UART_BASE_ADDR, (ch & 0xff) as u64);
+    // 给出响应，让 FPGA 继续运行
+    if !ack.is_null() {
+        unsafe {
+            *ack = 1;
+        }
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn scu_sim_exit(_hart_id: u32, code: u32) {
+pub extern "C" fn scu_sim_exit(_hart_id: u32, code: u32, ack: *mut u8) {
     log::debug!("scu_sim_exit: hart_id = {}, code = 0x{:x}", _hart_id, code);
     let _ = host_mmio_write(SIM_EXIT_ADDR, code as u64);
+    // 给出响应
+    if !ack.is_null() {
+        unsafe {
+            *ack = 1;
+        }
+    }
 }
 
 #[no_mangle]

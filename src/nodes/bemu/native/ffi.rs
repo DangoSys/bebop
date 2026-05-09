@@ -61,7 +61,7 @@ pub extern "C" fn buckyball_reset() {
 #[no_mangle]
 pub extern "C" fn buckyball_exec(funct7: u8, xs1: u64, xs2: u64) -> u64 {
     let mut state = EMU_STATE.lock().unwrap();
-    let lat = inst::exec_latency::cycles_after_issue(funct7 as u32, xs1, xs2);
+    let lat = inst::decode::cycles_after_issue(funct7 as u32, xs1, xs2);
     state.total_lat += lat;
     let EmuState {
         memory,
@@ -72,7 +72,14 @@ pub extern "C" fn buckyball_exec(funct7: u8, xs1: u64, xs2: u64) -> u64 {
         ..
     } = &mut *state;
 
-    inst::decode::execute_known(funct7 as u32, xs1, xs2, memory, banks, bank_cfgs, bank_map)
+    let mut ctx = inst::instruction::ExecContext {
+        memory,
+        banks,
+        cfgs: bank_cfgs,
+        bank_map,
+    };
+
+    inst::decode::execute_known(funct7 as u32, xs1, xs2, &mut ctx)
         .unwrap_or_else(|| panic!("unknown funct7: {}", funct7))
 }
 

@@ -94,22 +94,25 @@ static int32_t g_exit_code = 0;
 static bool g_has_exit = false;
 static std::mutex g_scu_mutex;
 
-extern "C" void scu_uart_write(uint32_t hart_id, uint8_t ch) {
+extern "C" void scu_uart_write(uint32_t hart_id, uint32_t ch, unsigned char* ack) {
     std::lock_guard<std::mutex> lock(g_scu_mutex);
-    g_uart_log.push_back(ch);
-    putchar(ch);
+    g_uart_log.push_back((uint8_t)(ch & 0xFF));
+    putchar((char)(ch & 0xFF));
     fflush(stdout);
+    // give response to FPGA to continue running
+    *ack = 1;  
 }
 
-extern "C" void scu_sim_exit(uint32_t hart_id, int32_t code) {
+extern "C" void scu_sim_exit(uint32_t hart_id, uint32_t code, unsigned char* ack) {
     std::lock_guard<std::mutex> lock(g_scu_mutex);
     g_exit_code = code;
     g_has_exit = true;
-    printf("\n[SCU] sim_exit called: hart_id=%u, exit_code=%d\n", hart_id, code);
+    printf("\n[SCU] sim_exit called: hart_id=%u, exit_code=%u\n", hart_id, code);
     fflush(stdout);
+    // give response to FPGA to continue running
+    *ack = 1;  
 }
 
-// Helpers callable from Rust to query SCU state
 extern "C" bool verilator_scu_has_exit() {
     std::lock_guard<std::mutex> lock(g_scu_mutex);
     return g_has_exit;
@@ -127,7 +130,6 @@ extern "C" void verilator_scu_reset() {
     g_has_exit = false;
 }
 
-// FST trace
 extern "C" void* verilator_trace_new() {
     return new VerilatedFstC;
 }

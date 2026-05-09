@@ -21,6 +21,9 @@
 //  Link Spike libs with rpath, let bemu can find the libraries at runtime.
 //  Spike API calls come from riscv/{processor,extension,rocc}.h in libriscv
 //
+// 3. How to register instructions?
+//  Manually register in INSTRUCTIONS array, build.rs generates dispatch code.
+//
 //===----------------------------------------------------------------------===//
 
 use std::env;
@@ -49,7 +52,6 @@ fn main() {
     // Build and install spike
     build_spike(&spike_dir, &spike_build_dir, &spike_install_dir);
 
-    // Compile spike.cc and rocc.cc together
     cc::Build::new()
         .cpp(true)
         .file(native_dir.join("spike.cc"))
@@ -65,6 +67,7 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=softfloat");
     println!("cargo:rustc-link-lib=dylib=fesvr");
     println!("cargo:rustc-link-lib=dylib=stdc++");
+    // Set rpath so the binary can find the libraries at bebop's runtime
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}/lib", spike_install_dir.display());
 }
 
@@ -73,11 +76,7 @@ fn spike_configure(spike_dir: &Path, build_dir: &Path, install_dir: &Path) {
         .current_dir(build_dir)
         .arg("--prefix")
         .arg(install_dir)
-        .args([
-            "--with-boost=no",
-            "--with-boost-asio=no",
-            "--with-boost-regex=no",
-        ])
+        .args(["--with-boost=no", "--with-boost-asio=no", "--with-boost-regex=no"])
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status()

@@ -25,11 +25,11 @@ fn main() {
     let arch_dir = buckyball_root.join("arch");
     let out_dir = bebop_root.join("out");
 
-    // Check if VVAC output already exists and can be reused
     let libctb_dst = out_dir.join("libvCtb.so");
     let vvac_dir = out_dir.join("vvacDir");
     let wrapper_lib = out_dir.join("libctb_wrapper.a");
 
+    // Check if VVAC output already exists and can be reused
     if libctb_dst.exists() && vvac_dir.exists() && wrapper_lib.exists() {
         println!("cargo:warning=Reusing existing VVAC build (libvCtb.so, vvacDir, and wrapper found)");
         println!(

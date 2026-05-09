@@ -1,75 +1,42 @@
-//! Scratchpad bank 上的矩阵视图：i8（cols=1，行步长 16）与 acc i32（cols=4，行步长 64）。
-//! `p` 为 **物理 bank 下标**（经 `decode::pbank` 解析后传入）。
+//===- bank_matrix.rs - Matrix views over scratchpad banks -----------------===//
 
-/// i8 bank 每行固定 16 字节步长（与 `MATRIX_SIZE` 对齐方式一致）。
-pub const I8_ROW_STRIDE: usize = 16;
-/// acc bank（cols=4）每行 16 个 i32 → 64 字节。
-pub const ACC_ROW_STRIDE: usize = 64;
+const I8_ROW_STRIDE: usize = 16;
+const I32_ROW_STRIDE: usize = 64;
 
-/// n×n int8 子块（行主序，行步长 [`I8_ROW_STRIDE`]）。
+/// Read n×n i8 matrix from bank
 pub fn read_i8_nn(banks: &[Vec<u8>], p: usize, n: usize) -> Vec<Vec<i8>> {
-    let m = &banks[p];
-    let mut out = vec![vec![0i8; n]; n];
-    for i in 0..n {
-        for j in 0..n {
-            out[i][j] = m[i * I8_ROW_STRIDE + j] as i8;
-        }
-    }
-    out
+    (0..n)
+        .map(|i| (0..n).map(|j| banks[p][i * I8_ROW_STRIDE + j] as i8).collect())
+        .collect()
 }
 
-/// `rows` 行 × `width` 列，列数 ≤ 16，行步长 [`I8_ROW_STRIDE`]（如 mul_warp16 的 K×16）。
+/// Read rows×width i8 matrix from bank
 pub fn read_i8_k_rows(banks: &[Vec<u8>], p: usize, rows: usize, width: usize) -> Vec<Vec<i8>> {
-    let m = &banks[p];
-    let mut out = vec![vec![0i8; width]; rows];
-    for i in 0..rows {
-        for j in 0..width {
-            out[i][j] = m[i * I8_ROW_STRIDE + j] as i8;
-        }
-    }
-    out
+    (0..rows)
+        .map(|i| (0..width).map(|j| banks[p][i * I8_ROW_STRIDE + j] as i8).collect())
+        .collect()
 }
 
-/// n×n int32 累加 bank（`i * ACC_ROW_STRIDE + j * 4`）。
+/// Read n×n i32 matrix from bank
 pub fn read_i32_nn(banks: &[Vec<u8>], p: usize, n: usize) -> Vec<Vec<i32>> {
-    let b = &banks[p];
-    let mut out = vec![vec![0i32; n]; n];
+    (0..n)
+        .map(|i| {
+            (0..n)
+                .map(|j| {
+                    let off = i * I32_ROW_STRIDE + j * 4;
+                    i32::from_le_bytes(banks[p][off..off + 4].try_into().unwrap())
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Write n×n i32 matrix to bank
+pub fn write_i32_nn(banks: &mut [Vec<u8>], p: usize, mat: &[Vec<i32>], n: usize) {
     for i in 0..n {
         for j in 0..n {
-            let off = i * ACC_ROW_STRIDE + j * 4;
-            out[i][j] = i32::from_le_bytes(b[off..off + 4].try_into().unwrap());
-        }
-    }
-    out
-}
-
-pub fn write_i32_nn(banks: &mut [Vec<u8>], p: usize, c: &[Vec<i32>], n: usize) {
-    for i in 0..n {
-        for j in 0..n {
-            let off = i * ACC_ROW_STRIDE + j * 4;
-            banks[p][off..off + 4].copy_from_slice(&c[i][j].to_le_bytes());
-        }
-    }
-}
-
-/// 固定 16×16 acc 块，避免 Vec 分配。
-pub fn read_i32_16x16(banks: &[Vec<u8>], p: usize) -> [[i32; 16]; 16] {
-    let b = &banks[p];
-    let mut mat = [[0i32; 16]; 16];
-    for i in 0..16 {
-        for j in 0..16 {
-            let off = i * ACC_ROW_STRIDE + j * 4;
-            mat[i][j] = i32::from_le_bytes(b[off..off + 4].try_into().unwrap());
-        }
-    }
-    mat
-}
-
-pub fn write_i32_16x16(banks: &mut [Vec<u8>], p: usize, m: &[[i32; 16]; 16]) {
-    for i in 0..16 {
-        for j in 0..16 {
-            let off = i * ACC_ROW_STRIDE + j * 4;
-            banks[p][off..off + 4].copy_from_slice(&m[i][j].to_le_bytes());
+            let off = i * I32_ROW_STRIDE + j * 4;
+            banks[p][off..off + 4].copy_from_slice(&mat[i][j].to_le_bytes());
         }
     }
 }
