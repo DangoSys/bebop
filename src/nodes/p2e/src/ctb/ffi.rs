@@ -31,7 +31,7 @@ mod raw {
         #[link_name = "_ZN3ctb6ctbMgr4quitEv"]
         pub fn ctb_quit(ctb: *mut ICtbMgr);
 
-        /// C++: scu_0_hart_id()
+        /// C++: scu_0_hart_id() - exported from RTL
         pub fn scu_0_hart_id() -> u32;
     }
 }
@@ -133,13 +133,6 @@ pub fn wait_cycles(cycles: u32) -> Result<(), String> {
 // ============================================================================
 
 #[no_mangle]
-pub extern "C" fn p2e_init() {
-    reset_runtime_state();
-    mark_initialized();
-    log::info!("P2E DPI-C runtime initialized");
-}
-
-#[no_mangle]
 pub extern "C" fn scu_uart_write(_hart_id: u32, ch: u32, ack: *mut u8) {
     // 无条件写入文件，用于验证函数是否被调用
     use std::io::Write;
@@ -171,87 +164,6 @@ pub extern "C" fn scu_sim_exit(_hart_id: u32, code: u32, ack: *mut u8) {
             *ack = 1;
         }
     }
-}
-
-#[no_mangle]
-pub extern "C" fn scu_mmio_write(addr: u32, data: u32) -> i32 {
-    log::debug!("scu_mmio_write: addr = 0x{:x}, data = 0x{:x}", addr, data);
-    host_mmio_write(addr as u64, data as u64)
-}
-
-#[no_mangle]
-pub extern "C" fn scu_mmio_read(addr: u32) -> u32 {
-    log::debug!("scu_mmio_read: addr = 0x{:x}", addr);
-    host_mmio_read(addr as u64) as u32
-}
-
-#[no_mangle]
-pub extern "C" fn p2e_mmio_write(addr: u64, data: u64) -> i32 {
-    log::debug!("p2e_mmio_write: addr = 0x{:x}, data = 0x{:x}", addr, data);
-    host_mmio_write(addr, data)
-}
-
-#[no_mangle]
-pub extern "C" fn p2e_mmio_read(addr: u64) -> u64 {
-    log::debug!("p2e_mmio_read: addr = 0x{:x}", addr);
-    host_mmio_read(addr)
-}
-
-#[no_mangle]
-pub extern "C" fn check_sim_exit() -> i32 {
-    if check_exit() {
-        1
-    } else {
-        0
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn get_exit_code() -> i32 {
-    exit_code()
-}
-
-#[no_mangle]
-pub extern "C" fn p2e_ddr_backdoor_write(_addr: u64, _data: *const u8, _len: usize) {
-    log::warn!("DDR backdoor write via DPI-C is not supported; use vdbg memory commands");
-}
-
-// p2e_control_path example callbacks. Keeping these symbols lets the sample
-// VVAC wrappers link against Rust while the real Buckyball path uses MMIO.
-#[no_mangle]
-pub extern "C" fn dut_notice(i_vec1: *const u32) {
-    if !i_vec1.is_null() {
-        let value = unsafe { *i_vec1 };
-        log::debug!("dut_notice: value = 0x{:x}", value);
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn func_add(i0: *const u32, i1: *const u32) -> u32 {
-    if i0.is_null() || i1.is_null() {
-        return 0;
-    }
-    unsafe { *i0 + *i1 }
-}
-
-#[no_mangle]
-pub extern "C" fn func_touch(o0: *mut u32) {
-    if !o0.is_null() {
-        unsafe {
-            *o0 = 25;
-        }
-        log::debug!("func_touch: set output to 25");
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn func_rec() -> u32 {
-    0x5aa5
-}
-
-#[no_mangle]
-pub extern "C" fn func_call() {
-    log::debug!("func_call");
 }
 
 // ============================================================================

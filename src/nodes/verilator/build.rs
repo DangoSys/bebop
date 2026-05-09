@@ -1,3 +1,23 @@
+//===- build.rs - Build Bebop Verilator for RTL simulation -----------------===//
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+//===----------------------------------------------------------------------===//
+//
+//
+//
+//===----------------------------------------------------------------------===//
+
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
@@ -6,71 +26,32 @@ use std::process::{Command, Stdio};
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let repo_root = manifest_dir
-        .ancestors()
-        .nth(3)
-        .expect("verilator crate should live under bebop/src/nodes/verilator")
-        .to_path_buf();
-    let bb_root = repo_root
-        .parent()
-        .expect("bebop repo should live under buckyball root")
-        .to_path_buf();
-    let arch_dir = bb_root.join("arch");
-
-    // Get config from ARCH_CONFIG environment variable (required)
-    let config = env::var("ARCH_CONFIG").expect(
-        "ARCH_CONFIG environment variable is required. Example: ARCH_CONFIG=sims.verilator.BuckyballToyVerilatorConfig",
-    );
-
-    // Build directory is now arch/build/<config>/
-    let build_dir = arch_dir.join("build").join(&config);
-
-    let result_dir = bb_root.join("result");
     let native_dir = manifest_dir.join("native");
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let obj_dir = out_dir.join("obj_dir");
+
+    let vsrc_path = env::var("VSRC_PATH").expect(
+        "VSRC_PATH environment variable is required. Example: VSRC_PATH=arch/build/sims.verilator.BuckyballToyVerilatorConfig",
+    );
+    let build_dir = PathBuf::from(&vsrc_path);
+
     let topname = "BBSimHarness";
     let coverage = env_flag("BEBOP_VERILATOR_COVERAGE");
     let jobs = env::var("NUM_JOBS").unwrap_or_else(|_| "1".to_string());
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", native_dir.join("verilator.cc").display());
-    // Don't rerun on ARCH_CONFIG change - only rebuild if source files change
 
-    assert_exists(&arch_dir, "missing sibling `arch` repo");
-
-    // Get config from ARCH_CONFIG environment variable (required)
-    let config = env::var("ARCH_CONFIG").expect(
-        "ARCH_CONFIG environment variable is required. Example: ARCH_CONFIG=sims.verilator.BuckyballToyVerilatorConfig",
-    );
-
-    // Build directory is now arch/build/<config>/
-    let build_dir = arch_dir.join("build").join(&config);
-
-    assert_exists(
-        &build_dir,
-        &format!(
-            "missing `arch/build/{}`; generate Verilog first with config: {}",
-            config, config
-        ),
-    );
-    assert_exists(&result_dir, "missing `result` directory");
+    assert_exists(&build_dir, &format!("missing Verilog source directory: {}", vsrc_path));
 
     let vsrcs = collect_files(&build_dir, &["v", "sv"]);
-    let mut csrcs = collect_files(&arch_dir.join("src/csrc"), &["c", "cc", "cpp"]);
-    csrcs.extend(collect_build_csrcs(&build_dir));
-    csrcs.retain(|path| should_keep_csrc(path));
+    let csrcs = collect_build_csrcs(&build_dir);
 
     fs::create_dir_all(&obj_dir).expect("create obj_dir");
-    // println!("cargo:warning=verilator top={topname}");
-    // println!("cargo:warning=verilator obj_dir={}", obj_dir.display());
-    // println!("cargo:warning=verilator vsrcs={}", vsrcs.len());
-    // println!("cargo:warning=verilator csrcs={}", csrcs.len() + 1);
     run_verilator(&build_dir, &obj_dir, topname, &jobs, coverage, &vsrcs, &csrcs);
 
     let verilator_root = get_verilator_root(&obj_dir, topname);
     let generated_cpps = collect_files(&obj_dir, &["cpp"]);
-    // println!("cargo:warning=verilator generated_cpps={}", generated_cpps.len());
 
     let mut build = cc::Build::new();
     build.cpp(true);
@@ -90,30 +71,30 @@ fn main() {
     build.define("VM_TIMING", "1");
 
     build.include(&native_dir);
-    build.include(result_dir.join("include"));
+    build.include(native_dir.join("include"));
     build.include(&build_dir);
-    build.include(arch_dir.join("src/csrc/include"));
     build.include(&obj_dir);
     build.include(verilator_root.join("include"));
     build.include(verilator_root.join("include/vltstd"));
 
-    // Only compile minimal wrapper + memory model + generated Verilator code
-    // All DPI-C callbacks are implemented in Rust (dpi.rs)
-    build.file(native_dir.join("verilator.cc"));
-
-    // Include memory model files (mm.cc, mm_dramsim2.cc, BBSimDRAM.cc)
-    // DO NOT include monitor/trace files - all DPI-C is in Rust
-    for file in &csrcs {
-        let file_name = file.file_name().and_then(|s| s.to_str()).unwrap_or("");
-        let path_str = file.to_string_lossy();
-
-        // Include memory model files from ioe directory
-        if path_str.contains("/src/csrc/src/monitor/ioe/") {
-            if file_name.starts_with("BBSimDRAM") || file_name.starts_with("mm") {
-                build.file(file);
+    // Add DRAMSim2 include path from Nix environment
+    if let Ok(nix_ldflags) = env::var("NIX_LDFLAGS") {
+        for flag in nix_ldflags.split_whitespace() {
+            if let Some(path) = flag.strip_prefix("-L") {
+                let include_path = PathBuf::from(path).parent().unwrap().join("include");
+                if include_path.exists() {
+                    build.include(&include_path);
+                }
             }
         }
     }
+
+    // Compile minimal wrapper + memory model + generated Verilator code
+    // All DPI-C callbacks are implemented in Rust (dpi.rs)
+    build.file(native_dir.join("verilator.cc"));
+    build.file(native_dir.join("memory/BBSimDRAM.cc"));
+    build.file(native_dir.join("memory/mm.cc"));
+    build.file(native_dir.join("memory/mm_dramsim2.cc"));
 
     for file in &generated_cpps {
         build.file(file);
@@ -129,36 +110,21 @@ fn main() {
 
     // Link against required libraries
     println!("cargo:rustc-link-lib=static=bebop_verilator_native");
-    println!("cargo:rustc-link-lib=stdc++"); // C++ standard library
+    println!("cargo:rustc-link-lib=stdc++");
 
-    // Link against DRAMSim2
-    let dramsim2_dir = bb_root.join("arch/thirdparty/chipyard/tools/DRAMSim2");
-    println!("cargo:rustc-link-search=native={}", dramsim2_dir.display());
-    println!("cargo:rustc-link-lib=static=dramsim");
-
-    // Link against zlib (from Nix environment)
-    // Add all library paths from NIX_LDFLAGS
+    // Link against DRAMSim2 and zlib from Nix environment
     if let Ok(nix_ldflags) = env::var("NIX_LDFLAGS") {
         for flag in nix_ldflags.split_whitespace() {
             if let Some(path) = flag.strip_prefix("-L") {
                 println!("cargo:rustc-link-search=native={}", path);
             }
         }
+    } else {
+        panic!("NIX_LDFLAGS not set. Please run this build inside a Nix environment.");
     }
 
-    // Also try to find zlib in common Nix store locations
-    let zlib_paths = [
-        "/nix/store/8icpg7vrz95c6ap3mznmlmg7h0l2av1w-zlib-1.3.1/lib",
-        "/nix/store/ri9paa3mri4kqakljak8ldvbcp7lpmif-zlib-1.3.1/lib",
-    ];
-    for path in &zlib_paths {
-        if Path::new(path).exists() {
-            println!("cargo:rustc-link-search=native={}", path);
-            break;
-        }
-    }
-
-    println!("cargo:rustc-link-lib=z"); // zlib for compression
+    println!("cargo:rustc-link-lib=dylib=dramsim");
+    println!("cargo:rustc-link-lib=z");
 }
 
 fn env_flag(name: &str) -> bool {
@@ -206,32 +172,6 @@ fn collect_files_inner(root: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
     }
 }
 
-fn should_keep_csrc(path: &Path) -> bool {
-    let file_name = path.file_name().and_then(OsStr::to_str).unwrap_or_default();
-    if file_name == "main.cc" && path.to_string_lossy().contains("/src/csrc/src/") {
-        return false;
-    }
-    if file_name == "SimDRAM.cc" && !path.to_string_lossy().contains("/src/csrc/") {
-        panic!("unexpected testchipip SimDRAM.cc in BBSim build: {}", path.display());
-    }
-    if matches!(file_name, "testchip_tsi.cc" | "testchip_htif.cc" | "SimTSI.cc") {
-        panic!("unexpected TSI source in BBSim build: {}", path.display());
-    }
-    true
-}
-
-fn pkg_config_var(pkg: &str, var: &str) -> Option<String> {
-    let output = Command::new("pkg-config")
-        .arg(format!("--variable={var}"))
-        .arg(pkg)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let value = String::from_utf8(output.stdout).ok()?;
-    Some(value.trim().to_string())
-}
 
 fn get_verilator_root(obj_dir: &Path, topname: &str) -> PathBuf {
     let mk = obj_dir.join(format!("V{topname}.mk"));

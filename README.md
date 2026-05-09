@@ -23,14 +23,14 @@ nix develop
 
 # build verilator
 cargo build --features verilator \
-    --config="env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'"
+    --config="env.VSRC_PATH='<verilog-file-directory-path>'"
 
 # build bemu
 cargo build --features bemu
 
 # build p2e
 cargo build --features p2e \
-    --config="env.ARCH_CONFIG='sims.p2e.P2EToyConfig'"
+    --config="env.VSRC_PATH='<verilog-file-directory-path>'"
 ```
 
 
@@ -56,7 +56,7 @@ cargo run --features bemu -- bemu \
 # run p2e
 cargo run --features p2e  -- p2e \
     --buildbitstream \
-    --config="sims.p2e.P2EToyConfig"
+    --vsrc-dir="<verilog-file-directory-path>"
 
 cargo run --features p2e  -- p2e \
     --runworkload \

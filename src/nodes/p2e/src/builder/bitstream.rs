@@ -1,48 +1,46 @@
-use crate::config::BitstreamConfig;
 use std::path::PathBuf;
-use std::process::Command;
 
 use super::pnr::PnrStep;
 use super::vcom::VcomStep;
 use super::vsyn::VsynStep;
 
-/// 比特流构建器
+/// Bitstream builder
 pub struct BitstreamBuilder {
-    config: BitstreamConfig,
+    vsrc_dir: PathBuf,
+    output_dir: PathBuf,
 }
 
 impl BitstreamBuilder {
-    /// build new bitstream builder from config
-    pub fn new(config: BitstreamConfig) -> Self {
-        Self { config }
+    pub fn new(vsrc_dir: PathBuf, output_dir: PathBuf) -> Self {
+        Self { vsrc_dir, output_dir }
     }
 
-    /// build full build process
     pub fn build(&self) -> Result<(), String> {
         log::info!("Starting P2E bitstream build...");
 
         self.setup_environment()?;
 
-        // Create output directory
-        std::fs::create_dir_all(&self.config.output_dir)
+        std::fs::create_dir_all(&self.output_dir)
             .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
         self.verify_vvac_outputs()?;
 
         // Step 1: vsyn
-        let vsyn = VsynStep::new(self.config.output_dir.clone(), self.config.vvac_top_module.clone());
+        let vsyn = VsynStep::new(self.output_dir.clone(), "xepic_vvac_top".to_string());
         vsyn.run()?;
 
         // Step 2: vcom
+        let vcom_tcl = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src/builder/2_vcom/vcom_compile.tcl");
         let vcom = VcomStep::new(
-            self.config.output_dir.clone(),
-            self.config.vvac_top_module.clone(),
-            self.config.vcom_tcl.clone(),
+            self.output_dir.clone(),
+            "xepic_vvac_top".to_string(),
+            vcom_tcl,
         )?;
         vcom.run()?;
 
         // Step 3: PNR
-        let pnr = PnrStep::new(self.config.output_dir.clone());
+        let pnr = PnrStep::new(self.output_dir.clone());
         pnr.run()?;
 
         log::info!("P2E bitstream build completed successfully");
@@ -52,7 +50,6 @@ impl BitstreamBuilder {
     }
 
     fn setup_environment(&self) -> Result<(), String> {
-        // Verify sourceme.sh exists
         let sourceme_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
 
         if !sourceme_path.exists() {
@@ -64,10 +61,10 @@ impl BitstreamBuilder {
     }
 
     fn verify_vvac_outputs(&self) -> Result<(), String> {
-        let vvac_dir = self.config.output_dir.join("vvacDir");
+        let vvac_dir = self.output_dir.join("vvacDir");
         if !vvac_dir.exists() {
             return Err(format!(
-                "vvacDir not found at {}; build p2e with ARCH_CONFIG first",
+                "vvacDir not found at {}; build p2e with VSRC_PATH first",
                 vvac_dir.display()
             ));
         }
@@ -75,7 +72,7 @@ impl BitstreamBuilder {
         let libvctb = self.libvctb_path();
         if !libvctb.exists() {
             return Err(format!(
-                "libvCtb.so not found at {}; build p2e with ARCH_CONFIG first",
+                "libvCtb.so not found at {}; build p2e with VSRC_PATH first",
                 libvctb.display()
             ));
         }
@@ -83,18 +80,15 @@ impl BitstreamBuilder {
         Ok(())
     }
 
-    /// get bitstream path
     pub fn bitstream_path(&self) -> PathBuf {
-        self.config.output_dir.join("fpgaCompDir/bitstream.bit")
+        self.output_dir.join("fpgaCompDir/bitstream.bit")
     }
 
-    /// get libvCtb.so path
     pub fn libvctb_path(&self) -> PathBuf {
-        self.config.output_dir.join("vvacDir/runtimeDir/lib/lib_arm/libvCtb.so")
+        self.output_dir.join("vvacDir/runtimeDir/lib/lib_arm/libvCtb.so")
     }
 
-    /// get runtime configuration path
     pub fn rtcfg_path(&self) -> PathBuf {
-        self.config.output_dir.join("vvacDir/runtimeDir/rtcfg")
+        self.output_dir.join("vvacDir/runtimeDir/rtcfg")
     }
 }

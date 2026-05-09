@@ -1,60 +1,96 @@
-use crate::ffi::{self, get_state};
-use crate::ddr::DdrBackdoor;
-use crate::scu::ScuController;
+use snafu::{FromString, Whatever};
+use std::path::PathBuf;
 
-pub struct P2ESimulator;
+const FPGA_LOCATION: &str = "0.A";
 
-impl P2ESimulator {
-    pub fn new() -> Result<Self, String> {
-        unsafe { ffi::p2e_init(); }
-        log::info!("P2E Simulator created");
-        Ok(Self)
-    }
+/// P2E FPGA Simulator CLI
+#[derive(Debug, Clone)]
+pub struct P2ECli {
+    /// Kernel image to load
+    pub image: PathBuf,
 
-    pub fn load_image(&self, addr: u64, data: &[u8]) -> Result<(), String> {
-        DdrBackdoor::load_image(addr, data)
-    }
+    /// Output directory (VVAC build output)
+    pub output: PathBuf,
 
-    pub fn reset(&self) -> Result<(), String> {
-        let mut state = get_state().lock().unwrap();
-        state.reset();
-        log::info!("Simulator reset");
-        Ok(())
-    }
-
-    pub fn step(&self, cycles: u32) -> Result<(), String> {
-        unsafe {
-            ffi::waitNCycles(cycles);
-        }
-        Ok(())
-    }
-
-    pub fn scu_write(&self, addr: u32, data: u32) -> Result<(), String> {
-        ScuController::write(addr, data)
-    }
-
-    pub fn scu_read(&self, addr: u32) -> u32 {
-        ScuController::read(addr)
-    }
-
-    pub fn run_until_exit(&self) -> Result<i32, String> {
-        loop {
-            self.step(100)?;
-
-            let exit_flag = unsafe { ffi::check_sim_exit() };
-            if exit_flag != 0 {
-                let code = unsafe { ffi::get_exit_code() };
-                log::info!("Simulation exited with code {}", code);
-                return Ok(code);
-            }
-        }
-    }
-
-    pub fn check_exit(&self) -> bool {
-        unsafe { ffi::check_sim_exit() != 0 }
-    }
-
-    pub fn get_exit_code(&self) -> i32 {
-        unsafe { ffi::get_exit_code() }
-    }
+    /// Log directory
+    pub log: PathBuf,
 }
+
+pub fn run(cli: P2ECli) -> Result<(), Whatever> {
+    // Initialize logger
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    // Validate paths
+    if !cli.image.exists() {
+        return Err(Whatever::without_source(format!(
+            "Image file not found: {}",
+            cli.image.display()
+        )));
+    }
+
+    if !cli.output.exists() {
+        return Err(Whatever::without_source(format!(
+            "Output directory not found: {}",
+            cli.output.display()
+        )));
+    }
+
+    let case_home = cli.output.canonicalize()
+        .map_err(|e| Whatever::without_source(format!("Failed to canonicalize output: {}", e)))?;
+
+    let rtcfg_path = case_home.join("vvacDir/runtimeDir/rtcfg");
+    if !rtcfg_path.exists() {
+        return Err(Whatever::without_source(format!(
+            "VVAC runtime config not found: {}",
+            rtcfg_path.display()
+        )));
+    }
+
+    // Create log directory
+    std::fs::create_dir_all(&cli.log)
+        .map_err(|e| Whatever::without_source(format!("Failed to create log directory: {}", e)))?;
+
+    let uart_log_path = cli.log.join("uart.log");
+
+    log::info!("P2E Simulation Starting");
+    log::info!("  Image: {}", cli.image.display());
+    log::info!("  FPGA: {}", FPGA_LOCATION);
+    log::info!("  Output: {}", case_home.display());
+    log::info!("  UART Log: {}", uart_log_path.display());
+
+    // Run simulation
+    let result = crate::runner::run(
+        FPGA_LOCATION,
+        &case_home,
+        &rtcfg_path,
+        &cli.image,
+    ).map_err(|e| Whatever::without_source(format!("Simulation failed: {}", e)))?;
+
+    // Save UART log
+    std::fs::write(&uart_log_path, &result.uart_log)
+        .map_err(|e| Whatever::without_source(format!("Failed to write UART log: {}", e)))?;
+
+    // Report results
+    log::info!("Simulation completed!");
+    log::info!("  Exit code: {}", result.exit_code);
+    log::info!("  Elapsed: {:?}", result.elapsed);
+    log::info!("  Cycles: {}", result.cycles);
+    log::info!("  UART log: {}", uart_log_path.display());
+
+    if !result.uart_log.is_empty() {
+        println!("\n=== UART Output ===");
+        println!("{}", result.uart_log);
+    }
+
+    if result.exit_code != 0 {
+        return Err(Whatever::without_source(format!(
+            "Simulation exited with code: {}",
+            result.exit_code
+        )));
+    }
+
+    // Workaround for VVAC library cleanup issue
+    log::info!("Exiting bebop-p2e");
+    std::process::exit(0);
+}
+

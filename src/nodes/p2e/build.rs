@@ -10,7 +10,7 @@ const SOURCE_ME: &str = "sourceme.sh";
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(vvac_linked)");
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-env-changed=ARCH_CONFIG");
+    println!("cargo:rerun-if-env-changed=VSRC_PATH");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let bebop_root = manifest_dir
@@ -18,11 +18,6 @@ fn main() {
         .nth(3)
         .expect("p2e crate should live under bebop/src/nodes/p2e")
         .to_path_buf();
-    let buckyball_root = bebop_root
-        .parent()
-        .expect("bebop repo should live under buckyball root")
-        .to_path_buf();
-    let arch_dir = buckyball_root.join("arch");
     let out_dir = bebop_root.join("out");
 
     let libctb_dst = out_dir.join("libvCtb.so");
@@ -33,7 +28,7 @@ fn main() {
     if libctb_dst.exists() && vvac_dir.exists() && wrapper_lib.exists() {
         println!("cargo:warning=Reusing existing VVAC build (libvCtb.so, vvacDir, and wrapper found)");
         println!(
-            "cargo:warning=To rebuild, set ARCH_CONFIG or delete {}",
+            "cargo:warning=To rebuild, set VSRC_PATH or delete {}",
             out_dir.display()
         );
         link_vvac(&libctb_dst);
@@ -41,28 +36,11 @@ fn main() {
         return;
     }
 
-    // If no existing VVAC output, ARCH_CONFIG is required
-    let config = match env::var("ARCH_CONFIG") {
-        Ok(c) => c,
-        Err(_) => {
-            eprintln!("\n==========================================================");
-            eprintln!("ERROR: ARCH_CONFIG environment variable is required");
-            eprintln!("==========================================================");
-            eprintln!();
-            eprintln!("To build bebop-p2e, you must specify an architecture config:");
-            eprintln!();
-            eprintln!("  cargo build --features p2e --config=\"env.ARCH_CONFIG='sims.p2e.P2EToyConfig'\"");
-            eprintln!();
-            eprintln!("Or set it as an environment variable:");
-            eprintln!();
-            eprintln!("  export ARCH_CONFIG=sims.p2e.P2EToyConfig");
-            eprintln!("  cargo build --features p2e");
-            eprintln!();
-            eprintln!("After the first build, subsequent builds will reuse the VVAC output.");
-            eprintln!("==========================================================\n");
-            panic!("ARCH_CONFIG not set");
-        }
-    };
+    // If no existing VVAC output, VSRC_PATH is required
+    let vsrc_path = env::var("VSRC_PATH").expect(
+        "VSRC_PATH environment variable is required. Example: VSRC_PATH=/home/wanghui/Code/buckyball/arch/build/sims.p2e.P2EToyConfig",
+    );
+    let build_dir = PathBuf::from(&vsrc_path);
 
     // Clean old build artifacts before starting fresh build
     println!("cargo:warning=Cleaning old build artifacts...");
@@ -99,17 +77,16 @@ fn main() {
         }
     }
 
-    let build_dir = arch_dir.join("build").join(&config);
     assert_exists(
         &build_dir,
         &format!(
-            "missing arch build directory for ARCH_CONFIG={}; generate Verilog first",
-            config
+            "missing Verilog source directory at VSRC_PATH={}; generate Verilog first",
+            vsrc_path
         ),
     );
     assert_exists(
         &build_dir.join(format!("{P2E_TOP}.sv")),
-        &format!("ARCH_CONFIG={} does not look like a P2E build", config),
+        &format!("VSRC_PATH={} does not look like a P2E build", vsrc_path),
     );
 
     let mut vsrcs = collect_files(&build_dir, &["v", "sv"]);
@@ -210,7 +187,7 @@ fn write_flist(path: &Path, sources: &[PathBuf]) {
 }
 
 fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
-    let wrapper_src = manifest_dir.join("src/ctb_wrapper.cpp");
+    let wrapper_src = manifest_dir.join("src/ctb/ctb_wrapper.cpp");
     let wrapper_obj = out_dir.join("ctb_wrapper.o");
     let wrapper_lib = out_dir.join("libctb_wrapper.a");
 

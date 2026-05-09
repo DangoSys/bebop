@@ -10,4 +10,33 @@
     sourceRoot = "verilator-5.022";
     doCheck = false;
   });
+
+  dramsim2 = pkgs.stdenv.mkDerivation {
+    pname = "dramsim2";
+    version = "2023-05-10";
+
+    src = pkgs.fetchFromGitHub {
+      owner = "umd-memsys";
+      repo = "DRAMSim2";
+      rev = "753819a8571d24f01e44915093e62857efafb97f";
+      hash = "sha256-1wrjxqr937yznmf47l3df029j2m5i6rmabr0rpqpl05z2szkmlka";
+    };
+
+    nativeBuildInputs = [ pkgs.gnumake ];
+
+    buildPhase = ''
+      make libdramsim.so
+    '';
+
+    installPhase = ''
+      mkdir -p $out/lib $out/include
+      cp libdramsim.so $out/lib/
+      cp *.h $out/include/
+    '';
+
+    meta = {
+      description = "DRAMSim2 memory system simulator";
+      homepage = "https://github.com/umd-memsys/DRAMSim2";
+    };
+  };
 }

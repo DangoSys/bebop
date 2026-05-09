@@ -1,37 +1,6 @@
 use crate::ffi::{self, CtbManager};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
-
-#[derive(Debug, Clone)]
-pub struct SimulatorConfig {
-    pub fpga_id: String,
-    pub case_home: PathBuf,
-    pub rtcfg_path: PathBuf,
-    pub step_cycles: u32,
-    pub poll_interval: Duration,
-}
-
-impl SimulatorConfig {
-    pub fn new(fpga_id: impl Into<String>, case_home: impl Into<PathBuf>, rtcfg_path: impl Into<PathBuf>) -> Self {
-        Self {
-            fpga_id: fpga_id.into(),
-            case_home: case_home.into(),
-            rtcfg_path: rtcfg_path.into(),
-            step_cycles: 1000,
-            poll_interval: Duration::from_millis(10),
-        }
-    }
-
-    pub fn step_cycles(mut self, cycles: u32) -> Self {
-        self.step_cycles = cycles.max(1);
-        self
-    }
-
-    pub fn poll_interval(mut self, interval: Duration) -> Self {
-        self.poll_interval = interval;
-        self
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct SimulationResult {
@@ -41,129 +10,263 @@ pub struct SimulationResult {
     pub uart_log: String,
 }
 
-/// P2E simulator backed by VVAC CTB. The public control surface mirrors the
-/// Verilator runner: initialize, reset, step, then run until an MMIO exit.
-pub struct P2ESimulator {
-    _ctb: CtbManager,
-    config: SimulatorConfig,
-    cycles: u64,
+/// Run P2E simulation - main entry point
+///
+/// This is the main entry point for P2E simulation, similar to Verilator's run_batch().
+pub fn run(
+    fpga_location: &str,
+    case_home: &Path,
+    rtcfg_path: &Path,
+    image: &Path,
+) -> Result<SimulationResult, String> {
+    log::info!("P2E Simulation Starting");
+    log::info!("  FPGA: {}", fpga_location);
+    log::info!("  Case Home: {}", case_home.display());
+    log::info!("  Image: {}", image.display());
+
+    // Validate paths
+    if !case_home.exists() {
+        return Err(format!("case_home not found: {}", case_home.display()));
+    }
+    if !rtcfg_path.exists() {
+        return Err(format!("rtcfg_path not found: {}", rtcfg_path.display()));
+    }
+    if !image.exists() {
+        return Err(format!("image not found: {}", image.display()));
+    }
+
+    // Step 1: Initialize simulation (CTB)
+    log::info!("Step 1: Initializing simulation (CTB)...");
+    init_sim(fpga_location, case_home, rtcfg_path)?;
+
+    // Step 2: Flash bitstream
+    log::info!("Step 2: Flashing bitstream...");
+    flash_bitstream(fpga_location, case_home)?;
+
+    // Step 3: Initialize FPGA
+    log::info!("Step 3: Initializing FPGA...");
+    init_fpga(case_home)?;
+
+    // Step 4: Load image to DDR
+    log::info!("Step 4: Loading image to DDR...");
+    load_image(fpga_location, case_home, image)?;
+
+    // Step 5: Run workload
+    log::info!("Step 5: Running workload...");
+    let result = run_workload()?;
+
+    log::info!("Simulation completed");
+    log::info!("  Exit code: {}", result.exit_code);
+    log::info!("  Elapsed: {:?}", result.elapsed);
+    log::info!("  Cycles: {}", result.cycles);
+
+    Ok(result)
 }
 
-impl P2ESimulator {
-    pub fn new(fpga_id: &str, case_home: &str, rtcfg_path: &str) -> Result<Self, String> {
-        Self::with_config(SimulatorConfig::new(fpga_id, case_home, rtcfg_path))
+/// Initialize simulation (CTB)
+fn init_sim(
+    fpga_location: &str,
+    case_home: &Path,
+    rtcfg_path: &Path,
+) -> Result<(), String> {
+    // Configure VVAC environment
+    configure_vvac_environment();
+    ffi::reset_runtime_state();
+
+    // Create and initialize CTB
+    log::info!("Creating CTB manager...");
+    let ctb = CtbManager::new()?;
+
+    log::info!("Initializing CTB...");
+    ctb.init(
+        fpga_location,
+        case_home.to_str().ok_or("Invalid case_home path")?,
+        rtcfg_path.to_str().ok_or("Invalid rtcfg_path")?,
+    )?;
+
+    ffi::mark_initialized();
+    log::info!("CTB initialized successfully");
+
+    Ok(())
+}
+
+/// Flash bitstream to FPGA
+fn flash_bitstream(fpga_location: &str, case_home: &Path) -> Result<(), String> {
+    use crate::runner::flashbitstream::FlashBitstreamStep;
+
+    // Find bitstream file in case_home
+    let bitstream_path = case_home.join("design.bit");
+    if !bitstream_path.exists() {
+        return Err(format!("Bitstream not found: {}", bitstream_path.display()));
     }
 
-    pub fn with_config(config: SimulatorConfig) -> Result<Self, String> {
-        configure_vvac_environment();
-        ffi::reset_runtime_state();
+    let step = FlashBitstreamStep::new(bitstream_path)
+        .fpga_location(fpga_location)
+        .output_dir(case_home);
 
-        validate_path(&config.case_home, "case_home")?;
-        validate_path(&config.rtcfg_path, "rtcfg_path")?;
+    step.run()
+}
 
-        let ctb = CtbManager::new()?;
-        ctb.init(
-            &config.fpga_id,
-            path_to_str(&config.case_home)?,
-            path_to_str(&config.rtcfg_path)?,
-        )?;
+/// Initialize FPGA and check DDR calibration
+fn init_fpga(case_home: &Path) -> Result<(), String> {
+    use crate::runner::init::InitStep;
 
-        ffi::mark_initialized();
+    let step = InitStep::new(case_home);
+    step.run()
+}
 
-        Ok(Self {
-            _ctb: ctb,
-            config,
-            cycles: 0,
-        })
+/// Load image to DDR
+fn load_image(fpga_location: &str, case_home: &Path, image: &Path) -> Result<(), String> {
+    use std::process::Command;
+
+    log::info!("Loading image to DDR via vdbg...");
+
+    // Find sourceme.sh
+    let sourceme = find_sourceme(case_home)?;
+
+    // Generate TCL script to load image
+    let tcl_script = format!(
+        r#"
+# Load workload.tcl
+source {}/workload.tcl
+
+# Call load_image function
+load_image {} 0 {}
+
+exit
+"#,
+        case_home.join("../src/runner/2_runworkload").display(),
+        fpga_location,
+        image.display()
+    );
+
+    let tcl_path = case_home.join("load_image.tcl");
+    std::fs::write(&tcl_path, tcl_script)
+        .map_err(|e| format!("Failed to write load_image.tcl: {}", e))?;
+
+    // Run vdbg to execute the TCL script
+    let cmd = format!(
+        "source {} && cd {} && vdbg load_image.tcl",
+        sourceme.display(),
+        case_home.display()
+    );
+
+    log::info!("Executing: {}", cmd);
+
+    let status = Command::new("bash")
+        .arg("-c")
+        .arg(&cmd)
+        .status()
+        .map_err(|e| format!("Failed to execute vdbg: {}", e))?;
+
+    if !status.success() {
+        return Err("vdbg load_image failed".to_string());
     }
 
-    pub fn reset(&mut self) -> Result<(), String> {
-        self.step(10)
-    }
+    log::info!("Image loaded successfully");
+    Ok(())
+}
 
-    pub fn step(&mut self, cycles: u32) -> Result<(), String> {
-        if cycles == 0 {
-            return Ok(());
+/// Find sourceme.sh
+fn find_sourceme(case_home: &Path) -> Result<std::path::PathBuf, String> {
+    let candidates = vec![
+        std::path::PathBuf::from("sourceme.sh"),
+        case_home.join("../sourceme.sh"),
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh"),
+    ];
+
+    for path in candidates {
+        if path.exists() {
+            return Ok(path);
         }
-        ffi::wait_cycles(cycles)?;
-        self.cycles += cycles as u64;
-        Ok(())
     }
 
-    /// Run simulation until sim_exit signal is asserted (DPI-C callback)
-    pub fn run_until_exit(&mut self) -> Result<SimulationResult, String> {
-        let started = Instant::now();
+    Err("sourceme.sh not found".to_string())
+}
 
-        loop {
-            if self.check_exit() {
-                return Ok(self.result(started));
-            }
+/// Run workload until exit
+fn run_workload() -> Result<SimulationResult, String> {
 
-            self.step(self.config.step_cycles)?;
+    let started = Instant::now();
+    let mut cycles: u64 = 0;
 
-            if !self.config.poll_interval.is_zero() {
-                std::thread::sleep(self.config.poll_interval);
-            }
+    // Advance 1000 cycles per step
+    let step_cycles = 1000;  
+    let poll_interval = Duration::from_millis(10);  // Poll every 10ms
+
+    loop {
+        // Check if simulation should exit
+        if ffi::check_exit() {
+            let exit_code = ffi::exit_code();
+            let uart_log = ffi::uart_log();
+
+            return Ok(SimulationResult {
+                exit_code,
+                elapsed: started.elapsed(),
+                cycles,
+                uart_log,
+            });
         }
-    }
 
-    pub fn check_exit(&self) -> bool {
-        ffi::check_exit()
-    }
+        // Advance simulation
+        ffi::wait_cycles(step_cycles)?;
+        cycles += step_cycles as u64;
 
-    pub fn get_exit_code(&self) -> i32 {
-        ffi::exit_code()
-    }
-
-    pub fn get_uart_log(&self) -> String {
-        ffi::uart_log()
-    }
-
-    pub fn cycles(&self) -> u64 {
-        self.cycles
-    }
-
-    fn result(&self, started: Instant) -> SimulationResult {
-        SimulationResult {
-            exit_code: self.get_exit_code(),
-            elapsed: started.elapsed(),
-            cycles: self.cycles,
-            uart_log: self.get_uart_log(),
+        // Sleep to avoid busy-waiting
+        if !poll_interval.is_zero() {
+            std::thread::sleep(poll_interval);
         }
     }
 }
 
+/// Run simulation until exit signal is asserted (internal helper)
+///
+/// Similar to Verilator's run_batch(), this runs the simulation loop
+/// until the RTL asserts the exit signal via scu_sim_exit() DPI-C call.
+#[allow(dead_code)]
+fn run_until_exit_internal() -> Result<SimulationResult, String> {
+    let started = Instant::now();
+    let mut cycles: u64 = 0;
+
+    let step_cycles = 1000;  // Advance 1000 cycles per step
+    let poll_interval = Duration::from_millis(10);  // Poll every 10ms
+
+    loop {
+        // Check if simulation should exit
+        if ffi::check_exit() {
+            let exit_code = ffi::exit_code();
+            let uart_log = ffi::uart_log();
+
+            return Ok(SimulationResult {
+                exit_code,
+                elapsed: started.elapsed(),
+                cycles,
+                uart_log,
+            });
+        }
+
+        // Advance simulation
+        ffi::wait_cycles(step_cycles)?;
+        cycles += step_cycles as u64;
+
+        // Sleep to avoid busy-waiting
+        if !poll_interval.is_zero() {
+            std::thread::sleep(poll_interval);
+        }
+    }
+}
+
+/// Configure VVAC environment variables
+///
+/// Sets up the environment for VVAC CTB to run in onboard mode (FPGA).
+/// This matches the reference example's environment setup.
 fn configure_vvac_environment() {
-    std::env::set_var("VMRI_LOG_LEVEL", env_default("VMRI_LOG_LEVEL", "0"));
-    std::env::set_var("VVAC_LOG_LEVEL", env_default("VVAC_LOG_LEVEL", "0"));
-    std::env::set_var("RBMGR_LOG_LEVEL", env_default("RBMGR_LOG_LEVEL", "0"));
-    std::env::set_var("RBMGR_DUMP_DATA", env_default("RBMGR_DUMP_DATA", "1"));
-    std::env::set_var("RTL_DBG_SIZE", env_default("RTL_DBG_SIZE", "128"));
-
-    if std::env::var("VCOM_TEST_DIP").is_ok() {
-        std::env::set_var("VMRI_WORK_MODE", env_default("VMRI_WORK_MODE", "4"));
-        std::env::set_var("VVAC_WORK_MODE", env_default("VVAC_WORK_MODE", "1"));
-        log::info!("Running P2E in VVAC simulation mode");
-    } else {
-        std::env::set_var("VMRI_WORK_MODE", env_default("VMRI_WORK_MODE", "3"));
-        std::env::set_var("VVAC_WORK_MODE", env_default("VVAC_WORK_MODE", "0"));
-        log::info!("Running P2E in onboard mode");
-    }
-}
-
-fn env_default(key: &str, default: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| default.to_string())
-}
-
-fn validate_path(path: &Path, name: &str) -> Result<(), String> {
-    if path.exists() {
-        Ok(())
-    } else {
-        Err(format!("{} not found: {}", name, path.display()))
-    }
-}
-
-fn path_to_str(path: &Path) -> Result<&str, String> {
-    path.to_str()
-        .ok_or_else(|| format!("path is not valid UTF-8: {}", path.display()))
+    std::env::set_var("VMRI_LOG_LEVEL", "0");
+    std::env::set_var("VVAC_LOG_LEVEL", "0");
+    std::env::set_var("RBMGR_LOG_LEVEL", "0");
+    std::env::set_var("RBMGR_DUMP_DATA", "1");
+    std::env::set_var("RTL_DBG_SIZE", "128");
+    std::env::set_var("VMRI_WORK_MODE", "3");  // Onboard mode
+    std::env::set_var("VVAC_WORK_MODE", "0");  // Onboard mode
+    log::info!("Running P2E in onboard mode");
 }

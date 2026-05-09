@@ -1,4 +1,3 @@
-mod config;
 mod sim;
 
 #[path = "../native/ffi.rs"]
@@ -12,9 +11,6 @@ mod trace;
 
 #[path = "mmio/mmio.rs"]
 mod mmio;
-
-#[path = "ddr/dram.rs"]
-mod dram;
 
 #[path = "main.rs"]
 mod main_impl;

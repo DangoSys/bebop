@@ -1,9 +1,7 @@
 mod runworkload;
-pub mod vdbg;
 
-// Re-export simulation modules
-pub use runworkload::{P2ESimulator, SimulationResult, SimulatorConfig};
-pub use vdbg::VdbgSession;
+// Re-export simulation entry point
+pub use runworkload::{run, SimulationResult};
 
 // Runner steps - use path attribute to map module names to directories with numeric prefixes
 #[path = "0_flashbitstream/mod.rs"]

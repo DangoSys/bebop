@@ -3,12 +3,18 @@ use std::fs::{File, OpenOptions};
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::PathBuf;
 
-use crate::{config, dram, mmio, sim, trace};
+use crate::{mmio, sim, trace};
 
 #[derive(Debug, Clone)]
 pub struct VerilatorCli {
     pub elf: PathBuf,
-    pub args: Vec<String>,
+    pub log_dir: PathBuf,
+    pub fst_dir: PathBuf,
+    pub itrace: bool,
+    pub mtrace: bool,
+    pub pmctrace: bool,
+    pub ctrace: bool,
+    pub banktrace: bool,
 }
 
 pub fn run(cli: VerilatorCli) -> Result<(), Whatever> {
@@ -30,8 +36,6 @@ struct VerilatorConfig {
 
 impl VerilatorConfig {
     fn parse(cli: VerilatorCli) -> Result<Self, Whatever> {
-        let (log_dir, fst_dir, itrace, mtrace, pmctrace, ctrace, banktrace) = config::parse_args(cli.args)?;
-
         // Check for coverage env var
         let coverage = std::env::var("BEBOP_VERILATOR_COVERAGE")
             .map(|v| v.eq_ignore_ascii_case("true"))
@@ -42,12 +46,9 @@ impl VerilatorConfig {
         let mem_size = 256 * 1024 * 1024; // 256MB
 
         // Generate file paths from directories
-        let log_dir_path = PathBuf::from(log_dir);
-        let fst_dir_path = PathBuf::from(fst_dir);
-
-        let log = log_dir_path.join("bdb.ndjson");
-        let stdout = Some(log_dir_path.join("stdout.log"));
-        let fst = fst_dir_path.join("waveform.fst");
+        let log = cli.log_dir.join("bdb.ndjson");
+        let stdout = Some(cli.log_dir.join("stdout.log"));
+        let fst = cli.fst_dir.join("waveform.fst");
 
         Ok(Self {
             elf: cli.elf,
@@ -55,11 +56,11 @@ impl VerilatorConfig {
             fst,
             stdout,
             trace_config: trace::TraceConfig {
-                itrace,
-                mtrace,
-                pmctrace,
-                ctrace,
-                banktrace,
+                itrace: cli.itrace,
+                mtrace: cli.mtrace,
+                pmctrace: cli.pmctrace,
+                ctrace: cli.ctrace,
+                banktrace: cli.banktrace,
             },
             coverage,
             mem_base,

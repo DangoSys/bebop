@@ -1,16 +1,13 @@
 pub mod builder;
-pub mod cli;
-pub mod config;
-pub mod ffi;
-pub mod mmio;
+pub mod ctb;
 pub mod runner;
+pub mod sim;
 
 pub use builder::BitstreamBuilder;
-pub use cli::{run, P2ECli};
-pub use config::{parse_args, BitstreamConfig, CliArgs};
-pub use mmio::ScuController;
+pub use ctb::ffi;
+pub use sim::{run, P2ECli};
 pub use runner::{
-    FlashBitstreamStep, InitStep, P2ESimulator, RunWorkloadStep, SimulationResult, SimulatorConfig, VdbgSession,
+    FlashBitstreamStep, InitStep, RunWorkloadStep, SimulationResult,
 };
 
 pub type Result<T> = std::result::Result<T, String>;
