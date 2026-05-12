@@ -77,7 +77,19 @@ fn main() {
     build.include(verilator_root.join("include"));
     build.include(verilator_root.join("include/vltstd"));
 
-    // Add DRAMSim2 include path from Nix environment
+    // Add include paths from NIX_CFLAGS_COMPILE (set by nix-shell)
+    if let Ok(nix_cflags) = env::var("NIX_CFLAGS_COMPILE") {
+        for flag in nix_cflags.split_whitespace() {
+            if let Some(path) = flag.strip_prefix("-I") {
+                let include_path = PathBuf::from(path);
+                if include_path.exists() {
+                    build.include(&include_path);
+                }
+            }
+        }
+    }
+
+    // Add include paths from NIX_LDFLAGS (derive include from lib paths)
     if let Ok(nix_ldflags) = env::var("NIX_LDFLAGS") {
         for flag in nix_ldflags.split_whitespace() {
             if let Some(path) = flag.strip_prefix("-L") {
@@ -85,6 +97,31 @@ fn main() {
                 if include_path.exists() {
                     build.include(&include_path);
                 }
+            }
+        }
+    }
+
+    // Fallback: search Nix store for spike and dramsim2 include paths
+    // Nix store directory names follow the pattern: <hash>-<name>-<version>
+    if let Ok(entries) = fs::read_dir("/nix/store") {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            let include_dir = entry.path().join("include");
+            if !include_dir.exists() {
+                continue;
+            }
+            // Match spike packages (e.g. "spike-1.1.0-unstable-2024-09-21")
+            if name_str.contains("-spike-") {
+                build.include(&include_dir);
+            }
+            // Match dramsim2 packages (e.g. "dramsim2-2023-05-10")
+            if name_str.contains("-dramsim2-") {
+                build.include(&include_dir);
+            }
+            // Match zlib dev packages (e.g. "zlib-1.3.1-dev")
+            if name_str.contains("-zlib-") && name_str.contains("-dev") {
+                build.include(&include_dir);
             }
         }
     }
@@ -112,15 +149,31 @@ fn main() {
     println!("cargo:rustc-link-lib=static=bebop_verilator_native");
     println!("cargo:rustc-link-lib=stdc++");
 
-    // Link against DRAMSim2 and zlib from Nix environment
+    // Add library search paths from NIX_LDFLAGS
     if let Ok(nix_ldflags) = env::var("NIX_LDFLAGS") {
         for flag in nix_ldflags.split_whitespace() {
             if let Some(path) = flag.strip_prefix("-L") {
                 println!("cargo:rustc-link-search=native={}", path);
             }
         }
-    } else {
-        panic!("NIX_LDFLAGS not set. Please run this build inside a Nix environment.");
+    }
+
+    // Fallback: search Nix store for dramsim2 and zlib lib paths
+    if let Ok(entries) = fs::read_dir("/nix/store") {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            let lib_dir = entry.path().join("lib");
+            if !lib_dir.exists() {
+                continue;
+            }
+            if name_str.contains("-dramsim2-") {
+                println!("cargo:rustc-link-search=native={}", lib_dir.display());
+            }
+            if name_str.contains("-zlib-") && !name_str.contains("-dev") {
+                println!("cargo:rustc-link-search=native={}", lib_dir.display());
+            }
+        }
     }
 
     println!("cargo:rustc-link-lib=dylib=dramsim");
