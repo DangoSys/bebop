@@ -1,0 +1,83 @@
+# Nextest configuration for bebop regression tests
+#
+# This configuration manages test execution for both bemu and verilator backends.
+# Key considerations:
+# - Verilator tests are resource-intensive and require limited concurrency
+# - RTL elaboration cache should be reused across tests
+# - Each test needs isolated temporary directories for logs and waveforms
+
+[profile.default]
+# Default profile settings
+# Failure output: show immediately for quick feedback
+failure-output = "immediate"
+# Success output: show at the end for review
+success-output = "final"
+# Status level: show all test statuses
+status-level = "all"
+
+# BEMU backend profile
+[profile.bemu]
+# BEMU tests are lightweight (emulator), can run with higher concurrency
+threads = 8
+# Timeout: 5 minutes per test (emulator is fast)
+slow-timeout = { period = "300s", terminate-after = 1 }
+# Retries: don't retry by default
+retries = 0
+
+# Verilator backend profile
+[profile.verilator]
+# Verilator tests are resource-intensive (RTL simulation)
+# Limit to 2 concurrent tests to avoid OOM and CPU thrashing
+threads = 2
+# Timeout: RTL sim often exceeds 2 minutes on a typical workstation
+slow-timeout = { period = "600s", terminate-after = 1 }
+# Retries: don't retry by default
+retries = 0
+# Failure output: show immediately for debugging
+failure-output = "immediate-final"
+
+# CI profile for automated testing
+[profile.ci]
+# CI environment: use all available CPUs for bemu, but limit verilator
+threads = "num-cpus"
+slow-timeout = { period = "300s", terminate-after = 1 }
+retries = 1
+failure-output = "final"
+# Generate JUnit report for CI integration
+junit = { path = "junit.xml" }
+
+# Test group definitions for resource management
+# Verilator tests are grouped to limit concurrent RTL simulations
+[test-groups]
+verilator-simulation = { max-threads = 2 }
+
+# Override settings for specific test binaries
+[[profile.default.overrides]]
+# Match verilator tests
+filter = "test(verilator::)"
+# Apply verilator profile settings
+threads = 2
+slow-timeout = { period = "600s", terminate-after = 1 }
+# Assign to verilator-simulation group for resource management
+test-group = "verilator-simulation"
+
+[[profile.default.overrides]]
+# Match bemu tests
+filter = "test(bemu::)"
+# Apply bemu profile settings
+threads = 8
+slow-timeout = { period = "300s", terminate-after = 1 }
+
+# CI profile overrides
+[[profile.ci.overrides]]
+# Verilator tests in CI
+filter = "test(verilator::)"
+threads = 2
+slow-timeout = { period = "600s", terminate-after = 1 }
+test-group = "verilator-simulation"
+
+[[profile.ci.overrides]]
+# Bemu tests in CI
+filter = "test(bemu::)"
+threads = "num-cpus"
+slow-timeout = { period = "300s", terminate-after = 1 }

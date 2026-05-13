@@ -11,6 +11,18 @@ edition = "2021"
 name = "bebop"
 path = "src/main.rs"
 
+[[test]]
+name = "elf_bemu"
+path = "tests/elf_bemu.rs"
+harness = false
+required-features = ["bemu"]
+
+[[test]]
+name = "elf_verilator"
+path = "tests/elf_verilator.rs"
+harness = false
+required-features = ["verilator"]
+
 [features]
 default = []
 verilator = ["dep:bebop-verilator"]
@@ -32,3 +44,10 @@ toml = "0.8"
 ctrlc = "3"
 camino = "1.1"
 snafu = "0.8"
+
+[dev-dependencies]
+libtest-mimic = "0.8"
+assert_cmd = "2"
+walkdir = "2"
+tempfile = "3"
+predicates = "3"
