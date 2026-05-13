@@ -95,7 +95,7 @@ pub fn host_mmio_write(addr: u64, data: u64) -> i32 {
 //===-----------------------------------------------------------------===//
 
 #[no_mangle]
-pub extern "C" fn scu_uart_write(hart_id: u32, ch: u32, ack: *mut u32) {
+pub extern "C" fn scu_uart_write(_hart_id: u32, ch: u32) {
     // 无条件写入文件，用于验证函数是否被调用
     // use std::io::Write;
     // if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -103,23 +103,15 @@ pub extern "C" fn scu_uart_write(hart_id: u32, ch: u32, ack: *mut u32) {
     //     .append(true)
     //     .open("/tmp/scu_uart_debug.log")
     // {
-    //     let _ = writeln!(f, "[DPI-C] scu_uart_write called: hart_id={}, ch=0x{:x}, ack={:p}", hart_id, ch, ack);
+    //     let _ = writeln!(f, "[DPI-C] scu_uart_write called: hart_id={}, ch=0x{:x}", hart_id, ch);
     // }
-
-    // Give response immediately to prevent FPGA from hanging
-    // IMPORTANT: svBit* is uint32_t*, not uint8_t*
-    if !ack.is_null() {
-        unsafe {
-            *ack = 1;
-        }
-    }
 
     // Try to write to UART, but don't crash if it fails
     let _ = host_mmio_write(UART_BASE_ADDR, (ch & 0xff) as u64);
 }
 
 #[no_mangle]
-pub extern "C" fn scu_sim_exit(hart_id: u32, code: u32, ack: *mut u32) {
+pub extern "C" fn scu_sim_exit(hart_id: u32, code: u32) {
     // CRITICAL: This function may be called during ctb_mgr->init()
     // Add defensive checks to prevent crashes
 
@@ -129,15 +121,7 @@ pub extern "C" fn scu_sim_exit(hart_id: u32, code: u32, ack: *mut u32) {
         .append(true)
         .open("/tmp/scu_uart_debug.log")
     {
-        let _ = writeln!(f, "[DPI-C] scu_sim_exit called: hart_id={}, code=0x{:x}, ack={:p}", hart_id, code, ack);
-    }
-
-    // Give response immediately
-    // IMPORTANT: svBit* is uint32_t*, not uint8_t*
-    if !ack.is_null() {
-        unsafe {
-            *ack = 1;
-        }
+        let _ = writeln!(f, "[DPI-C] scu_sim_exit called: hart_id={}, code=0x{:x}", hart_id, code);
     }
 
     // Try to write to exit address, but don't crash if it fails

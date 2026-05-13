@@ -94,23 +94,20 @@ static int32_t g_exit_code = 0;
 static bool g_has_exit = false;
 static std::mutex g_scu_mutex;
 
-extern "C" void scu_uart_write(uint32_t hart_id, uint32_t ch, unsigned char* ack) {
+extern "C" void scu_uart_write(uint32_t hart_id, uint32_t ch) {
+    (void)hart_id;
     std::lock_guard<std::mutex> lock(g_scu_mutex);
     g_uart_log.push_back((uint8_t)(ch & 0xFF));
     putchar((char)(ch & 0xFF));
     fflush(stdout);
-    // give response to FPGA to continue running
-    *ack = 1;  
 }
 
-extern "C" void scu_sim_exit(uint32_t hart_id, uint32_t code, unsigned char* ack) {
+extern "C" void scu_sim_exit(uint32_t hart_id, uint32_t code) {
     std::lock_guard<std::mutex> lock(g_scu_mutex);
     g_exit_code = code;
     g_has_exit = true;
     printf("\n[SCU] sim_exit called: hart_id=%u, exit_code=%u\n", hart_id, code);
     fflush(stdout);
-    // give response to FPGA to continue running
-    *ack = 1;  
 }
 
 extern "C" bool verilator_scu_has_exit() {
