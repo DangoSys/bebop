@@ -216,36 +216,6 @@ exit
     Ok(tcl)
 }
 
-/// Run vdbg with the given TCL script
-fn run_vdbg_script(tcl_path: &Path) -> Result<(), String> {
-    use duct::cmd;
-
-    let sourceme = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
-    if !sourceme.exists() {
-        return Err(format!("sourceme.sh not found: {}", sourceme.display()));
-    }
-
-    let command = format!(
-        "source {} && vdbg {}",
-        sourceme.display(),
-        tcl_path.display()
-    );
-
-    log::info!("Executing: {}", command);
-
-    // CRITICAL: Clear LD_PRELOAD to avoid glibc version conflicts
-    let output = cmd!("bash", "-c", &command)
-        .env_remove("LD_PRELOAD")
-        .run()
-        .map_err(|e| format!("Failed to run vdbg: {}", e))?;
-
-    if !output.status.success() {
-        return Err("vdbg script failed".to_string());
-    }
-
-    Ok(())
-}
-
 /// Start vdbg in background with the given TCL script
 fn start_vdbg_background(tcl_path: &Path) -> Result<(), String> {
     use std::process::Command;
@@ -273,6 +243,7 @@ fn start_vdbg_background(tcl_path: &Path) -> Result<(), String> {
 
     Ok(())
 }
+
 /// Source sourceme.sh to set up VVAC environment variables
 fn source_environment() -> Result<(), String> {
     use duct::cmd;

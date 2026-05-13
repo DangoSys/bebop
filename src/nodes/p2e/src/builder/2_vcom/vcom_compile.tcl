@@ -36,50 +36,45 @@ write_net -add {io_sys_rstn}
 # These allow us to monitor and control the AXI bus between CPU and DDR
 # mem_awaddr_soc/mem_araddr_soc: 32-bit address from DigitalTop (CPU view, 0x80000000-based)
 # mem_awaddr/mem_araddr:         64-bit address to DDR (after p2e_mem_addr_translator, 0x0-based)
-write_net -add {P2ETop.top.mem_awaddr_soc}
-write_net -add {P2ETop.top.mem_awaddr}
-write_net -add {P2ETop.top.mem_araddr_soc}
-write_net -add {P2ETop.top.mem_araddr}
-write_net -add {P2ETop.top.mem_awvalid}
-write_net -add {P2ETop.top.mem_arvalid}
-write_net -add {P2ETop.top.mem_wdata}
-write_net -add {P2ETop.top.mem_rdata}
-
-# Add CLINT registers for runtime debugging and control
-# These allow us to read/write CLINT's mtime, mtimecmp, and ipi registers at runtime
-write_net -add {P2ETop.top.soc.clint_domain.clint.time_0}
-write_net -add {P2ETop.top.soc.clint_domain.clint.timecmp_0}
-write_net -add {P2ETop.top.soc.clint_domain.clint.ipi_0}
+# write_net -add {P2ETop.top.mem_awaddr_soc}
+# write_net -add {P2ETop.top.mem_awaddr}
+# write_net -add {P2ETop.top.mem_araddr_soc}
+# write_net -add {P2ETop.top.mem_araddr}
+# write_net -add {P2ETop.top.mem_awvalid}
+# write_net -add {P2ETop.top.mem_arvalid}
+# write_net -add {P2ETop.top.mem_wdata}
+# write_net -add {P2ETop.top.mem_rdata}
 
 # Add CSR registers for runtime debugging and control
 # These allow us to enable/disable interrupts at runtime
-write_net -add {P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0.csr.reg_mie}
-write_net -add {P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0.csr.reg_mstatus_mie}
+# write_net -add {P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0.csr.reg_mie}
+# write_net -add {P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0.csr.reg_mstatus_mie}
 
 # Add BootROM registers for runtime debugging
 # These allow us to inspect and modify BootROM contents at runtime for debugging
 # This is useful for verifying that the BootROM was correctly initialized
-write_net -add {P2ETop.top.soc.bootrom_domain.bootrom.rom_0}
-write_net -add {P2ETop.top.soc.bootrom_domain.bootrom.rom_1}
-write_net -add {P2ETop.top.soc.bootrom_domain.bootrom.rom_2}
-write_net -add {P2ETop.top.soc.bootrom_domain.bootrom.rom_3}
+# write_net -add {P2ETop.top.soc.bootrom_domain.bootrom.rom_0}
+# write_net -add {P2ETop.top.soc.bootrom_domain.bootrom.rom_1}
+# write_net -add {P2ETop.top.soc.bootrom_domain.bootrom.rom_2}
+# write_net -add {P2ETop.top.soc.bootrom_domain.bootrom.rom_3}
 
+#===--------------------------------------------------------===#
 # Define readable nets for runtime monitoring
+# Dont Remove this net, it is used for simulation
 read_net -add {io_init_calib_complete}
+#===--------------------------------------------------------===#
 
 # Add trace for waveform capture
-# IMPORTANT: Keep depth low to avoid suspending clocks (max 5000 probes per FPGA)
-# Only trace the core (CPU) to reduce probe count and avoid clock suspension
 # trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0 -depth 5
-trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile -depth 5
+# trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile -depth 5
 
 # Add BootROM trace for debugging ROM initialization issues
 # Trace depth 2 to capture ROM registers and their connections
-trace_net -add P2ETop.top.soc.bootrom_domain -depth 4
+# trace_net -add P2ETop.top.soc.bootrom_domain -depth 4
 
 # Add P2ETop.top level signals (depth 1) to capture AXI/DDR interconnect signals
 # This includes mem_awaddr, mem_araddr, mem_wdata, mem_rdata etc.
-trace_net -add P2ETop.top -depth 3
+# trace_net -add P2ETop.top -depth 3
 
 # trace_net -add P2ETop.top -depth 3
 

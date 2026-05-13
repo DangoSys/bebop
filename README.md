@@ -23,7 +23,8 @@ nix develop
 
 # build verilator
 cargo build --features verilator \
-    --config="env.VSRC_PATH='<verilog-file-directory-path>'"
+    --config="env.VSRC_PATH='<verilog-file-directory-path>'" \
+    --config="env.OUT_PATH='<generate-file-directory-path>'"
 
 # build bemu
 cargo build --features bemu
@@ -56,14 +57,14 @@ cargo run --features bemu -- bemu \
 # run p2e
 cargo run --features p2e -- p2e \
     --buildbitstream \
-    --vsrc-dir="<verilog-file-directory-path>" \
-    --output-dir="<bitstream-file-directory-path>" \
-    --log-dir="<bitstream-file-directory-path>"
+    --build-dir="<design-build-directory-path>" \
+    --output-dir="<bitstream-file-directory-path>"
 
 cargo run --features p2e  -- p2e \
     --runworkload \
     --image="<image-file-path>" \
     --bitstream="<bitstream-file-path>"
+    --log-dir="<log-file-directory-path>"
 ```
 
 <!-- cargo run --features verilator \

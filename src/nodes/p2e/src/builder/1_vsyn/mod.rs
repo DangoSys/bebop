@@ -3,6 +3,8 @@ use std::process::Command;
 
 /// vsyn 综合步骤
 pub struct VsynStep {
+    /// 设计构建目录（包含 vvacDir）
+    pub build_dir: PathBuf,
     /// 输出目录
     pub output_dir: PathBuf,
     /// VVAC 顶层模块名
@@ -10,8 +12,9 @@ pub struct VsynStep {
 }
 
 impl VsynStep {
-    pub fn new(output_dir: PathBuf, vvac_top_module: String) -> Self {
+    pub fn new(build_dir: PathBuf, output_dir: PathBuf, vvac_top_module: String) -> Self {
         Self {
+            build_dir,
             output_dir,
             vvac_top_module,
         }
@@ -21,7 +24,7 @@ impl VsynStep {
     pub fn run(&self) -> Result<PathBuf, String> {
         log::info!("Running vsyn synthesis...");
 
-        let filelist = self.output_dir.join("vvacDir/vvac_by_mod/filelist");
+        let filelist = self.build_dir.join("vvacDir/vvac_by_mod/filelist");
         if !filelist.exists() {
             return Err(format!("vvac filelist not found: {:?}", filelist));
         }

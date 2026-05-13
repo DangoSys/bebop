@@ -29,13 +29,20 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(vvac_linked)");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=VSRC_PATH");
+    println!("cargo:rerun-if-env-changed=OUT_PATH");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let out_dir = manifest_dir
+    let bebop_root = manifest_dir
         .ancestors()
         .nth(3)
         .expect("p2e crate should live under bebop/src/nodes/p2e")
-        .join("out");
+        .to_path_buf();
+
+    // OUT_PATH overrides the default output location (bebop/out)
+    let out_dir = match env::var("OUT_PATH") {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => bebop_root.join("out"),
+    };
     let libctb_dst = out_dir.join("libvCtb.so");
 
     // Check if libvCtb.so already exists (from previous build)
