@@ -27,9 +27,8 @@ mod raw {
             rtcfg_path: *const c_char,
         ) -> bool;
 
-        /// C++: ctb::ctbMgr::quit()
-        #[link_name = "_ZN3ctb6ctbMgr4quitEv"]
-        pub fn ctb_quit(ctb: *mut ICtbMgr);
+        /// C wrapper: ctb_quit_wrapper(mgr)
+        pub fn ctb_quit_wrapper(ctb: *mut ICtbMgr);
 
         /// C++: scu_0_hart_id() - exported from RTL
         pub fn scu_0_hart_id() -> u32;
@@ -91,47 +90,63 @@ pub fn host_mmio_write(addr: u64, data: u64) -> i32 {
     0
 }
 
-// ============================================================================
+//===-----------------------------------------------------------------===//
 // DPI-C functions exported by Rust and callable from generated RTL/C++.
-// ============================================================================
+//===-----------------------------------------------------------------===//
 
 #[no_mangle]
-pub extern "C" fn scu_uart_write(_hart_id: u32, ch: u32, ack: *mut u8) {
+pub extern "C" fn scu_uart_write(hart_id: u32, ch: u32, ack: *mut u32) {
     // 无条件写入文件，用于验证函数是否被调用
+    // use std::io::Write;
+    // if let Ok(mut f) = std::fs::OpenOptions::new()
+    //     .create(true)
+    //     .append(true)
+    //     .open("/tmp/scu_uart_debug.log")
+    // {
+    //     let _ = writeln!(f, "[DPI-C] scu_uart_write called: hart_id={}, ch=0x{:x}, ack={:p}", hart_id, ch, ack);
+    // }
+
+    // Give response immediately to prevent FPGA from hanging
+    // IMPORTANT: svBit* is uint32_t*, not uint8_t*
+    if !ack.is_null() {
+        unsafe {
+            *ack = 1;
+        }
+    }
+
+    // Try to write to UART, but don't crash if it fails
+    let _ = host_mmio_write(UART_BASE_ADDR, (ch & 0xff) as u64);
+}
+
+#[no_mangle]
+pub extern "C" fn scu_sim_exit(hart_id: u32, code: u32, ack: *mut u32) {
+    // CRITICAL: This function may be called during ctb_mgr->init()
+    // Add defensive checks to prevent crashes
+
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open("/tmp/scu_uart_debug.log")
     {
-        let _ = writeln!(f, "scu_uart_write called: hart_id={}, ch=0x{:x}", _hart_id, ch);
+        let _ = writeln!(f, "[DPI-C] scu_sim_exit called: hart_id={}, code=0x{:x}, ack={:p}", hart_id, code, ack);
     }
 
-    log::debug!("scu_uart_write: hart_id = {}, ch = 0x{:x}", _hart_id, ch);
-    let _ = host_mmio_write(UART_BASE_ADDR, (ch & 0xff) as u64);
-    // 给出响应，让 FPGA 继续运行
+    // Give response immediately
+    // IMPORTANT: svBit* is uint32_t*, not uint8_t*
     if !ack.is_null() {
         unsafe {
             *ack = 1;
         }
     }
-}
 
-#[no_mangle]
-pub extern "C" fn scu_sim_exit(_hart_id: u32, code: u32, ack: *mut u8) {
-    log::debug!("scu_sim_exit: hart_id = {}, code = 0x{:x}", _hart_id, code);
+    // Try to write to exit address, but don't crash if it fails
     let _ = host_mmio_write(SIM_EXIT_ADDR, code as u64);
-    // 给出响应
-    if !ack.is_null() {
-        unsafe {
-            *ack = 1;
-        }
-    }
 }
 
-// ============================================================================
+//===-----------------------------------------------------------------===//
 // Safe-ish Rust wrapper around the opaque VVAC CTB manager.
-// ============================================================================
+//===-----------------------------------------------------------------===//
 
 pub struct CtbManager {
     ctb: *mut ICtbMgr,
@@ -187,7 +202,7 @@ impl CtbManager {
         if !self.ctb.is_null() {
             #[cfg(vvac_linked)]
             unsafe {
-                raw::ctb_quit(self.ctb);
+                raw::ctb_quit_wrapper(self.ctb);
             }
             log::info!("CTB quit");
         }

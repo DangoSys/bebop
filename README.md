@@ -54,9 +54,11 @@ cargo run --features bemu -- bemu \
     --elf="<elf-file-path>"
 
 # run p2e
-cargo run --features p2e  -- p2e \
+cargo run --features p2e -- p2e \
     --buildbitstream \
-    --vsrc-dir="<verilog-file-directory-path>"
+    --vsrc-dir="<verilog-file-directory-path>" \
+    --output-dir="<bitstream-file-directory-path>" \
+    --log-dir="<bitstream-file-directory-path>"
 
 cargo run --features p2e  -- p2e \
     --runworkload \

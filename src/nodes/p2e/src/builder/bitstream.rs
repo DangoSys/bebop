@@ -6,13 +6,12 @@ use super::vsyn::VsynStep;
 
 /// Bitstream builder
 pub struct BitstreamBuilder {
-    vsrc_dir: PathBuf,
     output_dir: PathBuf,
 }
 
 impl BitstreamBuilder {
-    pub fn new(vsrc_dir: PathBuf, output_dir: PathBuf) -> Self {
-        Self { vsrc_dir, output_dir }
+    pub fn new(output_dir: PathBuf) -> Self {
+        Self { output_dir }
     }
 
     pub fn build(&self) -> Result<(), String> {

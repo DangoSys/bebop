@@ -83,12 +83,12 @@ extern "C" uint8_t verilator_top_get_reset(void* top) {
     return static_cast<VBBSimHarness*>(top)->reset;
 }
 
-// =============================================================================
+//===-----------------------------------------------------------------===//=
 // SCU DPI-C interface
 // Called from RTL via DPI-C when software writes to SCU registers
 // (0x6000_0000 for sim_exit, 0x6002_0000 for UART).
 // State is queryable from Rust via verilator_scu_*() helpers below.
-// =============================================================================
+//===-----------------------------------------------------------------===//=
 static std::vector<uint8_t> g_uart_log;
 static int32_t g_exit_code = 0;
 static bool g_has_exit = false;

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-//===----------------------------------------------------------------------===//
+//===-----------------------------------------------------------------===//-----===//
 //
 // Instruction trait enforces uniform interface for all instructions.
 // Each instruction implements exec() and latency() methods.
@@ -20,7 +20,7 @@
 // ExecContext bundles all mutable state (memory, banks, configs, bank_map)
 // to simplify instruction signatures.
 //
-//===----------------------------------------------------------------------===//
+//===-----------------------------------------------------------------===//-----===//
 
 use super::super::bank::{BankConfig, BankMap};
 

@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use snafu::Whatever;
+use snafu::{FromString, Whatever};
 
 #[cfg(feature = "verilator")]
 use bebop_verilator::{run as run_verilator, VerilatorCli};
@@ -56,8 +56,8 @@ pub enum Commands {
         runworkload: bool,
         #[arg(long, help = "Kernel image to load (for runworkload)")]
         image: Option<std::path::PathBuf>,
-        #[arg(long, help = "Verilog source directory (for buildbitstream)")]
-        vsrc_dir: Option<std::path::PathBuf>,
+        #[arg(long, help = "Bitstream file path (for runworkload)")]
+        bitstream: Option<std::path::PathBuf>,
         #[arg(long, help = "Output directory", default_value = "./out")]
         output_dir: std::path::PathBuf,
         #[arg(long, help = "Log directory", default_value = "./log")]
@@ -94,24 +94,23 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
             buildbitstream,
             runworkload,
             image,
-            vsrc_dir,
+            bitstream,
             output_dir,
             log_dir,
         } => {
             if buildbitstream {
-                let vsrc_dir = vsrc_dir
-                    .ok_or_else(|| Whatever::without_source("--vsrc-dir is required for buildbitstream".to_string()))?;
-
-                // Build bitstream using BitstreamBuilder
-                let builder = BitstreamBuilder::new(vsrc_dir, output_dir);
+                let builder = BitstreamBuilder::new(output_dir);
                 builder.build().map_err(|e| Whatever::without_source(e))?;
 
                 Ok(())
             } else if runworkload {
                 let image =
                     image.ok_or_else(|| Whatever::without_source("--image is required for runworkload".to_string()))?;
+                let bitstream = bitstream
+                    .ok_or_else(|| Whatever::without_source("--bitstream is required for runworkload".to_string()))?;
                 run_p2e(P2ECli {
                     image,
+                    bitstream,
                     output: output_dir,
                     log: log_dir,
                 })

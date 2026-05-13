@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-//===----------------------------------------------------------------------===//
+//===-----------------------------------------------------------------===//-----===//
 //
 // 1. Why build Spike first?
 //  Spike headers/libs are required for bemu's CPU part simulation.
@@ -24,7 +24,7 @@
 // 3. How to register instructions?
 //  Manually register in INSTRUCTIONS array, build.rs generates dispatch code.
 //
-//===----------------------------------------------------------------------===//
+//===-----------------------------------------------------------------===//-----===//
 
 use std::env;
 use std::fs;

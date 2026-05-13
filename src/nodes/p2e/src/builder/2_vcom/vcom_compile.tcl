@@ -81,6 +81,8 @@ trace_net -add P2ETop.top.soc.bootrom_domain -depth 4
 # This includes mem_awaddr, mem_araddr, mem_wdata, mem_rdata etc.
 trace_net -add P2ETop.top -depth 3
 
+# trace_net -add P2ETop.top -depth 3
+
 # Create clock constraints
 # Reference config (VCU118) uses 5MHz for the main SoC clock
 #

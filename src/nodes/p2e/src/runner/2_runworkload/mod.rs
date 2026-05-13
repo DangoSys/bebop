@@ -59,15 +59,30 @@ impl RunWorkloadStep {
         log::info!("Using sourceme.sh: {:?}", sourceme);
 
         // Run vdbg with sourced environment
-        // Note: LD_PRELOAD disabled due to GLIBC version conflict
-        // DPI-C functions need to be linked differently
+        // CRITICAL: Use LD_PRELOAD to load Rust DPI-C functions (scu_uart_write, scu_sim_exit)
+        // Find libbebop_p2e.so in target/release/deps or vvacDir/runtimeDir/lib/lib_arm
+        let bebop_lib = if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+            let release_lib = format!("{}/target/release/deps/libbebop_p2e.so", manifest_dir);
+            if std::path::Path::new(&release_lib).exists() {
+                release_lib
+            } else {
+                format!("{}/out/vvacDir/runtimeDir/lib/lib_arm/libbebop_p2e.so", manifest_dir)
+            }
+        } else {
+            // Fallback: assume we're in bebop/out directory
+            "./vvacDir/runtimeDir/lib/lib_arm/libbebop_p2e.so".to_string()
+        };
+
+        log::info!("Using Rust DPI-C library: {}", bebop_lib);
+
         let cmd = format!(
-            "source {} && cd {} && vdbg run.tcl",
+            "source {} && cd {} && LD_PRELOAD={} vdbg run.tcl",
             sourceme.display(),
             self.output_dir
                 .canonicalize()
                 .map_err(|e| format!("Failed to canonicalize output_dir: {}", e))?
-                .display()
+                .display(),
+            bebop_lib
         );
 
         log::info!("Executing: {}", cmd);

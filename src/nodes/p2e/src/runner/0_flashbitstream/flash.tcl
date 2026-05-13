@@ -20,4 +20,17 @@ proc flash_bitstream {fpga_location} {
     after 1000
 
     puts "Bitstream flashed successfully"
+
+    # Signal host that flash is done and wait for host init
+    set flag_file "flash_done.flag"
+    set host_init_file "host_init_done.flag"
+
+    set fd [open $flag_file w]
+    close $fd
+    puts "Waiting for host to initialize CTB..."
+
+    while {![file exists $host_init_file]} {
+        after 100
+    }
+    puts "Host CTB initialization complete"
 }

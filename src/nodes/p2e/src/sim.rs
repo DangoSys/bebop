@@ -8,10 +8,10 @@ const FPGA_LOCATION: &str = "0.A";
 pub struct P2ECli {
     /// Kernel image to load
     pub image: PathBuf,
-
+    /// Bitstream file path
+    pub bitstream: PathBuf,
     /// Output directory (VVAC build output)
     pub output: PathBuf,
-
     /// Log directory
     pub log: PathBuf,
 }
@@ -25,6 +25,13 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
         return Err(Whatever::without_source(format!(
             "Image file not found: {}",
             cli.image.display()
+        )));
+    }
+
+    if !cli.bitstream.exists() {
+        return Err(Whatever::without_source(format!(
+            "Bitstream file not found: {}",
+            cli.bitstream.display()
         )));
     }
 
@@ -56,12 +63,13 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
 
     log::info!("P2E Simulation Starting");
     log::info!("  Image: {}", cli.image.display());
+    log::info!("  Bitstream: {}", cli.bitstream.display());
     log::info!("  FPGA: {}", FPGA_LOCATION);
     log::info!("  Output: {}", case_home.display());
     log::info!("  UART Log: {}", uart_log_path.display());
 
     // Run simulation
-    let result = crate::runner::run(FPGA_LOCATION, &case_home, &rtcfg_path, &cli.image)
+    let result = crate::runner::run(FPGA_LOCATION, &case_home, &rtcfg_path, &cli.image, &cli.bitstream)
         .map_err(|e| Whatever::without_source(format!("Simulation failed: {}", e)))?;
 
     // Save UART log

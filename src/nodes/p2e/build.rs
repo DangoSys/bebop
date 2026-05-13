@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-//===----------------------------------------------------------------------===//
+//===-----------------------------------------------------------------===//-----===//
 //
-//===----------------------------------------------------------------------===//
+//===-----------------------------------------------------------------===//-----===//
 
 use duct::cmd;
 use std::env;
@@ -38,26 +38,44 @@ fn main() {
         .join("out");
     let libctb_dst = out_dir.join("libvCtb.so");
 
-    // VSRC_PATH is required
-    let vsrc_path = env::var("VSRC_PATH").expect(
-        "VSRC_PATH environment variable is required. Example: VSRC_PATH=/home/wanghui/Code/buckyball/arch/build/sims.p2e.P2EToyConfig",
-    );
+    // Check if libvCtb.so already exists (from previous build)
+    if libctb_dst.exists() {
+        println!("cargo:warning=Found existing libvCtb.so, skipping VVAC build");
+
+        // Always rebuild C++ wrapper to ensure it's up to date
+        println!("cargo:warning=Building C++ wrapper for Rust FFI...");
+        build_cpp_wrapper(&manifest_dir, &out_dir);
+
+        link_vvac(&libctb_dst);
+        return;
+    }
+
+    // VSRC_PATH is required for building
+    let vsrc_path = match env::var("VSRC_PATH") {
+        Ok(path) => path,
+        Err(_) => {
+            println!("cargo:warning=VSRC_PATH not set and libvCtb.so not found");
+            println!("cargo:warning=To build P2E, set VSRC_PATH to your Verilog source directory");
+            println!("cargo:warning=Example: VSRC_PATH=/home/wanghui/Code/buckyball/arch/build/sims.p2e.P2EToyConfig");
+            return;
+        }
+    };
     let build_dir = PathBuf::from(&vsrc_path);
 
     let sourceme = manifest_dir.join(SOURCE_ME);
     assert_exists(&sourceme, "missing p2e sourceme script");
 
-    //===----------------------------------------------------------------------===//
+    //===-----------------------------------------------------------------===//-----===//
     // 1. Clean old build artifacts every time before build
     // if you want to save your old build artifacts (like bitstream.bit),
     // it suggest setting --out-dir to a different directory (default is ./out)
-    //===----------------------------------------------------------------------===//
+    //===-----------------------------------------------------------------===//-----===//
     println!("cargo:warning=Cleaning old build artifacts...");
     clean_build_artifacts(&out_dir);
 
-    //===----------------------------------------------------------------------===//
+    //===-----------------------------------------------------------------===//-----===//
     // 2. Pre-process Verilog sources
-    //===----------------------------------------------------------------------===//
+    //===-----------------------------------------------------------------===//-----===//
     assert_exists(
         &build_dir,
         &format!("missing Verilog source directory at VSRC_PATH={}", vsrc_path),
@@ -83,13 +101,13 @@ fn main() {
     println!("cargo:warning=Removing empty module instantiations from Verilog...");
     remove_empty_module_instantiations(&build_dir);
 
-    //===----------------------------------------------------------------------===//
+    //===-----------------------------------------------------------------===//-----===//
     // 3. Run vvac to generate vvacDir and libvCtb.so
     //
     // why need rebuild?
     //  vvac will generate empty module stubs, we need to add them to the filelist
     //
-    //===----------------------------------------------------------------------===//
+    //===-----------------------------------------------------------------===//-----===//
     println!("cargo:warning=Running vvac (first pass) to generate empty module stubs...");
     run_vvac(&out_dir, &sourceme, &flist, P2E_TOP);
 
@@ -112,15 +130,21 @@ fn main() {
         libctb_dst.display()
     );
 
-    //===----------------------------------------------------------------------===//
+    //===-----------------------------------------------------------------===//-----===//
+    // 3.5. Fix VVAC library RPATH for ABI compatibility
+    //===-----------------------------------------------------------------===//-----===//
+    println!("cargo:warning=Fixing VVAC library RPATH for C++ ABI compatibility...");
+    fix_vvac_library_rpath(&out_dir);
+
+    //===-----------------------------------------------------------------===//-----===//
     // 4. Build Cpp from vvac to export DPI-C functions (CTB managemen) to Rust
-    //===----------------------------------------------------------------------===//
+    //===-----------------------------------------------------------------===//-----===//
     println!("cargo:warning=Building C++ wrapper for Rust FFI...");
     build_cpp_wrapper(&manifest_dir, &out_dir);
 
-    //===----------------------------------------------------------------------===//
+    //===-----------------------------------------------------------------===//-----===//
     // 5. Link Cpp wrapper with bebop
-    //===----------------------------------------------------------------------===//
+    //===-----------------------------------------------------------------===//-----===//
     println!("cargo:warning=Linking vvac and C++ wrapper...");
     link_vvac(&libctb_dst);
 
@@ -167,11 +191,17 @@ fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
     let include_dir = out_dir.join("vvacDir/runtimeDir/include");
     let include_arg = format!("-I{}", include_dir.display());
 
+    // CRITICAL: Use VVAC's libstdc++ for C++ wrapper to ensure ABI compatibility
+    let vvac_lib_dir = out_dir.join("vvacDir/runtimeDir/lib/lib_arm");
+    let vvac_libstdcxx = vvac_lib_dir.join("libstdc++.so.6");
+
     println!("cargo:warning=Compiling C++ wrapper include: {}", include_dir.display());
     println!("cargo:warning=Wrapper source: {}", wrapper_src.display());
     println!("cargo:warning=Output object: {}", wrapper_obj.display());
+    println!("cargo:warning=Using VVAC's libstdc++: {}", vvac_libstdcxx.display());
 
-    // Compile ctb_wrapper.cpp
+    // Compile ctb_wrapper.cpp with VVAC's libstdc++
+    // CRITICAL: Use -Wl,-rpath to ensure the wrapper uses VVAC's libstdc++ at runtime
     cmd!(
         "g++",
         "-c",
@@ -198,6 +228,9 @@ fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
     // Link the wrapper library
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=ctb_wrapper");
+
+    // CRITICAL: Add VVAC's lib directory to link search path so wrapper can find libstdc++
+    println!("cargo:rustc-link-search=native={}", vvac_lib_dir.display());
     println!("cargo:rustc-link-lib=dylib=stdc++");
 }
 
@@ -220,12 +253,26 @@ fn link_vvac(libctb: &Path) {
     println!("cargo:rustc-link-search=native={}", lib_dir_str);
     println!("cargo:rustc-link-lib=dylib=vCtb");
     println!("cargo:rustc-link-lib=static=ctb_wrapper");
-    println!("cargo:rustc-link-lib=dylib=stdc++");
+
+    // NOTE: Do NOT link libstdc++ here - let Rust handle it
+    // VVAC libraries will find their own libstdc++.so.6.0.25 via LD_LIBRARY_PATH
 
     // Use $ORIGIN to find library relative to executable
     println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir_str);
     println!("cargo:rustc-link-arg=-Wl,--enable-new-dtags");
+
+    // CRITICAL: Enable lazy binding so undefined symbols in libvCtb.so
+    // (scu_uart_write, scu_sim_exit) are resolved at runtime, not at load time.
+    // This allows LD_PRELOAD to work correctly.
+    println!("cargo:rustc-link-arg=-Wl,-z,lazy");
+
+    // CRITICAL: Export all symbols from the main executable so libvCtb.so
+    // can find DPI-C functions (scu_uart_write, scu_sim_exit) at runtime.
+    // Without this, libvCtb.so can only see symbols from itself, not from
+    // other shared libraries or the main executable.
+    println!("cargo:rustc-link-arg=-Wl,--export-dynamic");
+
     println!("cargo:rustc-cfg=vvac_linked");
 }
 
@@ -375,5 +422,40 @@ fn remove_empty_module_instantiations(build_dir: &Path) {
         );
     } else {
         println!("cargo:warning=No empty module instantiations found in DigitalTop.sv");
+    }
+}
+
+fn fix_vvac_library_rpath(out_dir: &Path) {
+    // CRITICAL: Fix RPATH of VVAC libraries to ensure C++ ABI compatibility
+    // VVAC libraries (libtbppeer.so, etc.) were compiled with libstdc++.so.6.0.25
+    // but their RPATH points to non-existent build-time paths.
+    // We need to set RPATH to $ORIGIN so they load libstdc++ from their own directory.
+
+    let vvac_lib_dir = out_dir.join("vvacDir/runtimeDir/lib/lib_arm");
+    if !vvac_lib_dir.exists() {
+        println!("cargo:warning=VVAC lib directory not found, skipping RPATH fix");
+        return;
+    }
+
+    // List of VVAC libraries that need RPATH fix
+    let libraries = ["libtbppeer.so", "libvCtb.so", "libvmri.so"];
+
+    for lib_name in &libraries {
+        let lib_path = vvac_lib_dir.join(lib_name);
+        if !lib_path.exists() {
+            println!("cargo:warning={} not found, skipping", lib_name);
+            continue;
+        }
+
+        println!("cargo:warning=Fixing RPATH for {}", lib_name);
+
+        // Use patchelf to set RPATH to $ORIGIN
+        let result = cmd!("patchelf", "--set-rpath", "$ORIGIN", lib_path.to_str().unwrap())
+            .run();
+
+        match result {
+            Ok(_) => println!("cargo:warning=Successfully fixed RPATH for {}", lib_name),
+            Err(e) => println!("cargo:warning=Failed to fix RPATH for {}: {}", lib_name, e),
+        }
     }
 }

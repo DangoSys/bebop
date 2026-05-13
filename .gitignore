@@ -16,6 +16,7 @@ out/
 *.so
 *.dylib
 *.dll
+*.log
 
 .codex/
 log.txt
@@ -28,3 +29,7 @@ work_lib/
 build.log
 
 bemu.log
+out_bake/
+xepic_waveform/
+
+*.key
