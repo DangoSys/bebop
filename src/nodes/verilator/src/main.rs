@@ -72,6 +72,12 @@ impl VerilatorConfig {
         // Setup Ctrl-C handler
         sim::setup_ctrlc_handler();
 
+        // Create fst directory if needed
+        if let Some(parent) = self.fst.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| Whatever::without_source(format!("Failed to create fst directory: {}", e)))?;
+        }
+
         // Redirect stderr to stdout.log if specified
         let _stderr_guard = if let Some(ref stdout_path) = self.stdout {
             // Create parent directory if needed
