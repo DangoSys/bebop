@@ -3,19 +3,16 @@ use std::process::Command;
 
 /// vsyn 综合步骤
 pub struct VsynStep {
-    /// 设计构建目录（包含 vvacDir）
+    /// 构建目录（包含 vvacDir，输出也写入此处）
     pub build_dir: PathBuf,
-    /// 输出目录
-    pub output_dir: PathBuf,
     /// VVAC 顶层模块名
     pub vvac_top_module: String,
 }
 
 impl VsynStep {
-    pub fn new(build_dir: PathBuf, output_dir: PathBuf, vvac_top_module: String) -> Self {
+    pub fn new(build_dir: PathBuf, vvac_top_module: String) -> Self {
         Self {
             build_dir,
-            output_dir,
             vvac_top_module,
         }
     }
@@ -29,14 +26,14 @@ impl VsynStep {
             return Err(format!("vvac filelist not found: {:?}", filelist));
         }
 
-        let output_vm = self.output_dir.join(format!("{}.vm", self.vvac_top_module));
+        let output_vm = self.build_dir.join(format!("{}.vm", self.vvac_top_module));
 
         let abs_filelist =
             std::fs::canonicalize(&filelist).map_err(|e| format!("Failed to resolve filelist path: {}", e))?;
         let abs_output_vm = self
-            .output_dir
+            .build_dir
             .canonicalize()
-            .map_err(|e| format!("Failed to resolve output dir: {}", e))?
+            .map_err(|e| format!("Failed to resolve build dir: {}", e))?
             .join(format!("{}.vm", self.vvac_top_module));
 
         // Source sourceme.sh and run vsyn
@@ -52,7 +49,7 @@ impl VsynStep {
         let status = Command::new("bash")
             .arg("-c")
             .arg(&vsyn_cmd)
-            .current_dir(&self.output_dir)
+            .current_dir(&self.build_dir)
             .status()
             .map_err(|e| format!("Failed to execute vsyn: {}", e))?;
 

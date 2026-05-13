@@ -54,14 +54,12 @@ pub enum Commands {
         buildbitstream: bool,
         #[arg(long, help = "Run workload")]
         runworkload: bool,
-        #[arg(long, help = "Design build directory containing vvacDir (for buildbitstream)")]
+        #[arg(long, help = "Design build directory (for buildbitstream: contains vvacDir and outputs; for runworkload: contains bitstream)")]
         build_dir: Option<std::path::PathBuf>,
         #[arg(long, help = "Kernel image name to load (for runworkload)")]
         image: Option<std::path::PathBuf>,
         #[arg(long, help = "Bitstream file path (for runworkload)")]
         bitstream: Option<std::path::PathBuf>,
-        #[arg(long, help = "Output directory", default_value = "./out")]
-        output_dir: std::path::PathBuf,
         #[arg(long, help = "Log directory (for runworkload only)")]
         log_dir: Option<std::path::PathBuf>,
     },
@@ -98,14 +96,13 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
             build_dir,
             image,
             bitstream,
-            output_dir,
             log_dir,
         } => {
             if buildbitstream {
                 let build_dir = build_dir.ok_or_else(|| {
                     Whatever::without_source("--build-dir is required for buildbitstream".to_string())
                 })?;
-                let builder = BitstreamBuilder::new(build_dir, output_dir);
+                let builder = BitstreamBuilder::new(build_dir);
                 builder.build().map_err(|e| Whatever::without_source(e))?;
 
                 Ok(())
@@ -116,12 +113,13 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
                 let bitstream = bitstream.ok_or_else(|| {
                     Whatever::without_source("--bitstream is required for runworkload".to_string())
                 })?;
-                let log = log_dir.unwrap_or_else(|| output_dir.join("log"));
+                let build_dir = build_dir.unwrap_or_else(|| std::path::PathBuf::from("./out"));
+                let log = log_dir.unwrap_or_else(|| build_dir.join("log"));
 
                 run_p2e(P2ECli {
                     image,
                     bitstream,
-                    output: output_dir,
+                    output: build_dir,
                     log,
                 })
             } else {
