@@ -1,5 +1,8 @@
 use std::ffi::CString;
 use std::sync::{Mutex, OnceLock};
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::Write;
 
 const SIM_EXIT_ADDR: u64 = 0x6000_0000;
 const UART_BASE_ADDR: u64 = 0x6002_0000;
@@ -40,6 +43,8 @@ struct RuntimeState {
     initialized: bool,
     uart_log: Vec<u8>,
     exit_code: Option<i32>,
+    uart_files: HashMap<u32, File>,
+    log_dir: Option<String>,
 }
 
 static STATE: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
@@ -50,6 +55,10 @@ fn state() -> &'static Mutex<RuntimeState> {
 
 pub fn reset_runtime_state() {
     *state().lock().unwrap() = RuntimeState::default();
+}
+
+pub fn set_log_dir(log_dir: String) {
+    state().lock().unwrap().log_dir = Some(log_dir);
 }
 
 pub fn mark_initialized() {
@@ -95,19 +104,39 @@ pub fn host_mmio_write(addr: u64, data: u64) -> i32 {
 //===-----------------------------------------------------------------===//
 
 #[no_mangle]
-pub extern "C" fn scu_uart_write(_hart_id: u32, ch: u32) {
-    // 无条件写入文件，用于验证函数是否被调用
-    // use std::io::Write;
-    // if let Ok(mut f) = std::fs::OpenOptions::new()
-    //     .create(true)
-    //     .append(true)
-    //     .open("/tmp/scu_uart_debug.log")
-    // {
-    //     let _ = writeln!(f, "[DPI-C] scu_uart_write called: hart_id={}, ch=0x{:x}", hart_id, ch);
-    // }
+pub extern "C" fn scu_uart_write(hart_id: u32, ch: u32) {
+    let mut guard = state().lock().unwrap();
 
-    // Try to write to UART, but don't crash if it fails
-    let _ = host_mmio_write(UART_BASE_ADDR, (ch & 0xff) as u64);
+    // Get or create file handle for this hart
+    if !guard.uart_files.contains_key(&hart_id) {
+        let log_dir = guard.log_dir.clone()
+            .expect("log_dir must be set via set_log_dir() before scu_uart_write is called");
+        let log_path = format!("{}/uart_hart_{}.log", log_dir, hart_id);
+
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&log_path)
+        {
+            guard.uart_files.insert(hart_id, file);
+        }
+    }
+
+    // Write to per-hart file
+    if let Some(file) = guard.uart_files.get_mut(&hart_id) {
+        let byte = (ch & 0xff) as u8;
+        let _ = file.write_all(&[byte]);
+        let _ = file.flush();
+    }
+
+    // Also write to global uart_log for backward compatibility
+    let byte = (ch & 0xff) as u8;
+    guard.uart_log.push(byte);
+
+    // Print to stdout with hart_id prefix
+    print!("[hart{}] {}", hart_id, byte as char);
+    let _ = std::io::Write::flush(&mut std::io::stdout());
 }
 
 #[no_mangle]
@@ -119,7 +148,7 @@ pub extern "C" fn scu_sim_exit(hart_id: u32, code: u32) {
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("/tmp/scu_uart_debug.log")
+        .open(format!("/tmp/scu_uart_{hart_id}.log"))
     {
         let _ = writeln!(f, "[DPI-C] scu_sim_exit called: hart_id={}, code=0x{:x}", hart_id, code);
     }

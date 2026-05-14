@@ -43,6 +43,21 @@ bool ctb_init_wrapper(
 // Wrapper for vvac::CtbBuilder::create()
 void* ctb_builder_create_wrapper() {
     std::cout << "[ctb_wrapper] ctb_builder_create_wrapper called" << std::endl;
+
+    // CRITICAL: Set environment variables BEFORE calling create()
+    // These must be set in C++ land, not Rust, because the library reads them during initialization
+    setenv("VMRI_LOG_LEVEL", "0", 1);
+    setenv("VVAC_LOG_LEVEL", "0", 1);
+    setenv("RBMGR_LOG_LEVEL", "0", 1);
+    setenv("RBMGR_DUMP_DATA", "1", 1);
+    setenv("RTL_DBG_SIZE", "128", 1);
+    // Onboard mode
+    setenv("VMRI_WORK_MODE", "3", 1);  
+    // Onboard mode
+    setenv("VVAC_WORK_MODE", "0", 1);  
+
+    std::cout << "[ctb_wrapper] Environment variables set" << std::endl;
+
     void* result = vvac::CtbBuilder::create();
     std::cout << "[ctb_wrapper] vvac::CtbBuilder::create() returned: " << result << std::endl;
     return result;

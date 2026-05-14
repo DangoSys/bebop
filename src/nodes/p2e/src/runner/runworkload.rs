@@ -19,6 +19,7 @@ pub fn run(
     rtcfg_path: &Path,
     image: &Path,
     bitstream: &Path,
+    log_dir: &Path,
 ) -> Result<SimulationResult, String> {
     log::info!("P2E Simulation Starting");
     log::info!("  FPGA: {}", fpga_location);
@@ -46,6 +47,9 @@ pub fn run(
     // Configure VVAC environment
     configure_vvac_environment();
     ffi::reset_runtime_state();
+
+    // Set log directory for per-hart UART logs
+    ffi::set_log_dir(log_dir.to_string_lossy().to_string());
 
     // IMPORTANT: Change to case_home directory before running vdbg
     log::info!("Changing to case_home directory: {}", case_home.display());

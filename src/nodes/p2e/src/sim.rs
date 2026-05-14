@@ -69,7 +69,7 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
     log::info!("  UART Log: {}", uart_log_path.display());
 
     // Run simulation
-    let result = crate::runner::run(FPGA_LOCATION, &case_home, &rtcfg_path, &cli.image, &cli.bitstream)
+    let result = crate::runner::run(FPGA_LOCATION, &case_home, &rtcfg_path, &cli.image, &cli.bitstream, &cli.log)
         .map_err(|e| Whatever::without_source(format!("Simulation failed: {}", e)))?;
 
     // Save UART log
