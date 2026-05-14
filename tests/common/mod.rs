@@ -1,42 +1,42 @@
-//! Common utilities for ELF regression tests
-//!
-//! This module provides shared functionality for scanning ELF files,
-//! running bebop commands, and handling test execution.
-
 use assert_cmd::Command;
 use clap::Parser;
 use std::ffi::OsStr;
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::process::ExitCode;
+use std::time::Instant;
 use walkdir::WalkDir;
 
-/// CLI arguments for the regression test harness
+pub mod artifact;
+pub mod backend;
+pub mod result;
+
+pub use artifact::ArtifactManager;
+pub use backend::BackendRunner;
+#[cfg(feature = "bemu")]
+pub use backend::BemuBackend;
+#[cfg(feature = "verilator")]
+pub use backend::VerilatorBackend;
+pub use result::{RegressionResult, TestStatus};
+
 #[derive(Parser, Debug, Clone)]
 #[command(name = "elf-regression")]
 #[command(about = "ELF regression test harness for bebop")]
 pub struct RegressionArgs {
-    /// Root directory to scan for ELF files
     #[arg(long, value_name = "DIR")]
     pub elf_root: Option<PathBuf>,
 
-    /// Filter pattern for test names (substring match)
     #[arg(long, value_name = "PATTERN")]
     pub filter: Option<String>,
 
-    /// Keep temporary directories after test completion
     #[arg(long)]
     pub keep_temp: bool,
 
-    /// Number of parallel jobs (currently unused, for future parallel execution)
     #[arg(long, short = 'j', value_name = "N", default_value = "1")]
     pub jobs: usize,
 
-    /// Verbose output
     #[arg(long, short = 'v')]
     pub verbose: bool,
 
-    /// cargo-nextest / libtest: discover tests (`cargo-nextest` invokes `--list --format terse`).
     #[arg(long, hide = true)]
     pub list: bool,
 
@@ -58,20 +58,17 @@ pub struct RegressionArgs {
     #[arg(long, hide = true)]
     pub show_output: bool,
 
-    /// Arguments to pass to libtest-mimic (after --)
     #[arg(trailing_var_arg = true)]
     pub test_args: Vec<String>,
 }
 
 impl RegressionArgs {
-    /// Get the ELF root directory, using default if not specified
     pub fn elf_root(&self) -> PathBuf {
         self.elf_root.clone().unwrap_or_else(|| {
             PathBuf::from("/home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy")
         })
     }
 
-    /// Build argv fragments for [libtest-mimic](https://docs.rs/libtest-mimic) / libtest protocol.
     pub fn libtest_forward_flags(&self) -> Vec<String> {
         let mut out = Vec::new();
         if self.exact {
@@ -90,7 +87,6 @@ impl RegressionArgs {
     }
 }
 
-/// Implements the stdout protocol required by [cargo-nextest](https://nexte.st/docs/design/custom-test-harnesses/).
 pub fn write_nextest_terse_list(
     args: &RegressionArgs,
     trial_name: impl Fn(&ElfTestCase) -> String,
@@ -116,19 +112,14 @@ pub fn write_nextest_terse_list(
     Ok(())
 }
 
-/// Represents a discovered ELF test case
 #[derive(Debug, Clone)]
 pub struct ElfTestCase {
-    /// Full path to the ELF file
     pub path: PathBuf,
-    /// Test name (derived from file path)
     pub name: String,
-    /// File stem (filename without extension)
     pub stem: String,
 }
 
 impl ElfTestCase {
-    /// Create a new test case from a path
     pub fn from_path(path: PathBuf) -> Option<Self> {
         let stem = path.file_stem()?.to_string_lossy().to_string();
         let name = Self::generate_name(&path);
@@ -139,27 +130,22 @@ impl ElfTestCase {
         })
     }
 
-    /// Generate a hierarchical test name from the path
-    /// e.g., /.../toy/matmul.elf -> toy::matmul
     fn generate_name(path: &Path) -> String {
-        // Get the parent directory name
         let parent_name = path
             .parent()
             .and_then(|p| p.file_name())
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
-        // Get the file stem
         let file_stem = path
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        format!("{}:: {}", parent_name, file_stem)
+        format!("{}::{}", parent_name, file_stem)
     }
 }
 
-/// Scan directory for ELF files recursively
 pub fn scan_elf_files(root: &Path, extension: Option<&str>) -> Vec<ElfTestCase> {
     let mut tests = Vec::new();
 
@@ -170,30 +156,25 @@ pub fn scan_elf_files(root: &Path, extension: Option<&str>) -> Vec<ElfTestCase> 
     {
         let path = entry.path();
 
-        // Check if it's a file
         if !path.is_file() {
             continue;
         }
 
-        // Check extension if specified
         if let Some(ext) = extension {
             if path.extension() != Some(OsStr::new(ext)) {
                 continue;
             }
         }
 
-        // Try to create test case
         if let Some(test_case) = ElfTestCase::from_path(path.to_path_buf()) {
             tests.push(test_case);
         }
     }
 
-    // Sort by name for deterministic ordering
     tests.sort_by(|a, b| a.name.cmp(&b.name));
     tests
 }
 
-/// Filter test cases by name pattern
 pub fn filter_tests(tests: Vec<ElfTestCase>, filter: Option<&str>) -> Vec<ElfTestCase> {
     let tests: Vec<_> = match filter {
         Some(pattern) => tests
@@ -203,227 +184,270 @@ pub fn filter_tests(tests: Vec<ElfTestCase>, filter: Option<&str>) -> Vec<ElfTes
         None => tests,
     };
 
-    // 默认只保留 singlecore-baremetal 的 ELF
     tests
         .into_iter()
         .filter(|t| t.stem.ends_with("singlecore-baremetal"))
         .collect()
 }
 
-/// Result of running a single ELF test
-#[derive(Debug)]
-pub struct TestResult {
-    pub success: bool,
-    pub stdout: String,
-    pub stderr: String,
-    pub exit_code: Option<i32>,
-    pub temp_dir: Option<PathBuf>,
+pub fn run_elf_regression<B, F>(
+    args: RegressionArgs,
+    harness_binary_name: &'static str,
+    test_case_display_name: F,
+    missing_bebop_hint: &'static str,
+    backend: B,
+) -> ExitCode
+where
+    B: BackendRunner + Clone + Send + Sync + 'static,
+    F: Fn(&ElfTestCase) -> String + Clone + Send + Sync + 'static,
+{
+    use libtest_mimic::{Arguments, Trial};
+
+    if args.list {
+        if args.format.as_deref() != Some("terse") {
+            eprintln!("error: --list requires --format terse");
+            return ExitCode::FAILURE;
+        }
+        let name_fn = test_case_display_name.clone();
+        if let Err(e) = write_nextest_terse_list(&args, move |tc| name_fn(tc)) {
+            eprintln!("error: {e}");
+            return ExitCode::FAILURE;
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    let bebop_bin = PathBuf::from(env!("CARGO_BIN_EXE_bebop"));
+
+    if !bebop_bin.exists() {
+        eprintln!("Error: bebop binary not found at: {}", bebop_bin.display());
+        eprintln!("{missing_bebop_hint}");
+        return ExitCode::FAILURE;
+    }
+
+    let elf_root = args.elf_root();
+
+    if !elf_root.exists() {
+        eprintln!("Error: ELF root directory not found: {}", elf_root.display());
+        return ExitCode::FAILURE;
+    }
+
+    let test_cases = scan_elf_files(&elf_root, None);
+
+    if test_cases.is_empty() {
+        eprintln!("Warning: No ELF files found in: {}", elf_root.display());
+        return ExitCode::SUCCESS;
+    }
+
+    if args.verbose {
+        eprintln!("Found {} ELF test cases", test_cases.len());
+        for tc in &test_cases {
+            eprintln!("  - {}", tc.name);
+        }
+    }
+
+    let test_cases = filter_tests(test_cases, args.filter.as_deref());
+
+    if args.verbose {
+        eprintln!("Running {} tests after filtering", test_cases.len());
+    }
+
+    let trials: Vec<Trial> = test_cases
+        .into_iter()
+        .map(|test_case| {
+            let name = test_case_display_name.clone()(&test_case);
+            let bebop_bin = bebop_bin.clone();
+            let elf_path = test_case.path.clone();
+            let keep_temp = args.keep_temp;
+            let verbose = args.verbose;
+            let backend = backend.clone();
+
+            Trial::test(name, move || {
+                let result = run_backend_elf_test(
+                    &bebop_bin,
+                    &elf_path,
+                    keep_temp,
+                    verbose,
+                    &backend,
+                );
+                if result.success() {
+                    Ok(())
+                } else {
+                    let test_name =
+                        elf_path.file_stem().unwrap_or_default().to_string_lossy();
+                    print_failure_details(&result, &test_name);
+                    Err(format!("Test failed: {}", elf_path.display()).into())
+                }
+            })
+        })
+        .collect();
+
+    let mut libtest_args = vec![harness_binary_name.to_string()];
+    libtest_args.extend(args.libtest_forward_flags());
+    libtest_args.extend(args.test_args);
+    let test_args = Arguments::from_iter(libtest_args);
+
+    libtest_mimic::run(&test_args, trials).exit_code()
 }
 
-/// Run a single ELF test using bebop binary
-pub fn run_elf_test(
+pub fn run_backend_elf_test(
     bebop_bin: &Path,
     elf_path: &Path,
     keep_temp: bool,
     verbose: bool,
-) -> TestResult {
-    // Create temporary directory for this test
-    let temp_dir = tempfile::tempdir().ok();
-    let temp_path = temp_dir.as_ref().map(|d| d.path().to_path_buf());
+    backend: &impl BackendRunner,
+) -> RegressionResult {
+    let workload_name = elf_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let artifacts = match ArtifactManager::create(keep_temp) {
+        Ok(a) => a,
+        Err(e) => {
+            return RegressionResult::infra_error(
+                backend.backend_name(),
+                &workload_name,
+                elf_path,
+                None,
+                format!("Failed to create artifact directory: {}", e),
+            );
+        }
+    };
 
     if verbose {
-        eprintln!("Running test for: {}", elf_path.display());
-        if let Some(ref p) = temp_path {
-            eprintln!("  Temp dir: {}", p.display());
-        }
+        eprintln!(
+            "Running {} for: {}",
+            backend.verbose_run_kind(),
+            elf_path.display()
+        );
+        eprintln!("  Artifact dir: {}", artifacts.root().display());
     }
 
-    // Build the command
     let mut cmd = Command::new(bebop_bin);
-    cmd.arg("bemu");
-    cmd.arg("--elf").arg(elf_path);
+    backend.configure_command_env(&mut cmd);
+    backend.build_command(&mut cmd, bebop_bin, elf_path, &artifacts);
+    cmd.timeout(backend.timeout());
 
-    // Add log directory if temp dir exists
-    if let Some(ref p) = temp_path {
-        cmd.arg("--log-dir").arg(p);
-    }
-
-    // Set timeout (5 minutes default)
-    cmd.timeout(Duration::from_secs(300));
-
-    // Run the command
+    let start = Instant::now();
     let output = cmd.output();
+    let elapsed = start.elapsed();
+    let elapsed_ms = elapsed.as_millis() as u64;
 
-    match output {
+    let stdout_path = artifacts.stdout_path();
+    let stderr_path = artifacts.stderr_path();
+    let fst_path = if backend.needs_fst_dir() {
+        Some(artifacts.fst_waveform_path())
+    } else {
+        None
+    };
+    let log_path = if backend.needs_log_dir() {
+        Some(artifacts.log_dir())
+    } else {
+        None
+    };
+
+    let result = match output {
         Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
 
-            // Write stdout/stderr to temp files for debugging
-            if let Some(ref p) = temp_path {
-                let _ = fs::write(p.join("stdout.log"), &stdout);
-                let _ = fs::write(p.join("stderr.log"), &stderr);
-            }
+            let _ = artifacts.write_stdout(&stdout_str);
+            let _ = artifacts.write_stderr(&stderr_str);
 
-            let success = output.status.success();
+            let status = if output.status.success() {
+                TestStatus::Pass
+            } else if output.status.code().is_none() {
+                TestStatus::Crash
+            } else {
+                TestStatus::Fail
+            };
 
-            // Clean up temp dir unless keep_temp is set or test failed
-            if !keep_temp && success {
-                drop(temp_dir);
-            }
-
-            TestResult {
-                success,
-                stdout,
-                stderr,
+            RegressionResult {
+                backend: backend.backend_name().to_string(),
+                workload_name,
+                elf_path: elf_path.to_path_buf(),
+                elapsed_ms,
+                status,
                 exit_code: output.status.code(),
-                temp_dir: if keep_temp || !success {
-                    temp_path
-                } else {
-                    None
-                },
+                stdout_path: Some(stdout_path),
+                stderr_path: Some(stderr_path),
+                artifact_dir: Some(artifacts.root().to_path_buf()),
+                fst_path,
+                log_path,
+                error_message: None,
             }
         }
         Err(e) => {
-            let stderr = format!("Failed to execute bebop: {}", e);
+            let status = if e.kind() == std::io::ErrorKind::TimedOut {
+                TestStatus::Timeout
+            } else {
+                TestStatus::InfraError
+            };
 
-            // Write error to temp file
-            if let Some(ref p) = temp_path {
-                let _ = fs::write(p.join("error.log"), &stderr);
-            }
+            let error_message = format!("{}", e);
 
-            TestResult {
-                success: false,
-                stdout: String::new(),
-                stderr,
+            RegressionResult {
+                backend: backend.backend_name().to_string(),
+                workload_name,
+                elf_path: elf_path.to_path_buf(),
+                elapsed_ms,
+                status,
                 exit_code: None,
-                temp_dir: if keep_temp { temp_path } else { None },
+                stdout_path: Some(stdout_path),
+                stderr_path: Some(stderr_path),
+                artifact_dir: Some(artifacts.root().to_path_buf()),
+                fst_path,
+                log_path,
+                error_message: Some(error_message),
             }
         }
-    }
+    };
+
+    let _ = artifacts.write_summary(&result);
+
+    let _preserved = artifacts.finalize(result.success());
+
+    result
 }
 
-/// Run a single ELF test using verilator backend
-///
-/// This function spawns the prebuilt bebop binary with verilator backend:
-///   <bebop_bin> verilator --elf <elf> --log-dir <dir> --fst-dir <dir>
-pub fn run_verilator_test(
-    bebop_bin: &Path,
-    elf_path: &Path,
-    keep_temp: bool,
-    verbose: bool,
-) -> TestResult {
-    // Create temporary directory for this test
-    let temp_dir = tempfile::tempdir().ok();
-    let temp_path = temp_dir.as_ref().map(|d| d.path().to_path_buf());
-
-    // Create log and fst subdirectories
-    let log_dir = temp_path.as_ref().map(|p| p.join("log"));
-    let fst_dir = temp_path.as_ref().map(|p| p.join("fst"));
-
-    if let Some(ref log) = log_dir {
-        let _ = fs::create_dir_all(log);
-    }
-    if let Some(ref fst) = fst_dir {
-        let _ = fs::create_dir_all(fst);
-    }
-
-    if verbose {
-        eprintln!("Running verilator test for: {}", elf_path.display());
-        if let Some(ref p) = temp_path {
-            eprintln!("  Temp dir: {}", p.display());
-        }
-    }
-
-    // Build the command using the already-built bebop binary.
-    // Rebuilding through `cargo run` for every test is slow and brittle.
-    let mut cmd = Command::new(bebop_bin);
-    cmd.arg("verilator");
-    cmd.arg("--elf").arg(elf_path);
-
-    // Add log and fst directories
-    if let Some(ref log) = log_dir {
-        cmd.arg("--log-dir").arg(log);
-    }
-    if let Some(ref fst) = fst_dir {
-        cmd.arg("--fst-dir").arg(fst);
-    }
-
-    // Must be >= nextest `slow-timeout` for verilator (see `.config/nextest.toml`).
-    cmd.timeout(Duration::from_secs(600));
-
-    // Run the command
-    let output = cmd.output();
-
-    match output {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-            // Write stdout/stderr to temp files for debugging
-            if let Some(ref p) = temp_path {
-                let _ = fs::write(p.join("stdout.log"), &stdout);
-                let _ = fs::write(p.join("stderr.log"), &stderr);
-            }
-
-            let success = output.status.success();
-
-            // Clean up temp dir unless keep_temp is set or test failed
-            if !keep_temp && success {
-                drop(temp_dir);
-            }
-
-            TestResult {
-                success,
-                stdout,
-                stderr,
-                exit_code: output.status.code(),
-                temp_dir: if keep_temp || !success {
-                    temp_path
-                } else {
-                    None
-                },
-            }
-        }
-        Err(e) => {
-            let stderr = format!("Failed to execute verilator: {}", e);
-
-            // Write error to temp file
-            if let Some(ref p) = temp_path {
-                let _ = fs::write(p.join("error.log"), &stderr);
-            }
-
-            TestResult {
-                success: false,
-                stdout: String::new(),
-                stderr,
-                exit_code: None,
-                temp_dir: if keep_temp { temp_path } else { None },
-            }
-        }
-    }
-}
-
-/// Print test failure details
-pub fn print_failure_details(result: &TestResult, test_name: &str) {
+pub fn print_failure_details(result: &RegressionResult, test_name: &str) {
     eprintln!("\n=== Test Failed: {} ===", test_name);
+    eprintln!("Status: {}", result.status);
+    eprintln!("Backend: {}", result.backend);
+    eprintln!("Elapsed: {}ms", result.elapsed_ms);
 
-    if !result.stdout.is_empty() {
-        eprintln!("\n--- stdout ---");
-        eprintln!("{}", result.stdout);
-    }
-
-    if !result.stderr.is_empty() {
-        eprintln!("\n--- stderr ---");
-        eprintln!("{}", result.stderr);
+    if let Some(ref msg) = result.error_message {
+        eprintln!("Error: {}", msg);
     }
 
     if let Some(code) = result.exit_code {
-        eprintln!("\nExit code: {}", code);
+        eprintln!("Exit code: {}", code);
     }
 
-    if let Some(ref dir) = result.temp_dir {
-        eprintln!("\nTemp directory preserved at: {}", dir.display());
+    if let Some(ref dir) = result.artifact_dir {
+        eprintln!("Artifact dir: {}", dir.display());
+    }
+
+    if let Some(ref p) = result.stderr_path {
+        if p.exists() {
+            if let Ok(content) = std::fs::read_to_string(p) {
+                if !content.is_empty() {
+                    eprintln!("\n--- stderr ---");
+                    eprintln!("{}", content);
+                }
+            }
+        }
+    }
+
+    if let Some(ref p) = result.stdout_path {
+        if p.exists() {
+            if let Ok(content) = std::fs::read_to_string(p) {
+                if !content.is_empty() {
+                    eprintln!("\n--- stdout ---");
+                    eprintln!("{}", content);
+                }
+            }
+        }
     }
 
     eprintln!("==================\n");
