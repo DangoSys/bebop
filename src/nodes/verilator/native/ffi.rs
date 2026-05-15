@@ -46,6 +46,9 @@ extern "C" {
     pub fn verilator_scu_exit_code() -> i32;
     pub fn verilator_scu_reset();
 
+    // MMIO tick: read io_mmio_fire signals from BBSimHarness and update SCU state
+    pub fn verilator_mmio_tick(top: *mut VerilatorTop);
+
     // FST trace
     pub fn verilator_trace_new() -> *mut VerilatorTrace;
     pub fn verilator_trace_free(tfp: *mut VerilatorTrace);

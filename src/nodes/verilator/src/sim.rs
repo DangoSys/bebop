@@ -132,6 +132,11 @@ impl Simulator {
             verilator_top_set_clock(self.top, 1);
             verilator_top_eval(self.top);
 
+            // Sample MMIO fire signals from BBSimHarness RTL.
+            // WithBBSimMMIO produces a 1-cycle pulse on io_mmio_fire when
+            // software writes to SCU registers (0x6000_0000 / 0x6002_0000).
+            verilator_mmio_tick(self.top);
+
             // Check if SCU triggered sim_exit
             let should_exit = mmio::should_exit();
 
