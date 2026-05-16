@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::result::RegressionResult;
 
+const ARTIFACT_ROOT: &str = "test-artifacts";
 const DIR_LOG: &str = "log";
 const DIR_FST: &str = "fst";
 const FILE_STDOUT: &str = "stdout.log";
@@ -10,25 +11,32 @@ const FILE_STDERR: &str = "stderr.log";
 const FILE_SUMMARY: &str = "summary.json";
 const FILE_WAVEFORM: &str = "waveform.fst";
 
+fn workspace_root() -> PathBuf {
+    std::env::var("CARGO_MANIFEST_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
 pub struct ArtifactManager {
     root: PathBuf,
-    temp_dir: Option<tempfile::TempDir>,
     keep_temp: bool,
 }
 
 impl ArtifactManager {
     pub fn create(keep_temp: bool) -> std::io::Result<Self> {
-        let temp_dir = tempfile::TempDir::new()?;
-        let root = temp_dir.path().to_path_buf();
-
+        let root = workspace_root().join(ARTIFACT_ROOT);
         fs::create_dir_all(root.join(DIR_LOG))?;
         fs::create_dir_all(root.join(DIR_FST))?;
+        Ok(ArtifactManager { root, keep_temp })
+    }
 
-        Ok(ArtifactManager {
-            root,
-            temp_dir: Some(temp_dir),
-            keep_temp,
-        })
+    pub fn create_named(workload_name: &str, keep_temp: bool) -> std::io::Result<Self> {
+        let root = workspace_root()
+            .join(ARTIFACT_ROOT)
+            .join(workload_name);
+        fs::create_dir_all(root.join(DIR_LOG))?;
+        fs::create_dir_all(root.join(DIR_FST))?;
+        Ok(ArtifactManager { root, keep_temp })
     }
 
     pub fn root(&self) -> &Path {
@@ -72,17 +80,11 @@ impl ArtifactManager {
     }
 
     pub fn finalize(self, test_passed: bool) -> Option<PathBuf> {
-        let should_preserve = self.keep_temp || !test_passed;
-        if should_preserve {
-            if let Some(td) = self.temp_dir {
-                let preserved_path = td.keep();
-                Some(preserved_path)
-            } else {
-                Some(self.root.clone())
-            }
-        } else {
-            drop(self.temp_dir);
+        if test_passed && !self.keep_temp {
+            let _ = fs::remove_dir_all(&self.root);
             None
+        } else {
+            Some(self.root.clone())
         }
     }
 }

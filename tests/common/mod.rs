@@ -65,7 +65,7 @@ pub struct RegressionArgs {
 impl RegressionArgs {
     pub fn elf_root(&self) -> PathBuf {
         self.elf_root.clone().unwrap_or_else(|| {
-            PathBuf::from("/home/daiyongyuan/buckyball/bb-tests/output/workloads/src/CTest/toy")
+            PathBuf::from("../bb-tests/output/workloads/src/CTest/toy")
         })
     }
 
@@ -301,7 +301,7 @@ pub fn run_backend_elf_test(
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let artifacts = match ArtifactManager::create(keep_temp) {
+    let artifacts = match ArtifactManager::create_named(&workload_name, keep_temp) {
         Ok(a) => a,
         Err(e) => {
             return RegressionResult::infra_error(

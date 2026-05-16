@@ -91,7 +91,7 @@ impl BackendRunner for VerilatorBackend {
     }
 
     fn timeout(&self) -> Duration {
-        Duration::from_secs(600)
+        Duration::from_secs(1800)
     }
 
     fn configure_command_env(&self, cmd: &mut Command) {

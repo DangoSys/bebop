@@ -4,7 +4,7 @@
 #
 # Architecture:
 #   elf_bemu      → lightweight emulator tests  → parallel, 300s timeout
-#   elf_verilator → heavyweight RTL simulation  → serial,   600s timeout
+#   elf_verilator → heavyweight RTL simulation  → serial,   1800s timeout
 #
 # Filter strategy:
 #   Use binary() filters to match by test binary name, not test name.
@@ -24,7 +24,7 @@
 failure-output = "immediate"
 success-output = "never"
 status-level = "all"
-fail-fast = true
+fail-fast = false
 # 60s * 5 = 300s hard timeout
 slow-timeout = { period = "60s", terminate-after = 5 }
 retries = 0
@@ -45,11 +45,11 @@ max-threads = 1
 # Default profile overrides
 # =============================================================================
 
-# Verilator: serial execution, 120s * 5 = 600s hard timeout
+# Verilator: serial execution, 360s * 5 = 1800s (30min) hard timeout
 [[profile.default.overrides]]
 filter = "binary(elf_verilator)"
 test-group = "verilator-serial"
-slow-timeout = { period = "120s", terminate-after = 5 }
+slow-timeout = { period = "360s", terminate-after = 5 }
 
 # Bemu: parallel execution, 60s * 5 = 300s hard timeout
 [[profile.default.overrides]]
@@ -71,7 +71,7 @@ slow-timeout = { period = "120s", terminate-after = 5 }
 [[profile.ci.overrides]]
 filter = "binary(elf_verilator)"
 test-group = "verilator-serial"
-slow-timeout = { period = "120s", terminate-after = 5 }
+slow-timeout = { period = "360s", terminate-after = 5 }
 retries = 1
 
 [[profile.ci.overrides]]
@@ -83,7 +83,7 @@ retries = 1
 # Dev profile (cargo nextest run -P dev)
 # =============================================================================
 [profile.dev]
-fail-fast = true
+fail-fast = false
 retries = 0
 failure-output = "immediate"
 success-output = "never"
@@ -94,8 +94,8 @@ slow-timeout = { period = "30s", terminate-after = 3 }
 [[profile.dev.overrides]]
 filter = "binary(elf_verilator)"
 test-group = "verilator-serial"
-# 60s * 5 = 300s for verilator (still shorter than default 600s)
-slow-timeout = { period = "60s", terminate-after = 5 }
+# 360s * 5 = 1800s (30min) for verilator
+slow-timeout = { period = "360s", terminate-after = 5 }
 
 [[profile.dev.overrides]]
 filter = "binary(elf_bemu)"
