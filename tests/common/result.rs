@@ -35,7 +35,7 @@ pub struct RegressionResult {
     pub backend: String,
     pub workload_name: String,
     pub elf_path: PathBuf,
-    pub elapsed_ms: u64,
+    pub elapsed_sec: String,
     pub status: TestStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
@@ -74,7 +74,7 @@ impl RegressionResult {
             backend: backend.to_string(),
             workload_name: workload_name.to_string(),
             elf_path: elf_path.to_path_buf(),
-            elapsed_ms: 0,
+            elapsed_sec: "0s".to_string(),
             status: TestStatus::InfraError,
             exit_code: None,
             stdout_path: None,

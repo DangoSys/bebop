@@ -331,7 +331,7 @@ pub fn run_backend_elf_test(
     let start = Instant::now();
     let output = cmd.output();
     let elapsed = start.elapsed();
-    let elapsed_ms = elapsed.as_millis() as u64;
+    let elapsed_sec = format!("{:.2}s", elapsed.as_secs_f64());
 
     let stdout_path = artifacts.stdout_path();
     let stderr_path = artifacts.stderr_path();
@@ -366,7 +366,7 @@ pub fn run_backend_elf_test(
                 backend: backend.backend_name().to_string(),
                 workload_name,
                 elf_path: elf_path.to_path_buf(),
-                elapsed_ms,
+                elapsed_sec,
                 status,
                 exit_code: output.status.code(),
                 stdout_path: Some(stdout_path),
@@ -386,11 +386,22 @@ pub fn run_backend_elf_test(
 
             let error_message = format!("{}", e);
 
+            if let Some(ref log_dir) = log_path {
+                let sim_stdout = log_dir.join("stdout.log");
+                if sim_stdout.exists() {
+                    let _ = std::fs::copy(&sim_stdout, &stdout_path);
+                }
+                let sim_stderr = log_dir.join("stderr.log");
+                if sim_stderr.exists() {
+                    let _ = std::fs::copy(&sim_stderr, &stderr_path);
+                }
+            }
+
             RegressionResult {
                 backend: backend.backend_name().to_string(),
                 workload_name,
                 elf_path: elf_path.to_path_buf(),
-                elapsed_ms,
+                elapsed_sec,
                 status,
                 exit_code: None,
                 stdout_path: Some(stdout_path),
@@ -414,7 +425,7 @@ pub fn print_failure_details(result: &RegressionResult, test_name: &str) {
     eprintln!("\n=== Test Failed: {} ===", test_name);
     eprintln!("Status: {}", result.status);
     eprintln!("Backend: {}", result.backend);
-    eprintln!("Elapsed: {}ms", result.elapsed_ms);
+    eprintln!("Elapsed: {}", result.elapsed_sec);
 
     if let Some(ref msg) = result.error_message {
         eprintln!("Error: {}", msg);
