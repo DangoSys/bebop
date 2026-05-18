@@ -37,6 +37,7 @@
             pkgs.base.boost
             pkgs.base.python3
             pkgs.base.cargo
+            pkgs.base.cargoNextest
             pkgs.base.rustc
             pkgs.base.rustfmt
             pkgs.base.clippy

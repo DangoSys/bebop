@@ -14,6 +14,7 @@
   python3 = pkgs.python3;
   # clangTools = pkgs.clang-tools;
   cargo = pkgs.cargo;
+  cargoNextest = pkgs.cargo-nextest;
   rustc = pkgs.rustc;
   rustfmt = pkgs.rustfmt;
   clippy = pkgs.clippy;

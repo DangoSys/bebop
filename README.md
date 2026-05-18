@@ -67,6 +67,14 @@ cargo run --features p2e  -- p2e \
     --log-dir="<log-file-directory-path>"
 ```
 
+# run elf_bemu
+cargo nextest run --test elf_bemu --features bemu
+
+# run elf_verilator
+cargo nextest run --test elf_verilator --features verilator \
+  --config-file .config/nextest.toml \
+  --config "env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'"
+
 <!-- cargo run --features verilator \
     --config="env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'" \
     -- verilator \

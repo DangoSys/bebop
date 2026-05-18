@@ -1,0 +1,102 @@
+# =============================================================================
+# Nextest configuration for bebop RTL regression
+# =============================================================================
+#
+# Architecture:
+#   elf_bemu      → lightweight emulator tests  → parallel, 300s timeout
+#   elf_verilator → heavyweight RTL simulation  → serial,   1800s timeout
+#
+# Filter strategy:
+#   Use binary() filters to match by test binary name, not test name.
+#   binary(elf_verilator) matches ALL tests in the elf_verilator binary.
+#   binary(elf_bemu)      matches ALL tests in the elf_bemu binary.
+#
+# Timeout strategy:
+#   slow-timeout = { period = "Xs", terminate-after = N }
+#   → after X seconds, mark as "slow"
+#   → after X * N seconds, terminate the test process
+#   This is the only timeout mechanism in nextest.
+
+# =============================================================================
+# Default profile (cargo nextest run, no -P flag)
+# =============================================================================
+[profile.default]
+failure-output = "immediate"
+success-output = "never"
+status-level = "all"
+fail-fast = false
+# 60s * 5 = 300s hard timeout
+slow-timeout = { period = "60s", terminate-after = 5 }
+retries = 0
+
+# =============================================================================
+# Test groups — resource-aware scheduling
+# =============================================================================
+# Verilator RTL simulation is heavyweight:
+#   ~5-15 GB RSS per process
+#   FST waveform writes are GB-scale and not concurrent-safe
+#   Elaboration cache must not be accessed concurrently
+# Serial execution prevents OOM, waveform corruption, and cache races.
+
+[test-groups.verilator-serial]
+max-threads = 1
+
+# =============================================================================
+# Default profile overrides
+# =============================================================================
+
+# Verilator: serial execution, 360s * 5 = 1800s (30min) hard timeout
+[[profile.default.overrides]]
+filter = "binary(elf_verilator)"
+test-group = "verilator-serial"
+slow-timeout = { period = "360s", terminate-after = 5 }
+
+# Bemu: parallel execution, 60s * 5 = 300s hard timeout
+[[profile.default.overrides]]
+filter = "binary(elf_bemu)"
+slow-timeout = { period = "60s", terminate-after = 5 }
+
+# =============================================================================
+# CI profile (cargo nextest run -P ci)
+# =============================================================================
+[profile.ci]
+fail-fast = false
+retries = 1
+failure-output = "immediate-final"
+success-output = "never"
+status-level = "all"
+junit = { path = "target/nextest/junit.xml", report-name = "bebop-regression" }
+slow-timeout = { period = "120s", terminate-after = 5 }
+
+[[profile.ci.overrides]]
+filter = "binary(elf_verilator)"
+test-group = "verilator-serial"
+slow-timeout = { period = "360s", terminate-after = 5 }
+retries = 1
+
+[[profile.ci.overrides]]
+filter = "binary(elf_bemu)"
+slow-timeout = { period = "60s", terminate-after = 5 }
+retries = 1
+
+# =============================================================================
+# Dev profile (cargo nextest run -P dev)
+# =============================================================================
+[profile.dev]
+fail-fast = false
+retries = 0
+failure-output = "immediate"
+success-output = "never"
+status-level = "fail"
+# 30s * 3 = 90s hard timeout (fast feedback for developers)
+slow-timeout = { period = "30s", terminate-after = 3 }
+
+[[profile.dev.overrides]]
+filter = "binary(elf_verilator)"
+test-group = "verilator-serial"
+# 360s * 5 = 1800s (30min) for verilator
+slow-timeout = { period = "360s", terminate-after = 5 }
+
+[[profile.dev.overrides]]
+filter = "binary(elf_bemu)"
+slow-timeout = { period = "30s", terminate-after = 3 }
