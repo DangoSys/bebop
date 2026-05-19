@@ -80,8 +80,8 @@ pub fn rtl_clk() -> u64 {
 
 fn write_trace(json: &str) {
     if let Some(ref mut file) = *get_trace_file().lock().unwrap() {
-        let _ = writeln!(file, "{}", json);
-        let _ = file.flush();
+        writeln!(file, "{}", json).ok();
+        file.flush().ok();
     }
 }
 

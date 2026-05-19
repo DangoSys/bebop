@@ -1,4 +1,4 @@
-//! Gemmini / loop 指令的全局配置（单线程 Spike worker 下使用 Mutex）。
+//! Global config for Gemmini / loop instructions. Mutex is fine because Spike calls in on a single worker.
 use std::sync::{Mutex, OnceLock};
 
 #[derive(Clone, Default)]
@@ -42,23 +42,13 @@ pub struct LoopConvCfg {
     pub output_stride: u64,
 }
 
+#[derive(Default)]
 pub struct GemminiState {
     pub cfg: GemminiCfg,
     pub loop_ws: LoopWsCfg,
     pub loop_conv: LoopConvCfg,
     /// WS preload: B weights (iter × 16) i8
     pub ws_b: Option<Vec<Vec<i8>>>,
-}
-
-impl Default for GemminiState {
-    fn default() -> Self {
-        Self {
-            cfg: GemminiCfg::default(),
-            loop_ws: LoopWsCfg::default(),
-            loop_conv: LoopConvCfg::default(),
-            ws_b: None,
-        }
-    }
 }
 
 static GEMINI: OnceLock<Mutex<GemminiState>> = OnceLock::new();

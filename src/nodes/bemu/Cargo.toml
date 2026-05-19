@@ -8,7 +8,6 @@ path = "src/lib.rs"
 crate-type = ["rlib"]
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
 snafu = "0.8"
 once_cell = "1"
 bebop-elf = { path = "../lib/elf" }
@@ -18,3 +17,6 @@ bebop-uart = { path = "../lib/uart" }
 
 [build-dependencies]
 cc = { version = "1", features = ["parallel"] }
+
+[lints]
+workspace = true

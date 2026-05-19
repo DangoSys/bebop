@@ -137,7 +137,8 @@ int spike_run_raw(
     uint64_t dtb_addr,
     const char* log_path,
     const uint64_t* tp_value_ptr,
-    uint8_t* uart_ptr
+    uint8_t* uart_ptr,
+    bool pk
 ) {
     std::signal(SIGABRT, crash_handler);
     std::signal(SIGSEGV, crash_handler);
@@ -177,68 +178,72 @@ int spike_run_raw(
     // Set up initial state
     state_t* state = proc.get_state();
 
-    // IMPORTANT: Implement a real trap handler in memory
-    // The trap handler will save the syscall number and arguments, then jump to a special address
-    // We'll detect this special address and handle the syscall
-
     const uint64_t TRAP_HANDLER_ADDR = 0x80000000 + mem_size - 0x2000;  // Trap handler
     const uint64_t SYSCALL_MAGIC_ADDR_INIT = 0x80000000 + mem_size - 0x1000; // Magic address for syscall detection
 
-    // Write a simple trap handler that jumps to our magic address
-    // We'll use RISC-V assembly instructions encoded as uint32_t
-    if (TRAP_HANDLER_ADDR >= DRAM_BASE && TRAP_HANDLER_ADDR + 64 <= DRAM_BASE + mem_size) {
-        uint32_t* handler = reinterpret_cast<uint32_t*>(mem_ptr + (TRAP_HANDLER_ADDR - DRAM_BASE));
+    if (pk) {
+        // Linux mode: start in S-mode with syscall trap handler
+        // IMPORTANT: Implement a real trap handler in memory
+        // The trap handler will save the syscall number and arguments, then jump to a special address
+        // We'll detect this special address and handle the syscall
 
-        // Trap handler code (RISC-V assembly):
-        // We want to jump to SYSCALL_MAGIC_ADDR_INIT
-        // Use: lui t0, %hi(addr); jalr zero, t0, %lo(addr)
+        // Write a simple trap handler that jumps to our magic address
+        // We'll use RISC-V assembly instructions encoded as uint32_t
+        if (TRAP_HANDLER_ADDR >= DRAM_BASE && TRAP_HANDLER_ADDR + 64 <= DRAM_BASE + mem_size) {
+            uint32_t* handler = reinterpret_cast<uint32_t*>(mem_ptr + (TRAP_HANDLER_ADDR - DRAM_BASE));
 
-        // Calculate hi and lo parts for lui/jalr
-        // For a 64-bit address, we need to use multiple instructions
-        // Let's use a simpler approach: just use a relative jump
+            // Trap handler code (RISC-V assembly):
+            // We want to jump to SYSCALL_MAGIC_ADDR_INIT
+            // Use: lui t0, %hi(addr); jalr zero, t0, %lo(addr)
 
-        // Calculate offset from trap handler to magic address
-        int64_t offset = SYSCALL_MAGIC_ADDR_INIT - TRAP_HANDLER_ADDR;
+            // Calculate hi and lo parts for lui/jalr
+            // For a 64-bit address, we need to use multiple instructions
+            // Let's use a simpler approach: just use a relative jump
 
-        // Use jal (jump and link) instruction: jal x0, offset
-        // jal encoding: imm[20|10:1|11|19:12] | rd | opcode
-        // opcode for jal = 0x6f
-        // rd = 0 (x0, discard return address)
+            // Calculate offset from trap handler to magic address
+            int64_t offset = SYSCALL_MAGIC_ADDR_INIT - TRAP_HANDLER_ADDR;
 
-        // Split offset into immediate fields
-        uint32_t imm20 = (offset >> 20) & 0x1;
-        uint32_t imm10_1 = (offset >> 1) & 0x3ff;
-        uint32_t imm11 = (offset >> 11) & 0x1;
-        uint32_t imm19_12 = (offset >> 12) & 0xff;
+            // Use jal (jump and link) instruction: jal x0, offset
+            // jal encoding: imm[20|10:1|11|19:12] | rd | opcode
+            // opcode for jal = 0x6f
+            // rd = 0 (x0, discard return address)
 
-        uint32_t jal_insn = 0x6f | // opcode
-                           (0 << 7) | // rd = x0
-                           (imm19_12 << 12) |
-                           (imm11 << 20) |
-                           (imm10_1 << 21) |
-                           (imm20 << 31);
+            // Split offset into immediate fields
+            uint32_t imm20 = (offset >> 20) & 0x1;
+            uint32_t imm10_1 = (offset >> 1) & 0x3ff;
+            uint32_t imm11 = (offset >> 11) & 0x1;
+            uint32_t imm19_12 = (offset >> 12) & 0xff;
 
-        handler[0] = jal_insn;
+            uint32_t jal_insn = 0x6f | // opcode
+                               (0 << 7) | // rd = x0
+                               (imm19_12 << 12) |
+                               (imm11 << 20) |
+                               (imm10_1 << 21) |
+                               (imm20 << 31);
 
-    }
+            handler[0] = jal_insn;
 
-    // Set mtvec to point to our trap handler
-    // IMPORTANT: Supervisor mode ecalls trap to Machine mode, so we need to set mtvec, not stvec!
-    state->csrmap[CSR_MTVEC]->write(TRAP_HANDLER_ADDR);
+        }
 
-    // Start in Supervisor mode
-    state->prv = PRV_S;
-    constexpr reg_t MSTATUS_FS_MASK = 0x6000;
-    constexpr reg_t MSTATUS_FS_DIRTY = 0x6000;
-    reg_t mstatus = state->csrmap[CSR_MSTATUS]->read();
-    mstatus = (mstatus & ~MSTATUS_FS_MASK) | MSTATUS_FS_DIRTY;
-    state->csrmap[CSR_MSTATUS]->write(mstatus);
+        // Set mtvec to point to our trap handler
+        // IMPORTANT: Supervisor mode ecalls trap to Machine mode, so we need to set mtvec, not stvec!
+        state->csrmap[CSR_MTVEC]->write(TRAP_HANDLER_ADDR);
 
-    state->pc = entry;
-    state->XPR.write(10, 0);        // a0 = hartid (0)
-    state->XPR.write(11, dtb_addr); // a1 = dtb address
+        // Start in Supervisor mode
+        state->prv = PRV_S;
 
-    // Initialize Linux process stack (argc/argv/envp/auxv)
+        // Enable floating point
+        constexpr reg_t MSTATUS_FS_MASK = 0x6000;
+        constexpr reg_t MSTATUS_FS_DIRTY = 0x6000;
+        reg_t mstatus = state->csrmap[CSR_MSTATUS]->read();
+        mstatus = (mstatus & ~MSTATUS_FS_MASK) | MSTATUS_FS_DIRTY;
+        state->csrmap[CSR_MSTATUS]->write(mstatus);
+
+        state->pc = entry;
+        state->XPR.write(10, 0);        // a0 = hartid (0)
+        state->XPR.write(11, dtb_addr); // a1 = dtb address
+
+        // Initialize Linux process stack (argc/argv/envp/auxv)
     // Layout:
     //   sp[0] = argc
     //   sp[1] = argv[0]
@@ -360,6 +365,18 @@ int spike_run_raw(
     if (tp_value_ptr != nullptr) {
         uint64_t tp = *tp_value_ptr;
         state->XPR.write(4, tp); // tp = x4
+    }
+    } else {
+        // Baremetal mode: enable FP, set PC, pass hartid/dtb. No stack setup.
+        constexpr reg_t MSTATUS_FS_MASK = 0x6000;
+        constexpr reg_t MSTATUS_FS_DIRTY = 0x6000;
+        reg_t mstatus = state->csrmap[CSR_MSTATUS]->read();
+        mstatus = (mstatus & ~MSTATUS_FS_MASK) | MSTATUS_FS_DIRTY;
+        state->csrmap[CSR_MSTATUS]->write(mstatus);
+
+        state->pc = entry;
+        state->XPR.write(10, 0);        // a0 = hartid (0)
+        state->XPR.write(11, dtb_addr); // a1 = dtb address
     }
 
     // Run until sim_exit or syscall exit

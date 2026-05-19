@@ -46,16 +46,14 @@ impl InitStep {
         }
 
         // Copy init.tcl from source directory to output directory
-        let init_tcl_src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/runner/1_init/init.tcl");
+        let init_tcl_src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner/1_init/init.tcl");
         let init_tcl_dst = self.fpga_comp_dir.join("init.tcl");
 
         if !init_tcl_src.exists() {
             return Err(format!("init.tcl not found: {}", init_tcl_src.display()));
         }
 
-        std::fs::copy(&init_tcl_src, &init_tcl_dst)
-            .map_err(|e| format!("Failed to copy init.tcl: {}", e))?;
+        std::fs::copy(&init_tcl_src, &init_tcl_dst).map_err(|e| format!("Failed to copy init.tcl: {}", e))?;
 
         log::info!("Running initialization script...");
         self.run_init_script(&init_tcl_dst)?;

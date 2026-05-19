@@ -4,6 +4,8 @@ use crate::constants::{
 use crate::state::SyscallState;
 use crate::utils::{align_down, align_up};
 
+// Linux mmap2 ABI dictates the argument count; folding into a struct just splits each call site.
+#[allow(clippy::too_many_arguments)]
 pub fn handle_mmap(
     state: &mut SyscallState,
     addr: u64,

@@ -3,13 +3,15 @@
 # =============================================================================
 #
 # Architecture:
-#   elf_bemu      → lightweight emulator tests  → parallel, 300s timeout
-#   elf_verilator → heavyweight RTL simulation  → serial,   1800s timeout
+#   test_bemu      → lightweight emulator tests  → parallel, 300s timeout
+#   test_verilator → heavyweight RTL simulation  → serial,   1800s timeout
+#   test_p2e       → fpga workload tests         → serial,   1800s timeout
 #
 # Filter strategy:
 #   Use binary() filters to match by test binary name, not test name.
-#   binary(elf_verilator) matches ALL tests in the elf_verilator binary.
-#   binary(elf_bemu)      matches ALL tests in the elf_bemu binary.
+#   binary(test_verilator) matches ALL tests in the test_verilator binary.
+#   binary(test_bemu)      matches ALL tests in the test_bemu binary.
+#   binary(test_p2e)       matches ALL tests in the test_p2e binary.
 #
 # Timeout strategy:
 #   slow-timeout = { period = "Xs", terminate-after = N }
@@ -29,16 +31,7 @@ fail-fast = false
 slow-timeout = { period = "60s", terminate-after = 5 }
 retries = 0
 
-# =============================================================================
-# Test groups — resource-aware scheduling
-# =============================================================================
-# Verilator RTL simulation is heavyweight:
-#   ~5-15 GB RSS per process
-#   FST waveform writes are GB-scale and not concurrent-safe
-#   Elaboration cache must not be accessed concurrently
-# Serial execution prevents OOM, waveform corruption, and cache races.
-
-[test-groups.verilator-serial]
+[test-groups.p2e-serial]
 max-threads = 1
 
 # =============================================================================
@@ -47,14 +40,20 @@ max-threads = 1
 
 # Verilator: serial execution, 360s * 5 = 1800s (30min) hard timeout
 [[profile.default.overrides]]
-filter = "binary(elf_verilator)"
+filter = "binary(test_verilator)"
 test-group = "verilator-serial"
 slow-timeout = { period = "360s", terminate-after = 5 }
 
 # Bemu: parallel execution, 60s * 5 = 300s hard timeout
 [[profile.default.overrides]]
-filter = "binary(elf_bemu)"
+filter = "binary(test_bemu)"
 slow-timeout = { period = "60s", terminate-after = 5 }
+
+# P2E: serial execution, 360s * 5 = 1800s (30min) hard timeout
+[[profile.default.overrides]]
+filter = "binary(test_p2e)"
+test-group = "p2e-serial"
+slow-timeout = { period = "360s", terminate-after = 5 }
 
 # =============================================================================
 # CI profile (cargo nextest run -P ci)
@@ -69,14 +68,20 @@ junit = { path = "target/nextest/junit.xml", report-name = "bebop-regression" }
 slow-timeout = { period = "120s", terminate-after = 5 }
 
 [[profile.ci.overrides]]
-filter = "binary(elf_verilator)"
+filter = "binary(test_verilator)"
 test-group = "verilator-serial"
 slow-timeout = { period = "360s", terminate-after = 5 }
 retries = 1
 
 [[profile.ci.overrides]]
-filter = "binary(elf_bemu)"
+filter = "binary(test_bemu)"
 slow-timeout = { period = "60s", terminate-after = 5 }
+retries = 1
+
+[[profile.ci.overrides]]
+filter = "binary(test_p2e)"
+test-group = "p2e-serial"
+slow-timeout = { period = "360s", terminate-after = 5 }
 retries = 1
 
 # =============================================================================
@@ -92,11 +97,16 @@ status-level = "fail"
 slow-timeout = { period = "30s", terminate-after = 3 }
 
 [[profile.dev.overrides]]
-filter = "binary(elf_verilator)"
+filter = "binary(test_verilator)"
 test-group = "verilator-serial"
 # 360s * 5 = 1800s (30min) for verilator
 slow-timeout = { period = "360s", terminate-after = 5 }
 
 [[profile.dev.overrides]]
-filter = "binary(elf_bemu)"
+filter = "binary(test_bemu)"
 slow-timeout = { period = "30s", terminate-after = 3 }
+
+[[profile.dev.overrides]]
+filter = "binary(test_p2e)"
+test-group = "p2e-serial"
+slow-timeout = { period = "360s", terminate-after = 5 }

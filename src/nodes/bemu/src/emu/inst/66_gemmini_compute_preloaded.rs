@@ -1,5 +1,3 @@
-//===- 66_gemmini_compute_preloaded.rs - GEMMINI_COMPUTE_PRELOADED ---------===//
-
 use super::super::bank::BANK_NUM;
 use super::bank_matrix::{read_i32_nn, read_i8_nn, write_i32_nn};
 use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
@@ -70,7 +68,7 @@ impl Instruction for GemminiComputePreloaded {
     }
 
     fn latency(xs1: u64, _xs2: u64) -> u64 {
-        let n = rs1_iter(xs1).max(1).min(64);
+        let n = rs1_iter(xs1).clamp(1, 64);
         n.saturating_mul(n).saturating_mul(n) / 4 + n.saturating_mul(n)
     }
 }

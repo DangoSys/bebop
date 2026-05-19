@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
-use snafu::{FromString, Whatever};
+#[cfg(feature = "p2e")]
+use snafu::FromString;
+use snafu::Whatever;
 
 #[cfg(feature = "verilator")]
 use bebop_verilator::{run as run_verilator, VerilatorCli};
@@ -46,6 +48,8 @@ pub enum Commands {
         elf: std::path::PathBuf,
         #[arg(long, value_name = "DIR")]
         log_dir: Option<std::path::PathBuf>,
+        #[arg(long, help = "Run with proxy kernel (Linux mode, starts in S-mode)")]
+        pk: bool,
     },
     #[cfg(feature = "p2e")]
     /// Run the P2E FPGA flow.
@@ -54,7 +58,10 @@ pub enum Commands {
         buildbitstream: bool,
         #[arg(long, help = "Run workload")]
         runworkload: bool,
-        #[arg(long, help = "Design build directory (for buildbitstream: contains vvacDir and outputs; for runworkload: contains bitstream)")]
+        #[arg(
+            long,
+            help = "Design build directory (for buildbitstream: contains vvacDir and outputs; for runworkload: contains bitstream)"
+        )]
         build_dir: Option<std::path::PathBuf>,
         #[arg(long, help = "Kernel image name to load (for runworkload)")]
         image: Option<std::path::PathBuf>,
@@ -88,7 +95,7 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
             banktrace,
         }),
         #[cfg(feature = "bemu")]
-        Commands::Bemu { elf, log_dir } => run_bemu(BemuCli { elf, log_dir }),
+        Commands::Bemu { elf, log_dir, pk } => run_bemu(BemuCli { elf, log_dir, pk }),
         #[cfg(feature = "p2e")]
         Commands::P2e {
             buildbitstream,
@@ -103,16 +110,14 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
                     Whatever::without_source("--build-dir is required for buildbitstream".to_string())
                 })?;
                 let builder = BitstreamBuilder::new(build_dir);
-                builder.build().map_err(|e| Whatever::without_source(e))?;
+                builder.build().map_err(Whatever::without_source)?;
 
                 Ok(())
             } else if runworkload {
-                let image = image.ok_or_else(|| {
-                    Whatever::without_source("--image is required for runworkload".to_string())
-                })?;
-                let bitstream = bitstream.ok_or_else(|| {
-                    Whatever::without_source("--bitstream is required for runworkload".to_string())
-                })?;
+                let image =
+                    image.ok_or_else(|| Whatever::without_source("--image is required for runworkload".to_string()))?;
+                let bitstream = bitstream
+                    .ok_or_else(|| Whatever::without_source("--bitstream is required for runworkload".to_string()))?;
                 let build_dir = build_dir.unwrap_or_else(|| std::path::PathBuf::from("./out"));
                 let log = log_dir.unwrap_or_else(|| build_dir.join("log"));
 

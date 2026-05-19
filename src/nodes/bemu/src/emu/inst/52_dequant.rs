@@ -23,25 +23,53 @@ impl Instruction for Dequant {
         if !sc.allocated || !dc.allocated {
             panic!("dequant: bank not allocated");
         }
-        if sc.cols != 1 || dc.cols != 4 {
-            panic!("dequant: unsupported layout src_cols={} dst_cols={}", sc.cols, dc.cols);
-        }
 
         let ps = pbank(ctx.bank_map, src);
         let pd = pbank(ctx.bank_map, dst);
         let scale = f32::from_bits((xs2 & 0xffff_ffff) as u32);
 
-        for i in 0..depth {
-            let src_base = i * 16;
-            let dst_base = i * 64;
-            if src_base + 16 > BANK_SIZE || dst_base + 64 > BANK_SIZE {
-                panic!("dequant: out of range");
+        // Support two modes:
+        // 1. INT32 -> FP32: src_cols=1, dst_cols=1 (4 bytes -> 4 bytes)
+        // 2. INT8 -> FP32: src_cols=1, dst_cols=4 (1 byte -> 4 bytes)
+        match (sc.cols, dc.cols) {
+            (1, 1) => {
+                // INT32 -> FP32 mode
+                for i in 0..depth {
+                    let src_base = i * 64;
+                    let dst_base = i * 64;
+                    if src_base + 64 > BANK_SIZE || dst_base + 64 > BANK_SIZE {
+                        panic!("dequant: out of range");
+                    }
+                    for j in 0..16 {
+                        let off = src_base + j * 4;
+                        let v = i32::from_le_bytes(ctx.banks[ps][off..off + 4].try_into().unwrap());
+                        let o = ((v as f32) * scale).to_bits();
+                        let dst_off = dst_base + j * 4;
+                        ctx.banks[pd][dst_off..dst_off + 4].copy_from_slice(&o.to_le_bytes());
+                    }
+                }
             }
-            for j in 0..16 {
-                let v = ctx.banks[ps][src_base + j] as i8;
-                let o = ((v as f32) * scale).round() as i32;
-                let off = dst_base + j * 4;
-                ctx.banks[pd][off..off + 4].copy_from_slice(&o.to_le_bytes());
+            (1, 4) => {
+                // INT8 -> FP32 mode (original implementation)
+                for i in 0..depth {
+                    let src_base = i * 16;
+                    let dst_base = i * 64;
+                    if src_base + 16 > BANK_SIZE || dst_base + 64 > BANK_SIZE {
+                        panic!("dequant: out of range");
+                    }
+                    for j in 0..16 {
+                        let v = ctx.banks[ps][src_base + j] as i8;
+                        let o = ((v as f32) * scale).to_bits();
+                        let off = dst_base + j * 4;
+                        ctx.banks[pd][off..off + 4].copy_from_slice(&o.to_le_bytes());
+                    }
+                }
+            }
+            _ => {
+                panic!(
+                    "dequant: unsupported layout src_cols={} dst_cols={}. Supported: (1,1) for INT32->FP32, (1,4) for INT8->FP32",
+                    sc.cols, dc.cols
+                );
             }
         }
         0

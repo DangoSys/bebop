@@ -8,3 +8,6 @@ path = "src/lib.rs"
 
 [dependencies]
 once_cell = "1"
+
+[lints]
+workspace = true

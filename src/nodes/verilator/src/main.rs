@@ -98,6 +98,9 @@ impl VerilatorConfig {
             let stderr_fd = std::io::stderr().as_raw_fd();
             let file_fd = file.as_raw_fd();
 
+            // SAFETY: libc FFI for file descriptor manipulation. dup() duplicates stderr fd
+            // for later restoration; dup2() redirects stderr to the log file. Both return -1
+            // on error which we check. old_stderr is closed in the restoration block below.
             unsafe {
                 let old_stderr = libc::dup(stderr_fd);
                 if old_stderr < 0 {
@@ -150,6 +153,8 @@ impl VerilatorConfig {
 
         // Restore stderr if it was redirected
         if let Some((_, old_stderr)) = _stderr_guard {
+            // SAFETY: libc FFI to restore stderr from the duplicated fd saved earlier.
+            // old_stderr is valid (created by dup() above) and closed after restoration.
             unsafe {
                 libc::dup2(old_stderr, std::io::stderr().as_raw_fd());
                 libc::close(old_stderr);

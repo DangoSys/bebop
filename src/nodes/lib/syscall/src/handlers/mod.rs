@@ -48,8 +48,9 @@ pub use tgkill::handle_tgkill;
 pub use write::handle_write;
 pub use writev::handle_writev;
 
-/// Handle a system call from the guest program
-/// Returns (result, should_exit)
+/// Returns `(result, should_exit)`.
+// RISC-V syscall ABI fixes the argument list at a0..a5; folding into a struct burdens every caller.
+#[allow(clippy::too_many_arguments)]
 pub fn handle_syscall(
     syscall_num: u64,
     a0: u64,

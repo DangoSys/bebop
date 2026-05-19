@@ -1,4 +1,4 @@
-use snafu::{FromString, Whatever};
+use snafu::{FromString, ResultExt, Whatever};
 use std::path::PathBuf;
 
 const FPGA_LOCATION: &str = "0.A";
@@ -45,7 +45,7 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
     let case_home = cli
         .output
         .canonicalize()
-        .map_err(|e| Whatever::without_source(format!("Failed to canonicalize output: {}", e)))?;
+        .whatever_context("failed to canonicalize output directory")?;
 
     let rtcfg_path = case_home.join("vvacDir/runtimeDir/rtcfg");
     if !rtcfg_path.exists() {
@@ -56,8 +56,7 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
     }
 
     // Create log directory
-    std::fs::create_dir_all(&cli.log)
-        .map_err(|e| Whatever::without_source(format!("Failed to create log directory: {}", e)))?;
+    std::fs::create_dir_all(&cli.log).whatever_context("failed to create log directory")?;
 
     let uart_log_path = cli.log.join("uart.log");
 
@@ -69,12 +68,18 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
     log::info!("  UART Log: {}", uart_log_path.display());
 
     // Run simulation
-    let result = crate::runner::run(FPGA_LOCATION, &case_home, &rtcfg_path, &cli.image, &cli.bitstream, &cli.log)
-        .map_err(|e| Whatever::without_source(format!("Simulation failed: {}", e)))?;
+    let result = crate::runner::run(
+        FPGA_LOCATION,
+        &case_home,
+        &rtcfg_path,
+        &cli.image,
+        &cli.bitstream,
+        &cli.log,
+    )
+    .whatever_context("simulation failed")?;
 
     // Save UART log
-    std::fs::write(&uart_log_path, &result.uart_log)
-        .map_err(|e| Whatever::without_source(format!("Failed to write UART log: {}", e)))?;
+    std::fs::write(&uart_log_path, &result.uart_log).whatever_context("failed to write UART log")?;
 
     // Report results
     log::info!("Simulation completed!");

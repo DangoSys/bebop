@@ -13,7 +13,6 @@ default = []
 build-bitstream = []
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
 log = "0.4"
 env_logger = "0.11"
 snafu = "0.8"
@@ -24,3 +23,6 @@ duct = "0.13"
 
 [package.metadata.docs.rs]
 all-features = true
+
+[lints]
+workspace = true

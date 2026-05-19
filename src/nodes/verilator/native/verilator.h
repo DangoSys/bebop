@@ -34,9 +34,6 @@ bool verilator_scu_has_exit();
 int32_t verilator_scu_exit_code();
 void verilator_scu_reset();
 
-// MMIO tick: read io_mmio_fire signals from BBSimHarness and update SCU state
-void verilator_mmio_tick(void* top);
-
 // FST trace
 void* verilator_trace_new();
 void verilator_trace_free(void* tfp);

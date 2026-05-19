@@ -23,8 +23,7 @@ impl BitstreamBuilder {
 
         self.setup_environment()?;
 
-        std::fs::create_dir_all(&self.build_dir)
-            .map_err(|e| format!("Failed to create build directory: {}", e))?;
+        std::fs::create_dir_all(&self.build_dir).map_err(|e| format!("Failed to create build directory: {}", e))?;
 
         self.verify_vvac_outputs()?;
 
@@ -33,8 +32,7 @@ impl BitstreamBuilder {
         vsyn.run()?;
 
         // Step 2: vcom
-        let vcom_tcl = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/builder/2_vcom/vcom_compile.tcl");
+        let vcom_tcl = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/builder/2_vcom/vcom_compile.tcl");
         let vcom = VcomStep::new(self.build_dir.clone(), "xepic_vvac_top".to_string(), vcom_tcl)?;
         vcom.run()?;
 
@@ -49,8 +47,7 @@ impl BitstreamBuilder {
     }
 
     fn setup_environment(&self) -> Result<(), String> {
-        let sourceme_path =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
+        let sourceme_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
 
         if !sourceme_path.exists() {
             return Err(format!("sourceme.sh not found at {:?}", sourceme_path));

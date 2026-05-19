@@ -1,5 +1,3 @@
-//===- 49_transpose.rs - TRANSPOSE instruction ------------------------------===//
-
 use super::super::bank::{BANK_NUM, MATRIX_SIZE};
 use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
 use super::instruction::{ExecContext, Instruction};
@@ -73,7 +71,7 @@ impl Instruction for Transpose {
     }
 
     fn latency(xs1: u64, _xs2: u64) -> u64 {
-        let k = rs1_iter(xs1).max(1).min(64);
+        let k = rs1_iter(xs1).clamp(1, 64);
         k.saturating_mul(k)
     }
 }

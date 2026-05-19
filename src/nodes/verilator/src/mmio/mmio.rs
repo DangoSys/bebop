@@ -15,22 +15,24 @@ fn get_uart() -> &'static Mutex<Uart> {
 }
 
 pub fn init_uart(_stdout_path: Option<&Path>) -> io::Result<()> {
-    // Initialize UART (already done via get_uart())
-    let _ = get_uart();
+    get_uart();
     Ok(())
 }
 
 /// Check if simulation should exit (called from RTL via scu_sim_exit DPI-C)
 pub fn should_exit() -> bool {
+    // SAFETY: FFI call to C++ Verilator runtime; function is extern "C" and always safe to call.
     unsafe { crate::ffi::verilator_scu_has_exit() }
 }
 
 /// Get exit code (valid only if should_exit() returns true)
 pub fn exit_code() -> i32 {
+    // SAFETY: FFI call to C++ Verilator runtime; function is extern "C" and always safe to call.
     unsafe { crate::ffi::verilator_scu_exit_code() }
 }
 
 /// Reset SCU state (call at start of new simulation)
 pub fn reset() {
+    // SAFETY: FFI call to C++ Verilator runtime; function is extern "C" and always safe to call.
     unsafe { crate::ffi::verilator_scu_reset() }
 }

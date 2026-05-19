@@ -8,16 +8,14 @@ autobins = false
 path = "src/lib.rs"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
 snafu = "0.8"
 libc = "0.2"
-memmap2 = "0.9"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-goblin = "0.8"
 bebop-uart = { path = "../lib/uart" }
 bebop-dasm = { path = "../lib/dasm" }
 ctrlc = "3.4"
 
 [build-dependencies]
 cc = { version = "1", features = ["parallel"] }
+
+[lints]
+workspace = true

@@ -133,10 +133,11 @@ extern "C" {
         log_path: *const c_char,
         tp_value: *const u64,
         uart_ptr: *mut u8,
+        pk: bool,
     ) -> i32;
 }
 
-pub fn run_spike(isa: &str, procs: usize, mem_mb: usize, elf_path: &str, log_path: Option<&str>) -> Result<(), String> {
+pub fn run_spike(isa: &str, procs: usize, mem_mb: usize, elf_path: &str, log_path: Option<&str>, pk: bool) -> Result<(), String> {
     use std::ffi::CString;
 
     let mut state = EMU_STATE.lock().unwrap();
@@ -226,6 +227,7 @@ pub fn run_spike(isa: &str, procs: usize, mem_mb: usize, elf_path: &str, log_pat
             log_c.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null()),
             tp_ptr,
             uart_ptr,
+            pk,
         )
     };
     let total_lat = {

@@ -64,15 +64,14 @@ impl PnrStep {
 
         std::fs::copy(&bitstream_src, &bitstream_dst).map_err(|e| format!("Failed to copy bitstream: {}", e))?;
 
-
         //===----------------------------------------------------------------------===//
         // When the design is hard to PNR, the PNR will fail and generate a bitstream in pnrDir_smart/
         // But the tool still search this file in pnrDir/, so we need to copy it to pnrDir/
         // This is a bug of the xepic tool.
         // The step below is to solve the bug when the design is hard to PNR.
-        // 
-        // Note: This approach is not ideal, as the PNR is highly likely to fail in the end. 
-        // Although it runs in simulation, this masks the problem; if the PNR fails, 
+        //
+        // Note: This approach is not ideal, as the PNR is highly likely to fail in the end.
+        // Although it runs in simulation, this masks the problem; if the PNR fails,
         // you should review the PNR report and make the necessary design modifications.
         //===----------------------------------------------------------------------===//
         // Copy bin file from pnrDir_smart to pnrDir for vdbg compatibility
@@ -85,8 +84,7 @@ impl PnrStep {
             .join("fpgaCompDir/part_b0_f0/pnrDir/xepic_vvac_top_0_0.bin");
 
         if bin_src.exists() {
-            std::fs::copy(&bin_src, &bin_dst)
-                .map_err(|e| format!("Failed to copy bin file to pnrDir: {}", e))?;
+            std::fs::copy(&bin_src, &bin_dst).map_err(|e| format!("Failed to copy bin file to pnrDir: {}", e))?;
             log::info!("Copied bin file to pnrDir for vdbg compatibility");
         } else {
             log::warn!("Bin file not found in pnrDir_smart: {:?}", bin_src);

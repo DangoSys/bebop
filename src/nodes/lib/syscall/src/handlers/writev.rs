@@ -56,24 +56,22 @@ pub fn handle_writev(
                 std::io::stdout().write_all(data).ok();
             }
             total_written += count as u64;
-        } else {
-            if let Some(file) = state.open_files.get_mut(&fd) {
-                if buf_addr < 0x80000000
-                    || buf_addr.checked_add(count as u64).is_none()
-                    || buf_addr + count as u64 > 0x80000000 + memory.len() as u64
-                {
-                    return ((ERR_FAULT as u64), false);
-                }
-                let offset = (buf_addr - 0x80000000) as usize;
-                let data = &memory[offset..offset + count];
-
-                match file.write(data) {
-                    Ok(n) => total_written += n as u64,
-                    Err(_) => return ((ERR_INVAL as u64), false),
-                }
-            } else {
-                return ((ERR_INVAL as u64), false);
+        } else if let Some(file) = state.open_files.get_mut(&fd) {
+            if buf_addr < 0x80000000
+                || buf_addr.checked_add(count as u64).is_none()
+                || buf_addr + count as u64 > 0x80000000 + memory.len() as u64
+            {
+                return ((ERR_FAULT as u64), false);
             }
+            let offset = (buf_addr - 0x80000000) as usize;
+            let data = &memory[offset..offset + count];
+
+            match file.write(data) {
+                Ok(n) => total_written += n as u64,
+                Err(_) => return ((ERR_INVAL as u64), false),
+            }
+        } else {
+            return ((ERR_INVAL as u64), false);
         }
     }
 

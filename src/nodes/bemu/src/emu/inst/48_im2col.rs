@@ -1,5 +1,3 @@
-//===- 48_im2col.rs - IM2COL instruction -----------------------------------===//
-
 use super::super::bank::BANK_NUM;
 use super::decode::{pbank, rs1_b0, rs1_b2};
 use super::instruction::{ExecContext, Instruction};
@@ -72,12 +70,12 @@ impl Instruction for Im2col {
     }
 
     fn latency(_xs1: u64, xs2: u64) -> u64 {
-        let kcol = (xs2 & 0xF) as u64;
-        let krow = ((xs2 >> 4) & 0xF) as u64;
-        let incol = ((xs2 >> 8) & 0x1F) as u64;
-        let inrow = ((xs2 >> 13) & 0x3FF) as u64;
-        let startcol = ((xs2 >> 23) & 0x1F) as u64;
-        let startrow = ((xs2 >> 28) & 0x3FF) as u64;
+        let kcol = xs2 & 0xF;
+        let krow = (xs2 >> 4) & 0xF;
+        let incol = (xs2 >> 8) & 0x1F;
+        let inrow = (xs2 >> 13) & 0x3FF;
+        let startcol = (xs2 >> 23) & 0x1F;
+        let startrow = (xs2 >> 28) & 0x3FF;
 
         if kcol == 0 || krow == 0 || incol == 0 || inrow == 0 {
             return 16;

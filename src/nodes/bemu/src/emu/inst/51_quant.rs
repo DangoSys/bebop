@@ -23,25 +23,55 @@ impl Instruction for Quant {
         if !sc.allocated || !dc.allocated {
             panic!("quant: bank not allocated");
         }
-        if sc.cols != 4 || dc.cols != 1 {
-            panic!("quant: unsupported layout src_cols={} dst_cols={}", sc.cols, dc.cols);
-        }
 
         let ps = pbank(ctx.bank_map, src);
         let pd = pbank(ctx.bank_map, dst);
         let scale = f32::from_bits((xs2 & 0xffff_ffff) as u32);
 
-        for i in 0..depth {
-            let src_base = i * 64;
-            let dst_base = i * 16;
-            if src_base + 64 > BANK_SIZE || dst_base + 16 > BANK_SIZE {
-                panic!("quant: out of range");
+        // Support two modes:
+        // 1. FP32 -> INT32: src_cols=1, dst_cols=1 (4 bytes -> 4 bytes)
+        // 2. FP32 -> INT8: src_cols=4, dst_cols=1 (4 bytes -> 1 byte, with clamping)
+        match (sc.cols, dc.cols) {
+            (1, 1) => {
+                // FP32 -> INT32 mode
+                for i in 0..depth {
+                    let src_base = i * 64;
+                    let dst_base = i * 64;
+                    if src_base + 64 > BANK_SIZE || dst_base + 64 > BANK_SIZE {
+                        panic!("quant: out of range");
+                    }
+                    for j in 0..16 {
+                        let off = src_base + j * 4;
+                        let v = f32::from_bits(u32::from_le_bytes(
+                            ctx.banks[ps][off..off + 4].try_into().unwrap(),
+                        ));
+                        let q = (v * scale).round() as i32;
+                        let dst_off = dst_base + j * 4;
+                        ctx.banks[pd][dst_off..dst_off + 4].copy_from_slice(&q.to_le_bytes());
+                    }
+                }
             }
-            for j in 0..16 {
-                let off = src_base + j * 4;
-                let v = i32::from_le_bytes(ctx.banks[ps][off..off + 4].try_into().unwrap());
-                let q = ((v as f32) * scale).round().clamp(-128.0, 127.0) as i8;
-                ctx.banks[pd][dst_base + j] = q as u8;
+            (4, 1) => {
+                // FP32 -> INT8 mode (original implementation)
+                for i in 0..depth {
+                    let src_base = i * 64;
+                    let dst_base = i * 16;
+                    if src_base + 64 > BANK_SIZE || dst_base + 16 > BANK_SIZE {
+                        panic!("quant: out of range");
+                    }
+                    for j in 0..16 {
+                        let off = src_base + j * 4;
+                        let v = i32::from_le_bytes(ctx.banks[ps][off..off + 4].try_into().unwrap());
+                        let q = ((v as f32) * scale).round().clamp(-128.0, 127.0) as i8;
+                        ctx.banks[pd][dst_base + j] = q as u8;
+                    }
+                }
+            }
+            _ => {
+                panic!(
+                    "quant: unsupported layout src_cols={} dst_cols={}. Supported: (1,1) for FP32->INT32, (4,1) for FP32->INT8",
+                    sc.cols, dc.cols
+                );
             }
         }
         0

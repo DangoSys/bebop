@@ -50,9 +50,16 @@ cargo run --features verilator \
     --fst-dir="<fst-file-directory-path>" 
 
 
-# run bemu
+# run bemu (baremetal mode, starts in M-mode)
 cargo run --features bemu -- bemu \
-    --elf="<elf-file-path>"
+    --elf="<elf-file-path>" \
+    --log-dir="<log-file-directory-path>"
+
+# run bemu (Linux mode with proxy kernel, starts in S-mode)
+cargo run --features bemu -- bemu \
+    --elf="<elf-file-path>" \
+    --log-dir="<log-file-directory-path>" \
+    --pk
 
 # run p2e
 cargo run --features p2e -- p2e \
@@ -67,18 +74,21 @@ cargo run --features p2e  -- p2e \
     --log-dir="<log-file-directory-path>"
 ```
 
-# run elf_bemu
-cargo nextest run --test elf_bemu --features bemu
+# Batch Test
 
-# run elf_verilator
-cargo nextest run --test elf_verilator --features verilator \
+```
+# run bemu tests with buckyball 
+cargo nextest run --test test_bemu --features bemu
+
+# run verilator tests with buckyball 
+cargo nextest run --test test_verilator --features verilator \
   --config-file .config/nextest.toml \
   --config "env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'"
 
-<!-- cargo run --features verilator \
-    --config="env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'" \
-    -- verilator \
-    --elf="/home/wanghui/Code/buckyball/bb-tests/output/workloads/src/tutorial/tutorial-baremetal" \
-    --log-dir="/home/wanghui/Code/buckyball/arch/log/test_log" \
-    --fst-dir="/home/wanghui/Code/buckyball/arch/waveform/test_waveform"  -->
+# run p2e tests with buckyball
+cargo nextest run --test test_p2e --features p2e \
+  -- \
+  --p2e-bitstream "<bitstream-file-path>" \
+  --p2e-build-dir "<design-build-directory-path>"
+```
     

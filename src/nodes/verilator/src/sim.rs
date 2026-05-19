@@ -29,6 +29,9 @@ pub struct Simulator {
 
 impl Simulator {
     pub fn new(fst_path: &Path, coverage: bool, args: &[String]) -> io::Result<Self> {
+        // SAFETY: FFI calls to Verilator C++ runtime. All raw pointers returned by
+        // verilator_*_new are null-checked before use; ownership is transferred to
+        // Simulator which frees them in Drop. CString args outlive the FFI call.
         unsafe {
             // Create context
             let context = verilator_context_new();
@@ -98,6 +101,8 @@ impl Simulator {
     }
 
     fn reset(&mut self) {
+        // SAFETY: self.top is valid (initialized in new(), freed in Drop); FFI calls
+        // are setter functions with no aliasing requirements beyond a valid top pointer.
         unsafe {
             // Reset high, clock low
             verilator_top_set_reset(self.top, 1);
@@ -117,6 +122,8 @@ impl Simulator {
     }
 
     fn step_and_dump(&mut self) {
+        // SAFETY: self.{top, context, trace} are valid (set in new(), freed in Drop);
+        // FFI calls advance simulation time and write to the trace file.
         unsafe {
             verilator_top_eval(self.top);
             verilator_context_time_inc(self.context, 1);
@@ -127,17 +134,15 @@ impl Simulator {
     }
 
     pub fn exec_once(&mut self) -> bool {
+        // SAFETY: self.{top, context, trace} are valid; FFI calls drive one clock cycle,
+        // sample MMIO, and dump waveforms. SCU DPI-C callbacks are invoked from RTL but
+        // their unsafety is encapsulated in their extern "C" declarations.
         unsafe {
             // Posedge: clock=1, eval (SCU DPI-C functions called automatically from RTL)
             verilator_top_set_clock(self.top, 1);
             verilator_top_eval(self.top);
 
-            // Sample MMIO fire signals from BBSimHarness RTL.
-            // WithBBSimMMIO produces a 1-cycle pulse on io_mmio_fire when
-            // software writes to SCU registers (0x6000_0000 / 0x6002_0000).
-            verilator_mmio_tick(self.top);
-
-            // Check if SCU triggered sim_exit
+            // Check if SCU triggered sim_exit (via DPI-C callbacks)
             let should_exit = mmio::should_exit();
 
             verilator_context_time_inc(self.context, 1);
@@ -172,6 +177,8 @@ impl Simulator {
     }
 
     pub fn finalize(&mut self) {
+        // SAFETY: self.{context, trace} are valid; final time advance + trace close.
+        // verilator_context_coverage_write only called when coverage was enabled in new().
         unsafe {
             verilator_context_time_inc(self.context, 1);
             let time = verilator_context_time(self.context);
@@ -187,6 +194,8 @@ impl Simulator {
 
 impl Drop for Simulator {
     fn drop(&mut self) {
+        // SAFETY: free FFI resources owned by self; null-check guards against partial init
+        // failures in new(). After this, the raw pointers must not be used again.
         unsafe {
             if !self.top.is_null() {
                 verilator_top_free(self.top);

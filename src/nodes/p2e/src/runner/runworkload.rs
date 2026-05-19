@@ -53,16 +53,14 @@ pub fn run(
 
     // IMPORTANT: Change to case_home directory before running vdbg
     log::info!("Changing to case_home directory: {}", case_home.display());
-    std::env::set_current_dir(case_home)
-        .map_err(|e| format!("Failed to change to case_home directory: {}", e))?;
+    std::env::set_current_dir(case_home).map_err(|e| format!("Failed to change to case_home directory: {}", e))?;
     log::info!("Current directory: {:?}", std::env::current_dir());
 
     // Generate main.tcl dynamically
     log::info!("Generating main.tcl...");
     let main_tcl = generate_main_tcl(fpga_location, image, bitstream)?;
     let main_tcl_path = case_home.join("main.tcl");
-    std::fs::write(&main_tcl_path, main_tcl)
-        .map_err(|e| format!("Failed to write main.tcl: {}", e))?;
+    std::fs::write(&main_tcl_path, main_tcl).map_err(|e| format!("Failed to write main.tcl: {}", e))?;
 
     // Clean up old flag files before starting
     let flash_done_flag = case_home.join("flash_done.flag");
@@ -116,7 +114,7 @@ fn init_ctb(case_home: &Path, rtcfg_path: &Path) -> Result<CtbManager, String> {
 
     // IMPORTANT: The first parameter should be the FPGA config name from rtcfg (e.g., "P0"),
     // NOT the physical FPGA location (e.g., "0.A")
-    let fpga_config = "P0";  // Read from rtcfg file: "P0: vc_default"
+    let fpga_config = "P0"; // Read from rtcfg file: "P0: vc_default"
 
     // IMPORTANT: case_home must have a trailing slash
     let case_home_str = format!("{}/", case_home.display());
@@ -137,7 +135,6 @@ fn init_ctb(case_home: &Path, rtcfg_path: &Path) -> Result<CtbManager, String> {
     Ok(ctb)
 }
 
-
 /// Wait for simulation to complete
 fn wait_for_completion() -> Result<SimulationResult, String> {
     let started = Instant::now();
@@ -148,7 +145,7 @@ fn wait_for_completion() -> Result<SimulationResult, String> {
         if ffi::check_exit() {
             let exit_code = ffi::exit_code();
             let uart_log = ffi::uart_log();
-            let cycles = 1000; 
+            let cycles = 1000;
 
             return Ok(SimulationResult {
                 exit_code,
@@ -165,8 +162,7 @@ fn wait_for_completion() -> Result<SimulationResult, String> {
 
 /// Generate main.tcl dynamically based on simulation parameters
 fn generate_main_tcl(fpga_location: &str, image: &Path, bitstream: &Path) -> Result<String, String> {
-    let script_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("src/runner");
+    let script_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner");
 
     let tcl = format!(
         r#"# Main TCL script for P2E simulation
@@ -229,11 +225,7 @@ fn start_vdbg_background(tcl_path: &Path) -> Result<(), String> {
         return Err(format!("sourceme.sh not found: {}", sourceme.display()));
     }
 
-    let command = format!(
-        "source {} && vdbg {} &",
-        sourceme.display(),
-        tcl_path.display()
-    );
+    let command = format!("source {} && vdbg {} &", sourceme.display(), tcl_path.display());
 
     log::info!("Starting vdbg in background: {}", command);
 

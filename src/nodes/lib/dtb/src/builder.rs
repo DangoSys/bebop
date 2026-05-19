@@ -1,26 +1,22 @@
 use crate::constants::*;
 
+#[derive(Default)]
 pub struct DtbBuilder {
     data: Vec<u8>,
 }
 
 impl DtbBuilder {
     pub fn new() -> Self {
-        Self { data: Vec::new() }
+        Self::default()
     }
 
     fn align(&mut self) {
-        while self.data.len() % 4 != 0 {
+        while !self.data.len().is_multiple_of(4) {
             self.data.push(0);
         }
     }
 
     fn write_u32(&mut self, val: u32) {
-        self.data.extend_from_slice(&val.to_be_bytes());
-    }
-
-    #[allow(dead_code)]
-    fn write_u64(&mut self, val: u64) {
         self.data.extend_from_slice(&val.to_be_bytes());
     }
 

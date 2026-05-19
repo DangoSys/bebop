@@ -1,0 +1,145 @@
+use duct::cmd;
+use std::fs;
+use std::path::Path;
+
+pub fn run_vvac(out_dir: &Path, sourceme: &Path, flist: &Path, top: &str) {
+    let vvac_cmd = format!(
+        "source {} && vvac -bc -f {} -top {}",
+        sourceme.display(),
+        flist.display(),
+        top
+    );
+
+    cmd!("bash", "-c", &vvac_cmd)
+        .dir(out_dir)
+        .stdout_to_stderr()
+        .run()
+        .unwrap_or_else(|e| {
+            panic!(
+                "vvac failed: {}. Check log: {}",
+                e,
+                out_dir.join("vvac_build.log").display()
+            )
+        });
+}
+
+pub fn add_missing_empty_modules(out_dir: &Path) -> bool {
+    let filelist_path = out_dir.join("vvacDir/vvac_by_mod/filelist");
+    if !filelist_path.exists() {
+        println!("cargo:warning=VVAC filelist not found, skipping");
+        return false;
+    }
+
+    let content = fs::read_to_string(&filelist_path).expect("Failed to read VVAC filelist");
+    let vvac_dir = out_dir.join("vvacDir/vvac_by_mod");
+
+    let empty_modules = [
+        "work_DebugCustomXbar.sv",
+        "work_IntSyncCrossingSource_n1x1_Registered.sv",
+        "work_NullIntSource.sv",
+    ];
+
+    let mut added_count = 0;
+    let mut new_lines = Vec::new();
+
+    for module in &empty_modules {
+        let file_path = vvac_dir.join(module);
+
+        if file_path.exists() && !content.contains(module) {
+            new_lines.push(format!("./{}", module));
+            println!("cargo:warning=Adding missing empty module to filelist: {}", module);
+            added_count += 1;
+        }
+    }
+
+    if added_count == 0 {
+        println!("cargo:warning=No missing empty modules found");
+        return false;
+    }
+
+    let mut new_content = content;
+    if !new_content.ends_with('\n') {
+        new_content.push('\n');
+    }
+    new_content.push_str(&new_lines.join("\n"));
+    new_content.push('\n');
+
+    fs::write(&filelist_path, new_content).expect("Failed to write updated VVAC filelist");
+    println!("cargo:warning=Added {} empty modules to VVAC filelist", added_count);
+    true
+}
+
+pub fn remove_empty_module_instantiations(build_dir: &Path) {
+    let digital_top = build_dir.join("DigitalTop.sv");
+    if !digital_top.exists() {
+        println!("cargo:warning=DigitalTop.sv not found, skipping empty module removal");
+        return;
+    }
+
+    let content = fs::read_to_string(&digital_top).expect("Failed to read DigitalTop.sv");
+
+    let empty_modules = [
+        "IntSyncCrossingSource_n1x1_Registered",
+        "NullIntSource",
+        "IntXbar_i0_o0",
+    ];
+
+    let mut removed_count = 0;
+    let new_content: String = content
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            let should_remove = empty_modules
+                .iter()
+                .any(|module| trimmed.contains(module) && trimmed.ends_with("();"));
+
+            if should_remove {
+                println!("cargo:warning=Removing empty module instantiation: {}", trimmed);
+                removed_count += 1;
+            }
+            !should_remove
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if removed_count > 0 {
+        fs::write(&digital_top, new_content).expect("Failed to write updated DigitalTop.sv");
+        println!(
+            "cargo:warning=Removed {} empty module instantiations from DigitalTop.sv",
+            removed_count
+        );
+    } else {
+        println!("cargo:warning=No empty module instantiations found in DigitalTop.sv");
+    }
+}
+
+pub fn fix_vvac_library_rpath(out_dir: &Path) {
+    // Why: VVAC libraries (libtbppeer.so, etc.) were compiled with libstdc++.so.6.0.25
+    // but their RPATH points to non-existent build-time paths. Set RPATH to $ORIGIN
+    // so they load libstdc++ from their own directory.
+
+    let vvac_lib_dir = out_dir.join("vvacDir/runtimeDir/lib/lib_arm");
+    if !vvac_lib_dir.exists() {
+        println!("cargo:warning=VVAC lib directory not found, skipping RPATH fix");
+        return;
+    }
+
+    let libraries = ["libtbppeer.so", "libvCtb.so", "libvmri.so"];
+
+    for lib_name in &libraries {
+        let lib_path = vvac_lib_dir.join(lib_name);
+        if !lib_path.exists() {
+            println!("cargo:warning={} not found, skipping", lib_name);
+            continue;
+        }
+
+        println!("cargo:warning=Fixing RPATH for {}", lib_name);
+
+        let result = cmd!("patchelf", "--set-rpath", "$ORIGIN", lib_path.to_str().unwrap()).run();
+
+        match result {
+            Ok(_) => println!("cargo:warning=Successfully fixed RPATH for {}", lib_name),
+            Err(e) => println!("cargo:warning=Failed to fix RPATH for {}: {}", lib_name, e),
+        }
+    }
+}

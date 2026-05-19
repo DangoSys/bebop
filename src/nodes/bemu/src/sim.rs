@@ -33,11 +33,16 @@ const DEFAULT_MEM_MB: usize = 2048;
 pub struct BemuCli {
     pub elf: PathBuf,
     pub log_dir: Option<PathBuf>,
+    pub pk: bool,
 }
 
 pub fn run(cli: BemuCli) -> Result<(), Whatever> {
     let elf_path = cli.elf.to_str().whatever_context("invalid elf path")?;
-    let log_path = cli.log_dir.as_ref().and_then(|d| d.to_str());
+    let log_file_path = cli.log_dir.as_ref().map(|d| {
+        std::fs::create_dir_all(d).ok();
+        d.join("disasm.log")
+    });
+    let log_path = log_file_path.as_ref().and_then(|p| p.to_str());
 
-    run_spike(DEFAULT_ISA, DEFAULT_PROCS, DEFAULT_MEM_MB, elf_path, log_path).whatever_context("spike execution failed")
+    run_spike(DEFAULT_ISA, DEFAULT_PROCS, DEFAULT_MEM_MB, elf_path, log_path, cli.pk).whatever_context("spike execution failed")
 }

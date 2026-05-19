@@ -1,6 +1,6 @@
 // RISC-V disassembler for DASM(...) patterns
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, Write};
 
 /// Process input line by line, replacing DASM(hex) with disassembled instruction
 pub fn process_dasm<R: BufRead, W: Write>(reader: R, mut writer: W) -> std::io::Result<()> {

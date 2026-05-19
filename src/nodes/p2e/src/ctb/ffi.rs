@@ -1,8 +1,8 @@
-use std::ffi::CString;
-use std::sync::{Mutex, OnceLock};
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
+use std::sync::{Mutex, OnceLock};
 
 const SIM_EXIT_ADDR: u64 = 0x6000_0000;
 const UART_BASE_ADDR: u64 = 0x6002_0000;
@@ -109,7 +109,9 @@ pub extern "C" fn scu_uart_write(hart_id: u32, ch: u32) {
 
     // Get or create file handle for this hart
     if !guard.uart_files.contains_key(&hart_id) {
-        let log_dir = guard.log_dir.clone()
+        let log_dir = guard
+            .log_dir
+            .clone()
             .expect("log_dir must be set via set_log_dir() before scu_uart_write is called");
         let log_path = format!("{}/uart_hart_{}.log", log_dir, hart_id);
 
@@ -174,6 +176,8 @@ impl CtbManager {
 
         #[cfg(vvac_linked)]
         {
+            // SAFETY: FFI call to VVAC C++ wrapper; returns opaque ICtbMgr pointer or null.
+            // Null-checked before wrapping in Self. Ownership transferred to CtbManager.
             let ctb = unsafe { raw::ctb_builder_create_wrapper() };
             if ctb.is_null() {
                 return Err("failed to create ICtbMgr".to_string());
@@ -188,6 +192,8 @@ impl CtbManager {
         let rtcfg_path_c = CString::new(rtcfg_path).map_err(|e| e.to_string())?;
 
         #[cfg(vvac_linked)]
+        // SAFETY: FFI call to VVAC C++ wrapper; self.ctb is valid (set in new(), freed in Drop);
+        // CString args outlive the FFI call. Returns bool indicating success.
         let success = unsafe {
             raw::ctb_init_wrapper(
                 self.ctb,
@@ -214,6 +220,8 @@ impl CtbManager {
     pub fn quit(&self) {
         if !self.ctb.is_null() {
             #[cfg(vvac_linked)]
+            // SAFETY: self.ctb is valid (set in new(), freed in Drop); ctb_quit_wrapper
+            // is the proper cleanup function for ICtbMgr.
             unsafe {
                 raw::ctb_quit_wrapper(self.ctb);
             }

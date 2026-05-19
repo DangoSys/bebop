@@ -16,20 +16,18 @@ pub fn handle_write(state: &mut SyscallState, fd: u64, buf_addr: u64, count: usi
             std::io::stdout().write_all(data).ok();
         }
         (count as u64, false)
-    } else {
-        if let Some(file) = state.open_files.get_mut(&fd) {
-            if buf_addr < 0x80000000 || buf_addr + count as u64 > 0x80000000 + memory.len() as u64 {
-                return ((-1i64 as u64), false);
-            }
-            let offset = (buf_addr - 0x80000000) as usize;
-            let data = &memory[offset..offset + count];
-
-            match file.write(data) {
-                Ok(n) => (n as u64, false),
-                Err(_) => ((-1i64 as u64), false),
-            }
-        } else {
-            ((-1i64 as u64), false)
+    } else if let Some(file) = state.open_files.get_mut(&fd) {
+        if buf_addr < 0x80000000 || buf_addr + count as u64 > 0x80000000 + memory.len() as u64 {
+            return ((-1i64 as u64), false);
         }
+        let offset = (buf_addr - 0x80000000) as usize;
+        let data = &memory[offset..offset + count];
+
+        match file.write(data) {
+            Ok(n) => (n as u64, false),
+            Err(_) => ((-1i64 as u64), false),
+        }
+    } else {
+        ((-1i64 as u64), false)
     }
 }
