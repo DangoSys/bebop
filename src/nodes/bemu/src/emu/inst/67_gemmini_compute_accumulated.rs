@@ -41,10 +41,13 @@ impl Instruction for GemminiComputeAccumulated {
         let mut c = read_i32_nn(ctx.banks, pw, n);
 
         // OS mode: same semantics as gemmini_compute_preloaded
+        // read A[i][k] iff (b_t AND NOT a_t), else A[k][i]
+        // read B[j][k] iff b_t, else B[k][j]
         for i in 0..n {
             for j in 0..n {
                 for k in 0..n {
-                    let av = if a_transpose { a[k][i] } else { a[i][k] };
+                    let a_swap = b_transpose && !a_transpose;
+                    let av = if a_swap { a[i][k] } else { a[k][i] };
                     let bv = if b_transpose { b[j][k] } else { b[k][j] };
                     c[i][j] += av as i32 * bv as i32;
                 }

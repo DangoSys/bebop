@@ -68,9 +68,11 @@ impl Instruction for GemminiComputePreloaded {
                 for j in 0..n {
                     let mut acc = 0i32;
                     for k in 0..n {
-                        // a_transpose=0: read A[i][k] (transposer ON)
-                        // a_transpose=1: read A[k][i] (transposer OFF)
-                        let av = if a_transpose { a[k][i] } else { a[i][k] };
+                        // OS mode semantics (matches gemmini_loop_ws):
+                        // read A[i][k] iff (b_t AND NOT a_t), else A[k][i]
+                        // read B[j][k] iff b_t, else B[k][j]
+                        let a_swap = b_transpose && !a_transpose;
+                        let av = if a_swap { a[i][k] } else { a[k][i] };
                         let bv = if b_transpose { b[j][k] } else { b[k][j] };
                         acc += av as i32 * bv as i32;
                     }

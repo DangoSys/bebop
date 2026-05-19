@@ -136,7 +136,12 @@ pub fn apply_dynamic_relocations(
 // Why: relocated non-PIE ELFs have no RELATIVE relocations, but their .data/.got contain raw
 // function pointers compiled for the pre-relocation address. Scan non-executable PT_LOAD
 // segments and add the relocation offset to any 8-byte word that looks like a pre-relocation
-// pointer (lies within [min_vaddr, min_vaddr+0x100000)).
+// pointer (lies within (min_vaddr, min_vaddr+0x100000)).
+//
+// Strict greater-than (>) min_vaddr avoids false positives from integer data that happens to
+// equal min_vaddr exactly. For example, the value 0x10000 (= 65536) is a common integer in
+// test data matrices, and would otherwise be mistakenly fixed up as a pointer.
+// Real function pointers point past the entry point (which itself is past min_vaddr).
 pub fn apply_pointer_fixup(all_phdrs: &[Elf64Phdr], ctx: &mut RelocCtx) {
     if ctx.is_pie || !ctx.needs_relocation {
         return;
@@ -163,7 +168,8 @@ pub fn apply_pointer_fixup(all_phdrs: &[Elf64Phdr], ctx: &mut RelocCtx) {
             ptr_bytes.copy_from_slice(&ctx.mem_base[ptr_offset..ptr_offset + 8]);
             let ptr = u64::from_le_bytes(ptr_bytes);
 
-            if ptr >= ctx.min_vaddr && ptr < ctx.min_vaddr + 0x100000 {
+            // Use strict > to skip values exactly equal to min_vaddr (common integer in data)
+            if ptr > ctx.min_vaddr && ptr < ctx.min_vaddr + 0x100000 {
                 let new_ptr = ptr + reloc_offset;
                 ctx.mem_base[ptr_offset..ptr_offset + 8].copy_from_slice(&new_ptr.to_le_bytes());
             }
