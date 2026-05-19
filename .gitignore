@@ -29,12 +29,9 @@ work_lib/
 build.log
 
 bemu.log
-<<<<<<< HEAD
 out_bake/
 xepic_waveform/
 
 *.key
-=======
 
 test-artifacts/
->>>>>>> 167e6e7... chore: update artifact management and test configurations, remove unused tempfile dependency
