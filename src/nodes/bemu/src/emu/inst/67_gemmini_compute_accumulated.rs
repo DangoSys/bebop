@@ -1,6 +1,7 @@
 use super::super::bank::BANK_NUM;
 use super::bank_matrix::{read_i32_nn, read_i8_nn, write_i32_nn};
 use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
+use super::gemmini_state::gemini;
 use super::instruction::{ExecContext, Instruction};
 
 pub struct GemminiComputeAccumulated;
@@ -29,14 +30,26 @@ impl Instruction for GemminiComputeAccumulated {
         let pb = pbank(ctx.bank_map, op_b);
         let pw = pbank(ctx.bank_map, wr);
 
+        let gm = gemini().lock().unwrap();
+        let a_transpose = gm.cfg.a_transpose;
+        let b_transpose = gm.cfg.b_transpose;
+        let in_shift = gm.cfg.in_shift;
+        drop(gm);
+
         let a = read_i8_nn(ctx.banks, pa, n);
         let b = read_i8_nn(ctx.banks, pb, n);
         let mut c = read_i32_nn(ctx.banks, pw, n);
 
+        // OS mode: same semantics as gemmini_compute_preloaded
         for i in 0..n {
             for j in 0..n {
                 for k in 0..n {
-                    c[i][j] += a[k][i] as i32 * b[k][j] as i32;
+                    let av = if a_transpose { a[k][i] } else { a[i][k] };
+                    let bv = if b_transpose { b[j][k] } else { b[k][j] };
+                    c[i][j] += av as i32 * bv as i32;
+                }
+                if in_shift > 0 {
+                    c[i][j] >>= in_shift;
                 }
             }
         }

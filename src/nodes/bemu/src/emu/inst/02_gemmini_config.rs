@@ -13,6 +13,7 @@ impl Instruction for GemminiConfig {
         g.cfg.dataflow = ((xs2 >> 4) & 1) as u8;
         g.cfg.a_transpose = ((xs2 >> 7) & 1) != 0;
         g.cfg.b_transpose = ((xs2 >> 8) & 1) != 0;
+        g.cfg.in_shift = ((xs2 >> 9) & 0xFFFFFFFF) as u32;
         0
     }
 

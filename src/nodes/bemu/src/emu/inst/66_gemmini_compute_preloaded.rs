@@ -31,6 +31,9 @@ impl Instruction for GemminiComputePreloaded {
         let pw = pbank(ctx.bank_map, wr);
         let gm = gemini().lock().unwrap();
         let df = gm.cfg.dataflow;
+        let a_transpose = gm.cfg.a_transpose;
+        let b_transpose = gm.cfg.b_transpose;
+        let in_shift = gm.cfg.in_shift;
         let ws_b = gm.ws_b.clone();
         drop(gm);
 
@@ -50,14 +53,29 @@ impl Instruction for GemminiComputePreloaded {
             }
             write_i32_nn(ctx.banks, pw, &c, n);
         } else {
+            // OS mode: per RTL GemminiExCtrlPreloadStates, preload feeds D=0 to mesh
+            // in OS mode (regardless of the preload bank contents). So the accumulator
+            // starts at zero — not the bank_c contents written by gemmini_preload.
+            //
+            // RTL: mesh.a_transpose = !cfg_a_transpose (negated!)
+            // OS mesh default: C[i][j] = sum_k A[k][i] * B[k][j]
+            //   cfg_a_transpose=0 → transposer ON → A * B
+            //   cfg_a_transpose=1 → transposer OFF → A^T * B
             let a = read_i8_nn(ctx.banks, pa, n);
             let b = read_i8_nn(ctx.banks, pb, n);
-            let mut c = read_i32_nn(ctx.banks, pw, n);
+            let mut c = vec![vec![0i32; n]; n];
             for i in 0..n {
                 for j in 0..n {
-                    let mut acc = c[i][j];
+                    let mut acc = 0i32;
                     for k in 0..n {
-                        acc += a[k][i] as i32 * b[k][j] as i32;
+                        // a_transpose=0: read A[i][k] (transposer ON)
+                        // a_transpose=1: read A[k][i] (transposer OFF)
+                        let av = if a_transpose { a[k][i] } else { a[i][k] };
+                        let bv = if b_transpose { b[j][k] } else { b[k][j] };
+                        acc += av as i32 * bv as i32;
+                    }
+                    if in_shift > 0 {
+                        acc >>= in_shift;
                     }
                     c[i][j] = acc;
                 }

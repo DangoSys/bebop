@@ -30,11 +30,28 @@ fn exec_cfg_impl(funct: u32, xs2: u64) -> u64 {
 }
 
 fn exec_loop_impl(memory: &mut [u8]) -> u64 {
-    let lw = gemini().lock().unwrap().loop_ws.clone();
+    let g = gemini().lock().unwrap();
+    let lw = g.loop_ws.clone();
+    let a_transpose = g.cfg.a_transpose;
+    let b_transpose = g.cfg.b_transpose;
+    let in_shift = g.cfg.in_shift;
+    drop(g);
+
     let n = lw.stride_a as usize;
     if n == 0 || n > 64 {
         panic!("gemmini_loop_ws: bad stride/n");
     }
+    // OS mode HW semantics (matches RTL MeshWithDelays):
+    //   RTL: mesh.a_transpose = !cfg_a_transpose (negated!)
+    //   OS mesh default data flow computes: C[i][j] = sum_k A[k][i] * B[k][j]
+    //
+    //   cfg_a_transpose=0 → mesh.a_transpose=1 → transposer ON
+    //     → reads A, transposes it, feeds A^T to mesh
+    //     → mesh computes (A^T)^T * B = A * B
+    //
+    //   cfg_a_transpose=1 → mesh.a_transpose=0 → transposer OFF
+    //     → reads A, no transpose, feeds A to mesh
+    //     → mesh computes A^T * B
     for i in 0..n {
         for j in 0..n {
             let ii = i as u64;
@@ -47,9 +64,26 @@ fn exec_loop_impl(memory: &mut [u8]) -> u64 {
             };
             for k in 0..n {
                 let kk = k as u64;
-                let av = mem_i8(memory, lw.addr_a + kk * lw.stride_a + ii);
-                let bv = mem_i8(memory, lw.addr_b + kk * lw.stride_b + jj);
+                // Simulate transposer + OS mesh:
+                // a_transpose=0: transposer ON → read A[i][k], mesh sees A^T, computes A*B
+                // a_transpose=1: transposer OFF → read A[k][i], mesh sees A, computes A^T*B
+                let av = if a_transpose {
+                    mem_i8(memory, lw.addr_a + kk * lw.stride_a + ii)
+                } else {
+                    mem_i8(memory, lw.addr_a + ii * lw.stride_a + kk)
+                };
+                // b_transpose=0: read B[k][j]
+                // b_transpose=1: transpose B → read B[j][k] for B^T
+                let bv = if b_transpose {
+                    mem_i8(memory, lw.addr_b + jj * lw.stride_b + kk)
+                } else {
+                    mem_i8(memory, lw.addr_b + kk * lw.stride_b + jj)
+                };
                 acc += av as i32 * bv as i32;
+            }
+            // Apply in_shift (arithmetic right shift) before writing back
+            if in_shift > 0 {
+                acc >>= in_shift;
             }
             let c_off = lw.addr_c + ii * lw.stride_c + jj * 4;
             mem_write_i32(memory, c_off, acc);

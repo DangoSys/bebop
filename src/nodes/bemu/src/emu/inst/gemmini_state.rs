@@ -6,6 +6,7 @@ pub struct GemminiCfg {
     pub dataflow: u8,
     pub a_transpose: bool,
     pub b_transpose: bool,
+    pub in_shift: u32,
 }
 
 #[derive(Clone, Default)]
