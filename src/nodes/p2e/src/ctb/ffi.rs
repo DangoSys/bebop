@@ -83,6 +83,11 @@ pub fn host_mmio_write(addr: u64, data: u64) -> i32 {
 
     if addr == SIM_EXIT_ADDR {
         guard.exit_code = Some((data & 0xffff_ffff) as i32);
+        // Drop the lock before file I/O to avoid holding it across syscalls
+        drop(guard);
+        // Create exit flag file for TCL to detect and stop its run loop
+        // Path is relative to case_home (vdbg's CWD)
+        let _ = std::fs::write("sim_exit.flag", format!("{}", data & 0xffff_ffff));
         return 0;
     }
 
@@ -156,6 +161,7 @@ pub extern "C" fn scu_sim_exit(hart_id: u32, code: u32) {
     }
 
     // Try to write to exit address, but don't crash if it fails
+    // host_mmio_write handles both exit_code state and sim_exit.flag creation
     let _ = host_mmio_write(SIM_EXIT_ADDR, code as u64);
 }
 

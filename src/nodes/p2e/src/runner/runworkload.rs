@@ -65,8 +65,10 @@ pub fn run(
     // Clean up old flag files before starting
     let flash_done_flag = case_home.join("flash_done.flag");
     let host_init_flag = case_home.join("host_init_done.flag");
+    let sim_exit_flag = case_home.join("sim_exit.flag");
     let _ = std::fs::remove_file(&flash_done_flag);
     let _ = std::fs::remove_file(&host_init_flag);
+    let _ = std::fs::remove_file(&sim_exit_flag);
     log::info!("Cleaned up old flag files");
 
     // Start vdbg with main.tcl in background
