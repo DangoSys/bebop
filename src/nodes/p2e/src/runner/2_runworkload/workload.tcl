@@ -32,7 +32,7 @@ proc run_workload {cycles} {
 
     while {1} {
         incr iteration
-        puts "  Iteration $iteration: running $cycles cycles..."
+        # puts "  Iteration $iteration: running $cycles cycles..."
         run $cycles rclk
 
         # Check if Rust side created exit flag
@@ -42,10 +42,10 @@ proc run_workload {cycles} {
         }
 
         # Timeout after 10000 iterations (200M cycles with default 20k per iter)
-        if {$iteration >= 10000} {
-            puts "WARNING: Reached maximum iterations (10000), stopping"
-            break
-        }
+        # if {$iteration >= 10000} {
+        #     puts "WARNING: Reached maximum 200M cycles, this may be too long for baremetal."
+        #     puts "WARNING: If you are running OS, ignore this warning."
+        # }
     }
 
     puts "Workload completed after $iteration iterations"
