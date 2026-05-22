@@ -57,6 +57,21 @@ public:
         if (isa_storage.find("xbuckyball") == std::string::npos) {
             isa_storage += "_xbuckyball";
         }
+        // Enable Zicclsm extension to allow misaligned load/store accesses
+        // (real Linux kernels handle misaligned traps in software; bemu has no such handler,
+        // so we let Spike's MMU permit them directly, matching the FPGA Linux environment.)
+        if (isa_storage.find("zicclsm") == std::string::npos) {
+            isa_storage += "_zicclsm";
+        }
+        // Enable Zicntr (cycle/time/instret) and Zihpm (hardware perf counters) extensions
+        // so guest code can execute `rdcycle`/`rdtime`/`rdinstret` instructions.
+        // Without these, `csrr a5, cycle` (used by LeNet's read_cycles()) traps as illegal.
+        if (isa_storage.find("zicntr") == std::string::npos) {
+            isa_storage += "_zicntr";
+        }
+        if (isa_storage.find("zihpm") == std::string::npos) {
+            isa_storage += "_zihpm";
+        }
         cfg.isa = isa_storage.c_str();
         cfg.priv = "MSU";  // Support Machine, Supervisor, and User modes
         cfg.mem_layout.push_back(mem_cfg_t(DRAM_BASE, mem_size));
@@ -154,6 +169,16 @@ int spike_run_raw(
     FILE* log_file = nullptr;
     if (log_path && strlen(log_path) > 0) {
         log_file = fopen(log_path, "w");
+        if (log_file == nullptr) {
+            fprintf(stderr, "[ERROR] Failed to open log file: %s\n", log_path);
+            fflush(stderr);
+            return 1;
+        }
+    } else {
+        fprintf(stderr, "[ERROR] log_path is required: bemu enables Spike debug mode and must write disasm.log\n");
+        fprintf(stderr, "[ERROR] Pass --log-dir=<dir> when invoking bemu (e.g. --log-dir=/tmp/bemu_log)\n");
+        fflush(stderr);
+        return 1;
     }
 
     const char* final_isa = simif.get_cfg().isa;
@@ -238,6 +263,19 @@ int spike_run_raw(
         reg_t mstatus = state->csrmap[CSR_MSTATUS]->read();
         mstatus = (mstatus & ~MSTATUS_FS_MASK) | MSTATUS_FS_DIRTY;
         state->csrmap[CSR_MSTATUS]->write(mstatus);
+
+        // Enable performance counters (cycle, time, instret) for S/U modes.
+        // Real Linux kernels set these CSRs so user programs can read cycle counters.
+        // Without this, `rdcycle` / `csrr a5, cycle` triggers illegal instruction trap.
+        // mcounteren: M-mode allows S-mode to access counters
+        // scounteren: S-mode allows U-mode to access counters
+        // Bits: 0=cycle, 1=time, 2=instret, 3-31=hpmcounter3-31
+        constexpr reg_t COUNTEREN_CY = 0x1;  // cycle
+        constexpr reg_t COUNTEREN_TM = 0x2;  // time
+        constexpr reg_t COUNTEREN_IR = 0x4;  // instret
+        constexpr reg_t COUNTEREN_MASK = COUNTEREN_CY | COUNTEREN_TM | COUNTEREN_IR;
+        state->csrmap[CSR_MCOUNTEREN]->write(COUNTEREN_MASK);
+        state->csrmap[CSR_SCOUNTEREN]->write(COUNTEREN_MASK);
 
         state->pc = entry;
         state->XPR.write(10, 0);        // a0 = hartid (0)
@@ -373,6 +411,11 @@ int spike_run_raw(
         reg_t mstatus = state->csrmap[CSR_MSTATUS]->read();
         mstatus = (mstatus & ~MSTATUS_FS_MASK) | MSTATUS_FS_DIRTY;
         state->csrmap[CSR_MSTATUS]->write(mstatus);
+
+        // Enable performance counters (cycle, time, instret) for S/U modes
+        constexpr reg_t COUNTEREN_MASK = 0x7;  // cycle | time | instret
+        state->csrmap[CSR_MCOUNTEREN]->write(COUNTEREN_MASK);
+        state->csrmap[CSR_SCOUNTEREN]->write(COUNTEREN_MASK);
 
         state->pc = entry;
         state->XPR.write(10, 0);        // a0 = hartid (0)
@@ -525,6 +568,11 @@ int spike_run_raw(
                 // Breakpoint (ebreak) - this might be our trap handler
                 // Skip the ebreak instruction
                 state->pc += 4;
+            } else if (t.cause() == CAUSE_MISALIGNED_LOAD || t.cause() == CAUSE_MISALIGNED_STORE) {
+                // Misaligned load/store: Spike's MMU will handle this in software.
+                // The trap handler has already been invoked by Spike internally,
+                // and the PC has been updated. We just need to continue execution.
+                // Do nothing - let Spike's internal misaligned handler take care of it.
             } else {
                 reg_t mcause = state->csrmap[CSR_MCAUSE]->read();
                 reg_t mepc = state->csrmap[CSR_MEPC]->read();

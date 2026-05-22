@@ -8,8 +8,25 @@ pub fn handle_getcwd(buf_addr: u64, size: usize, memory: &mut [u8]) -> (u64, boo
     if buf_addr < GUEST_MEM_BASE || buf_addr + size as u64 > mem_end {
         return ((ERR_FAULT as u64), false);
     }
-    let cwd = b"/\0";
+
+    // Return the host's real CWD so guest programs can resolve relative paths correctly
+    let cwd = match std::env::current_dir() {
+        Ok(path) => {
+            let mut path_bytes = path.to_string_lossy().as_bytes().to_vec();
+            path_bytes.push(0); // null terminator
+            path_bytes
+        }
+        Err(_) => b"/\0".to_vec(),
+    };
+
+    if cwd.len() > size {
+        return ((ERR_INVAL as u64), false);
+    }
+
     let off = (buf_addr - GUEST_MEM_BASE) as usize;
-    memory[off..off + cwd.len()].copy_from_slice(cwd);
-    (buf_addr, false)
+    memory[off..off + cwd.len()].copy_from_slice(&cwd);
+    // Linux kernel's getcwd syscall returns the number of bytes written
+    // (including the null terminator), NOT the buffer address.
+    // glibc's wrapper converts this length to a buf pointer.
+    (cwd.len() as u64, false)
 }

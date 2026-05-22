@@ -20,6 +20,10 @@ impl Instruction for MulWarp16 {
         let iter = rs1_iter(xs1);
         let _ = xs2;
 
+        if std::env::var("BEMU_RTRACE").is_ok() {
+            eprintln!("[RTRACE] mul_warp16: banks[{},{},{}] iter={}", op1, op2, wr, iter);
+        }
+
         if op1 >= BANK_NUM as u64 || op2 >= BANK_NUM as u64 || wr >= BANK_NUM as u64 {
             panic!("mul_warp16: invalid bank_id");
         }

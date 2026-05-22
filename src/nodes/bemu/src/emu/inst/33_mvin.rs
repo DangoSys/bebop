@@ -14,6 +14,11 @@ impl Instruction for Mvin {
         let depth = rs1_iter(xs1);
         let (mem_addr, stride) = xs2_mem_stride(xs2);
 
+        if std::env::var("BEMU_RTRACE").is_ok() {
+            eprintln!("[RTRACE] mvin: DRAM[0x{:x}] stride={} -> bank{} depth={}",
+                mem_addr, stride, bank_id, depth);
+        }
+
         if bank_id >= BANK_NUM as u64 {
             panic!("mvin: invalid bank_id {bank_id}");
         }

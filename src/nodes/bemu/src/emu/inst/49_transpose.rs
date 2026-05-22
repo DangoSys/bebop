@@ -15,6 +15,10 @@ impl Instruction for Transpose {
         let iter = rs1_iter(xs1);
         let _ = xs2;
 
+        if std::env::var("BEMU_RTRACE").is_ok() {
+            eprintln!("[RTRACE] transpose: bank{} -> bank{} iter={}", op1, wr, iter);
+        }
+
         if op1 >= BANK_NUM as u64 || wr >= BANK_NUM as u64 {
             panic!("transpose: invalid bank_id");
         }

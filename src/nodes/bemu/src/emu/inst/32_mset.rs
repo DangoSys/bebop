@@ -11,7 +11,11 @@ impl Instruction for Mset {
 
     fn exec(xs1: u64, xs2: u64, ctx: &mut ExecContext) -> u64 {
         let bank_id = rs1_b0(xs1);
-        let (_, col, alloc) = xs2_mset(xs2);
+        let (rows, col, alloc) = xs2_mset(xs2);
+
+        if std::env::var("BEMU_RTRACE").is_ok() {
+            eprintln!("[RTRACE] mset: bank{} rows={} cols={} alloc={}", bank_id, rows, col, alloc);
+        }
 
         if bank_id >= BANK_NUM as u64 {
             panic!("mset: invalid bank_id {bank_id}");

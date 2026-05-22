@@ -30,13 +30,38 @@ pub fn handle_readlinkat(
         Ok(s) => s,
         Err(_) => return ((ERR_INVAL as u64), false),
     };
-    if path != "/proc/self/exe" {
-        return ((ERR_NOENT as u64), false);
+
+    // Special-case /proc/self/exe so the guest sees a sensible identifier
+    if path == "/proc/self/exe" {
+        let exe = b"/proc/self/exe";
+        let n = exe.len().min(buf_size);
+        let buf_offset = (buf_addr - GUEST_MEM_BASE) as usize;
+        memory[buf_offset..buf_offset + n].copy_from_slice(&exe[..n]);
+        return (n as u64, false);
     }
 
-    let exe = b"/proc/self/exe";
-    let n = exe.len().min(buf_size);
-    let buf_offset = (buf_addr - GUEST_MEM_BASE) as usize;
-    memory[buf_offset..buf_offset + n].copy_from_slice(&exe[..n]);
-    (n as u64, false)
+    // General case: delegate to host filesystem. Linux distinguishes:
+    //   - ENOENT  : path does not exist
+    //   - EINVAL  : path exists but is not a symlink
+    //   - >0      : symlink resolved, returns target length
+    // std::filesystem::canonical() relies on this distinction; returning ENOENT for an
+    // existing regular file causes it to throw filesystem_error.
+    match std::fs::symlink_metadata(path) {
+        Err(_) => (ERR_NOENT as u64, false),
+        Ok(meta) => {
+            if !meta.file_type().is_symlink() {
+                return (ERR_INVAL as u64, false);
+            }
+            match std::fs::read_link(path) {
+                Ok(target) => {
+                    let target_bytes = target.to_string_lossy().as_bytes().to_vec();
+                    let n = target_bytes.len().min(buf_size);
+                    let buf_offset = (buf_addr - GUEST_MEM_BASE) as usize;
+                    memory[buf_offset..buf_offset + n].copy_from_slice(&target_bytes[..n]);
+                    (n as u64, false)
+                }
+                Err(_) => (ERR_INVAL as u64, false),
+            }
+        }
+    }
 }

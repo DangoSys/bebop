@@ -22,6 +22,7 @@ pub const SYS_TGKILL: u64 = 131;
 pub const SYS_GETPID: u64 = 172;
 pub const SYS_GETTID: u64 = 178;
 pub const SYS_SET_ROBUST_LIST: u64 = 99;
+pub const SYS_FUTEX: u64 = 98;
 pub const SYS_BRK: u64 = 214;
 pub const SYS_MUNMAP: u64 = 215;
 pub const SYS_MMAP: u64 = 222;

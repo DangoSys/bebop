@@ -38,11 +38,16 @@ pub struct BemuCli {
 
 pub fn run(cli: BemuCli) -> Result<(), Whatever> {
     let elf_path = cli.elf.to_str().whatever_context("invalid elf path")?;
-    let log_file_path = cli.log_dir.as_ref().map(|d| {
-        std::fs::create_dir_all(d).ok();
-        d.join("disasm.log")
-    });
-    let log_path = log_file_path.as_ref().and_then(|p| p.to_str());
+    let log_dir = cli.log_dir.as_ref().whatever_context(
+        "--log-dir is required: bemu enables Spike debug mode and must write disasm.log; \
+         pass --log-dir=<dir> (e.g. --log-dir=/tmp/bemu_log)",
+    )?;
+    std::fs::create_dir_all(log_dir).ok();
+    let log_file_path = log_dir.join("disasm.log");
+    let log_path = log_file_path
+        .to_str()
+        .whatever_context("invalid log_dir path")?;
 
-    run_spike(DEFAULT_ISA, DEFAULT_PROCS, DEFAULT_MEM_MB, elf_path, log_path, cli.pk).whatever_context("spike execution failed")
+    run_spike(DEFAULT_ISA, DEFAULT_PROCS, DEFAULT_MEM_MB, elf_path, Some(log_path), cli.pk)
+        .whatever_context("spike execution failed")
 }
