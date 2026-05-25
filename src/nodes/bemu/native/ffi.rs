@@ -28,7 +28,9 @@ struct EmuState {
 
 impl EmuState {
     fn new() -> Self {
-        const MEM_SIZE: usize = 1 << 34; // 16GB
+        // 1GB Here is important, for baremetal mode, when we set this to 4GB, 
+        // it will running for a long time.
+        const MEM_SIZE: usize = 1 << 30; 
         Self {
             memory: vec![0; MEM_SIZE],
             banks: vec![vec![0; BANK_SIZE]; BANK_NUM],
