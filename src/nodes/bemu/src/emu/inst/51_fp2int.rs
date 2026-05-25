@@ -1,12 +1,12 @@
-//===- 51_quant.rs - QUANT instruction (quantization) ----------------------===//
+//===- 51_quant.rs - FP2INT instruction (FP32 to INT quantization) ----------------------===//
 
 use super::super::bank::{BANK_NUM, BANK_SIZE};
 use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
 use super::instruction::{ExecContext, Instruction};
 
-pub struct Quant;
+pub struct Fp2Int;
 
-impl Instruction for Quant {
+impl Instruction for Fp2Int {
     const FUNCT: u32 = 51;
 
     fn exec(xs1: u64, xs2: u64, ctx: &mut ExecContext) -> u64 {
@@ -15,13 +15,13 @@ impl Instruction for Quant {
         let depth = rs1_iter(xs1) as usize;
 
         if src >= BANK_NUM as u64 || dst >= BANK_NUM as u64 {
-            panic!("quant: invalid bank_id");
+            panic!("fp2int: invalid bank_id");
         }
 
         let sc = ctx.cfgs[src as usize];
         let dc = ctx.cfgs[dst as usize];
         if !sc.allocated || !dc.allocated {
-            panic!("quant: bank not allocated");
+            panic!("fp2int: bank not allocated");
         }
 
         let ps = pbank(ctx.bank_map, src);
@@ -38,7 +38,7 @@ impl Instruction for Quant {
                     let src_base = i * 64;
                     let dst_base = i * 64;
                     if src_base + 64 > BANK_SIZE || dst_base + 64 > BANK_SIZE {
-                        panic!("quant: out of range");
+                        panic!("fp2int: out of range");
                     }
                     for j in 0..16 {
                         let off = src_base + j * 4;
@@ -57,7 +57,7 @@ impl Instruction for Quant {
                     let src_base = i * 64;
                     let dst_base = i * 16;
                     if src_base + 64 > BANK_SIZE || dst_base + 16 > BANK_SIZE {
-                        panic!("quant: out of range");
+                        panic!("fp2int: out of range");
                     }
                     for j in 0..16 {
                         let off = src_base + j * 4;
@@ -69,7 +69,7 @@ impl Instruction for Quant {
             }
             _ => {
                 panic!(
-                    "quant: unsupported layout src_cols={} dst_cols={}. Supported: (1,1) for FP32->INT32, (4,1) for FP32->INT8",
+                    "fp2int: unsupported layout src_cols={} dst_cols={}. Supported: (1,1) for FP32->INT32, (4,1) for FP32->INT8",
                     sc.cols, dc.cols
                 );
             }

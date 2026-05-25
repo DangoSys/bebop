@@ -20,18 +20,22 @@ struct EmuState {
     banks: Vec<Vec<u8>>,
     bank_cfgs: Vec<BankConfig>,
     bank_map: BankMap,
+    mmio_banks: [[u8; 1024]; 16],
+    mmio_region_table: [crate::inst::instruction::MmioRegion; 32],
     total_lat: u64,
     uart: Uart,
 }
 
 impl EmuState {
     fn new() -> Self {
-        const MEM_SIZE: usize = 1 << 30; // 1GB
+        const MEM_SIZE: usize = 1 << 34; // 16GB
         Self {
             memory: vec![0; MEM_SIZE],
             banks: vec![vec![0; BANK_SIZE]; BANK_NUM],
             bank_cfgs: vec![BankConfig::default(); BANK_NUM],
             bank_map: BankMap::new(BANK_NUM),
+            mmio_banks: [[0u8; 1024]; 16],
+            mmio_region_table: [crate::inst::instruction::MmioRegion::default(); 32],
             total_lat: 0,
             uart: Uart::new(),
         }
@@ -43,6 +47,10 @@ impl EmuState {
         }
         self.bank_cfgs.fill(BankConfig::default());
         self.bank_map = BankMap::new(BANK_NUM);
+        for bank in &mut self.mmio_banks {
+            bank.fill(0);
+        }
+        self.mmio_region_table = [crate::inst::instruction::MmioRegion::default(); 32];
         self.total_lat = 0;
     }
 }
@@ -68,6 +76,8 @@ pub extern "C" fn buckyball_exec(funct7: u8, xs1: u64, xs2: u64) -> u64 {
         banks,
         bank_cfgs,
         bank_map,
+        mmio_banks,
+        mmio_region_table,
         uart: _,
         ..
     } = &mut *state;
@@ -77,6 +87,8 @@ pub extern "C" fn buckyball_exec(funct7: u8, xs1: u64, xs2: u64) -> u64 {
         banks,
         cfgs: bank_cfgs,
         bank_map,
+        mmio_banks,
+        mmio_region_table,
     };
 
     inst::decode::execute_known(funct7 as u32, xs1, xs2, &mut ctx)

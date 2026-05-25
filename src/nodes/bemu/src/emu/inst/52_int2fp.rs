@@ -1,12 +1,12 @@
-//===- 52_dequant.rs - DEQUANT instruction (dequantization) ----------------===//
+//===- 52_dequant.rs - INT2FP instruction (INT to FP32 dequantization) ----------------===//
 
 use super::super::bank::{BANK_NUM, BANK_SIZE};
 use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
 use super::instruction::{ExecContext, Instruction};
 
-pub struct Dequant;
+pub struct Int2Fp;
 
-impl Instruction for Dequant {
+impl Instruction for Int2Fp {
     const FUNCT: u32 = 52;
 
     fn exec(xs1: u64, xs2: u64, ctx: &mut ExecContext) -> u64 {
@@ -15,13 +15,13 @@ impl Instruction for Dequant {
         let depth = rs1_iter(xs1) as usize;
 
         if src >= BANK_NUM as u64 || dst >= BANK_NUM as u64 {
-            panic!("dequant: invalid bank_id");
+            panic!("int2fp: invalid bank_id");
         }
 
         let sc = ctx.cfgs[src as usize];
         let dc = ctx.cfgs[dst as usize];
         if !sc.allocated || !dc.allocated {
-            panic!("dequant: bank not allocated");
+            panic!("int2fp: bank not allocated");
         }
 
         let ps = pbank(ctx.bank_map, src);
@@ -38,7 +38,7 @@ impl Instruction for Dequant {
                     let src_base = i * 64;
                     let dst_base = i * 64;
                     if src_base + 64 > BANK_SIZE || dst_base + 64 > BANK_SIZE {
-                        panic!("dequant: out of range");
+                        panic!("int2fp: out of range");
                     }
                     for j in 0..16 {
                         let off = src_base + j * 4;
@@ -55,7 +55,7 @@ impl Instruction for Dequant {
                     let src_base = i * 16;
                     let dst_base = i * 64;
                     if src_base + 16 > BANK_SIZE || dst_base + 64 > BANK_SIZE {
-                        panic!("dequant: out of range");
+                        panic!("int2fp: out of range");
                     }
                     for j in 0..16 {
                         let v = ctx.banks[ps][src_base + j] as i8;
@@ -67,7 +67,7 @@ impl Instruction for Dequant {
             }
             _ => {
                 panic!(
-                    "dequant: unsupported layout src_cols={} dst_cols={}. Supported: (1,1) for INT32->FP32, (1,4) for INT8->FP32",
+                    "int2fp: unsupported layout src_cols={} dst_cols={}. Supported: (1,1) for INT32->FP32, (1,4) for INT8->FP32",
                     sc.cols, dc.cols
                 );
             }
