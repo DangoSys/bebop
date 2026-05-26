@@ -26,7 +26,12 @@ where
         let name_fn = test_case_display_name.clone();
         let extension = backend.scan_extension();
         let backend_for_list = backend.clone();
-        if let Err(e) = write_nextest_terse_list(&args, extension, move |tc| backend_for_list.match_case(tc), move |tc| name_fn(tc)) {
+        if let Err(e) = write_nextest_terse_list(
+            &args,
+            extension,
+            move |tc| backend_for_list.match_case(tc),
+            move |tc| name_fn(tc),
+        ) {
             eprintln!("error: {e}");
             return ExitCode::FAILURE;
         }

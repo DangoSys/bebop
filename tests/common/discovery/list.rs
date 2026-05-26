@@ -13,8 +13,7 @@ pub fn write_nextest_terse_list(
         return Ok(());
     }
 
-    let test_cases = discover_tests(args, extension, match_case)
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    let test_cases = discover_tests(args, extension, match_case).map_err(|e| std::io::Error::other(e.to_string()))?;
 
     let mut stdout = std::io::stdout().lock();
     for tc in test_cases {

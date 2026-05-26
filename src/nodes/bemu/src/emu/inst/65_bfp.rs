@@ -1,6 +1,6 @@
 use super::super::bank::BANK_NUM;
-use super::bank_matrix::{read_i8_nn, write_i32_nn};
-use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
+use super::bank_matrix::{read_i8_nn, write_i32_nn_groups};
+use super::decode::{pbank, pbank_group, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
 use super::instruction::{ExecContext, Instruction};
 
 pub struct Bfp;
@@ -29,7 +29,9 @@ impl Instruction for Bfp {
 
         let p1 = pbank(ctx.bank_map, op1);
         let p2 = pbank(ctx.bank_map, op2);
-        let pw = pbank(ctx.bank_map, wr);
+        let pw: Vec<_> = (0..ctx.cfgs[wr as usize].cols)
+            .map(|group| pbank_group(ctx.bank_map, wr, group))
+            .collect();
 
         let a = read_i8_nn(ctx.banks, p1, n);
         let b = read_i8_nn(ctx.banks, p2, n);
@@ -45,7 +47,7 @@ impl Instruction for Bfp {
             }
         }
 
-        write_i32_nn(ctx.banks, pw, &c, n);
+        write_i32_nn_groups(ctx.banks, &pw, &c, n);
         0
     }
 

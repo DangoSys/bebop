@@ -25,11 +25,10 @@ pub fn load_workload_spec(toml_path: &Path) -> Result<WorkloadSpec, WorkloadToml
         path: toml_path.to_path_buf(),
         source,
     })?;
-    let config: WorkloadsConfig =
-        toml::from_str(&content).map_err(|source| WorkloadTomlError::Parse {
-            path: toml_path.to_path_buf(),
-            source,
-        })?;
+    let config: WorkloadsConfig = toml::from_str(&content).map_err(|source| WorkloadTomlError::Parse {
+        path: toml_path.to_path_buf(),
+        source,
+    })?;
     if config.workloads.tests.is_empty() {
         return Err(WorkloadTomlError::Empty {
             path: toml_path.to_path_buf(),

@@ -1,5 +1,5 @@
 use assert_cmd::Command;
-use std::path::{Path};
+use std::path::Path;
 use std::time::Duration;
 
 use super::super::artifacts::ArtifactManager;

@@ -1,6 +1,6 @@
 use super::super::bank::BANK_NUM;
-use super::bank_matrix::{read_i32_nn, read_i8_nn, write_i32_nn};
-use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
+use super::bank_matrix::{read_i32_nn, read_i8_nn, write_i32_nn_groups};
+use super::decode::{pbank, pbank_group, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
 use super::gemmini_state::gemini;
 use super::instruction::{ExecContext, Instruction};
 
@@ -28,7 +28,9 @@ impl Instruction for GemminiComputePreloaded {
 
         let pa = pbank(ctx.bank_map, op_a);
         let pb = pbank(ctx.bank_map, op_b);
-        let pw = pbank(ctx.bank_map, wr);
+        let pw: Vec<_> = (0..ctx.cfgs[wr as usize].cols)
+            .map(|group| pbank_group(ctx.bank_map, wr, group))
+            .collect();
         let gm = gemini().lock().unwrap();
         let df = gm.cfg.dataflow;
         let a_transpose = gm.cfg.a_transpose;
@@ -51,7 +53,7 @@ impl Instruction for GemminiComputePreloaded {
                     c[i][j] = acc;
                 }
             }
-            write_i32_nn(ctx.banks, pw, &c, n);
+            write_i32_nn_groups(ctx.banks, &pw, &c, n);
         } else {
             // OS mode: per RTL GemminiExCtrlPreloadStates, preload feeds D=0 to mesh
             // in OS mode (regardless of the preload bank contents). So the accumulator
@@ -82,7 +84,7 @@ impl Instruction for GemminiComputePreloaded {
                     c[i][j] = acc;
                 }
             }
-            write_i32_nn(ctx.banks, pw, &c, n);
+            write_i32_nn_groups(ctx.banks, &pw, &c, n);
         }
         0
     }

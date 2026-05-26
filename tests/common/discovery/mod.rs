@@ -105,10 +105,7 @@ fn apply_case_list(tests: Vec<ElfTestCase>, args: &RegressionArgs) -> Result<Vec
         }
     }
 
-    let missing: Vec<String> = requested
-        .into_iter()
-        .filter(|name| !found.contains(name))
-        .collect();
+    let missing: Vec<String> = requested.into_iter().filter(|name| !found.contains(name)).collect();
     if !missing.is_empty() {
         return Err(DiscoveryError::CaseListMissing {
             path: path.clone(),

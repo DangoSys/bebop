@@ -84,8 +84,6 @@ impl ArtifactManager {
 
 impl std::fmt::Debug for ArtifactManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ArtifactManager")
-            .field("root", &self.root)
-            .finish()
+        f.debug_struct("ArtifactManager").field("root", &self.root).finish()
     }
 }

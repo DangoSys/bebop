@@ -7,7 +7,7 @@ pub use args::RegressionArgs;
 pub use runner::run_elf_regression;
 #[cfg(feature = "bemu")]
 pub use runner::BemuBackend;
-#[cfg(feature = "verilator")]
-pub use runner::VerilatorBackend;
 #[cfg(feature = "p2e")]
 pub use runner::P2eBackend;
+#[cfg(feature = "verilator")]
+pub use runner::VerilatorBackend;
