@@ -23,19 +23,22 @@ impl Instruction for Mset {
 
         let v = bank_id as u32;
         let i = bank_id as usize;
+        let groups = col.max(1);
 
         if alloc == 1 {
             ctx.bank_map.delete_vbank(v);
-            let p = ctx
-                .bank_map
-                .first_free_pbank()
-                .unwrap_or_else(|| panic!("mset: no free physical bank"));
-            ctx.bank_map.bind(p, v);
+            for group in 0..groups {
+                let p = ctx
+                    .bank_map
+                    .first_free_pbank()
+                    .unwrap_or_else(|| panic!("mset: no free physical bank"));
+                ctx.bank_map.bind_group(p, v, group as u32);
+                ctx.banks[p].fill(0);
+            }
             ctx.cfgs[i] = BankConfig {
                 allocated: true,
                 cols: col,
             };
-            ctx.banks[p].fill(0);
         } else {
             ctx.bank_map.delete_vbank(v);
             ctx.cfgs[i] = BankConfig {

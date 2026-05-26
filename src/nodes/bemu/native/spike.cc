@@ -102,6 +102,9 @@ public:
     bool mmio_store(reg_t addr, size_t len, const uint8_t* bytes) override {
         // Handle exit address
         if (addr == SIM_EXIT_ADDR) {
+            uint64_t value = 0;
+            memcpy(&value, bytes, len);
+            exit_code = static_cast<int>(value & 0xffffffff);
             exit_requested = true;
             return true;
         }
@@ -132,6 +135,7 @@ public:
     }
 
     bool exit_requested = false;
+    int exit_code = 0;
 
 private:
     uint8_t* mem_ptr;
@@ -590,6 +594,9 @@ int spike_run_raw(
         fclose(log_file);
     }
 
+    if (simif.exit_requested) {
+        return simif.exit_code;
+    }
     return should_exit() ? get_exit_code_ffi() : 0;
 }
 }

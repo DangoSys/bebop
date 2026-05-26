@@ -1,7 +1,7 @@
 //===- 52_dequant.rs - INT2FP instruction (INT to FP32 dequantization) ----------------===//
 
 use super::super::bank::{BANK_NUM, BANK_SIZE};
-use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
+use super::decode::{pbank, pbank_group, rs1_b0, rs1_b2, rs1_iter};
 use super::instruction::{ExecContext, Instruction};
 
 pub struct Int2Fp;
@@ -28,9 +28,10 @@ impl Instruction for Int2Fp {
         let pd = pbank(ctx.bank_map, dst);
         let scale = f32::from_bits((xs2 & 0xffff_ffff) as u32);
 
-        // Support two modes:
+        // Support three modes:
         // 1. INT32 -> FP32: src_cols=1, dst_cols=1 (4 bytes -> 4 bytes)
         // 2. INT8 -> FP32: src_cols=1, dst_cols=4 (1 byte -> 4 bytes)
+        // 3. INT32 -> FP32: src_cols=4, dst_cols=4 (4 bytes -> 4 bytes)
         match (sc.cols, dc.cols) {
             (1, 1) => {
                 // INT32 -> FP32 mode
@@ -65,9 +66,28 @@ impl Instruction for Int2Fp {
                     }
                 }
             }
+            (4, 4) => {
+                // INT32 -> FP32 mode for accumulator/output bank groups.
+                for group in 0..4 {
+                    let ps = pbank_group(ctx.bank_map, src, group);
+                    let pd = pbank_group(ctx.bank_map, dst, group);
+                    for i in 0..depth {
+                        let base = i * 16;
+                        if base + 16 > BANK_SIZE {
+                            panic!("int2fp: out of range");
+                        }
+                        for j in 0..4 {
+                            let off = base + j * 4;
+                            let v = i32::from_le_bytes(ctx.banks[ps][off..off + 4].try_into().unwrap());
+                            let o = ((v as f32) * scale).to_bits();
+                            ctx.banks[pd][off..off + 4].copy_from_slice(&o.to_le_bytes());
+                        }
+                    }
+                }
+            }
             _ => {
                 panic!(
-                    "int2fp: unsupported layout src_cols={} dst_cols={}. Supported: (1,1) for INT32->FP32, (1,4) for INT8->FP32",
+                    "int2fp: unsupported layout src_cols={} dst_cols={}. Supported: (1,1) and (4,4) for INT32->FP32, (1,4) for INT8->FP32",
                     sc.cols, dc.cols
                 );
             }

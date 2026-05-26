@@ -49,9 +49,14 @@ pub fn xs2_mset(xs2: u64) -> (u64, u64, u64) {
 /// 指令中的 bank 字段为 **vbank_id**；访问 `banks` 前解析为物理槽下标。
 #[inline]
 pub fn pbank(bm: &BankMap, vbank: u64) -> usize {
+    pbank_group(bm, vbank, 0)
+}
+
+#[inline]
+pub fn pbank_group(bm: &BankMap, vbank: u64, group: u64) -> usize {
     if vbank >= BANK_NUM as u64 {
         panic!("pbank: invalid vbank_id {vbank}");
     }
-    bm.resolve(vbank as u32)
-        .unwrap_or_else(|| panic!("pbank: vbank {vbank} not mapped"))
+    bm.resolve_group(vbank as u32, group as u32)
+        .unwrap_or_else(|| panic!("pbank: vbank {vbank} group {group} not mapped"))
 }

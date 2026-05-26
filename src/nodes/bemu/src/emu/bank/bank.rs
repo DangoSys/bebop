@@ -10,6 +10,7 @@ pub const MATRIX_SIZE: usize = 16;
 pub struct MapEntry {
     pub valid: bool,
     pub vbank_id: u32,
+    pub group_id: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -24,7 +25,6 @@ impl BankMap {
         }
     }
 
-    /// Mirrors RTL `deleteEntry`.
     pub fn delete_vbank(&mut self, v: u32) {
         for e in &mut self.slots {
             if e.valid && e.vbank_id == v {
@@ -37,14 +37,20 @@ impl BankMap {
         self.slots.iter().position(|e| !e.valid)
     }
 
-    /// Callers must `delete_vbank(v)` first on the alloc path.
-    pub fn bind(&mut self, p: usize, v: u32) {
+    pub fn bind_group(&mut self, p: usize, v: u32, group: u32) {
         self.slots[p].valid = true;
         self.slots[p].vbank_id = v;
+        self.slots[p].group_id = group;
     }
 
     pub fn resolve(&self, v: u32) -> Option<usize> {
-        self.slots.iter().position(|e| e.valid && e.vbank_id == v)
+        self.resolve_group(v, 0)
+    }
+
+    pub fn resolve_group(&self, v: u32, group: u32) -> Option<usize> {
+        self.slots
+            .iter()
+            .position(|e| e.valid && e.vbank_id == v && e.group_id == group)
     }
 }
 

@@ -1,7 +1,7 @@
 //===- 51_quant.rs - FP2INT instruction (FP32 to INT quantization) ----------------------===//
 
 use super::super::bank::{BANK_NUM, BANK_SIZE};
-use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
+use super::decode::{pbank, pbank_group, rs1_b0, rs1_b2, rs1_iter};
 use super::instruction::{ExecContext, Instruction};
 
 pub struct Fp2Int;
@@ -52,18 +52,23 @@ impl Instruction for Fp2Int {
                 }
             }
             (4, 1) => {
-                // FP32 -> INT8 mode (original implementation)
+                // FP32 -> INT8 mode
                 for i in 0..depth {
-                    let src_base = i * 64;
+                    let src_base = i * 16;
                     let dst_base = i * 16;
-                    if src_base + 64 > BANK_SIZE || dst_base + 16 > BANK_SIZE {
+                    if src_base + 16 > BANK_SIZE || dst_base + 16 > BANK_SIZE {
                         panic!("fp2int: out of range");
                     }
-                    for j in 0..16 {
-                        let off = src_base + j * 4;
-                        let v = i32::from_le_bytes(ctx.banks[ps][off..off + 4].try_into().unwrap());
-                        let q = ((v as f32) * scale).round().clamp(-128.0, 127.0) as i8;
-                        ctx.banks[pd][dst_base + j] = q as u8;
+                    for group in 0..4 {
+                        let ps = pbank_group(ctx.bank_map, src, group);
+                        for lane in 0..4 {
+                            let off = src_base + lane * 4;
+                            let v = f32::from_bits(u32::from_le_bytes(
+                                ctx.banks[ps][off..off + 4].try_into().unwrap(),
+                            ));
+                            let q = (v * scale).round().clamp(-128.0, 127.0) as i8;
+                            ctx.banks[pd][dst_base + group as usize * 4 + lane] = q as u8;
+                        }
                     }
                 }
             }

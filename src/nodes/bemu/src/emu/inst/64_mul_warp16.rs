@@ -1,8 +1,8 @@
 //===- 64_mul_warp16.rs - MUL_WARP16 instruction ---------------------------===//
 
 use super::super::bank::BANK_NUM;
-use super::bank_matrix::{read_i32_nn, read_i8_k_rows, write_i32_nn};
-use super::decode::{pbank, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
+use super::bank_matrix::{read_i32_nn_groups, read_i8_k_rows, write_i32_nn_groups};
+use super::decode::{pbank, pbank_group, rs1_b0, rs1_b1, rs1_b2, rs1_iter};
 use super::instruction::{ExecContext, Instruction};
 
 const WARP_M: usize = 16;
@@ -37,7 +37,9 @@ impl Instruction for MulWarp16 {
 
         let p1 = pbank(ctx.bank_map, op1);
         let p2 = pbank(ctx.bank_map, op2);
-        let pw = pbank(ctx.bank_map, wr);
+        let pw: Vec<_> = (0..cw)
+            .map(|group| pbank_group(ctx.bank_map, wr, group))
+            .collect();
         let kin = iter as usize;
 
         if kin == 0 {
@@ -51,7 +53,7 @@ impl Instruction for MulWarp16 {
 
         let a_t = read_i8_k_rows(ctx.banks, p1, kin, WARP_N);
         let b = read_i8_k_rows(ctx.banks, p2, kin, WARP_N);
-        let mut c = read_i32_nn(ctx.banks, pw, 16);
+        let mut c = read_i32_nn_groups(ctx.banks, &pw, 16);
 
         for i in 0..WARP_M {
             for j in 0..WARP_N {
@@ -63,7 +65,7 @@ impl Instruction for MulWarp16 {
             }
         }
 
-        write_i32_nn(ctx.banks, pw, &c, 16);
+        write_i32_nn_groups(ctx.banks, &pw, &c, 16);
         0
     }
 

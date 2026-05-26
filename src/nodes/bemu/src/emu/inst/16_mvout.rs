@@ -1,7 +1,7 @@
 //===- 16_mvout.rs - MVOUT instruction (bank to memory) --------------------===//
 
 use super::super::bank::{mem_write, BANK_NUM, BANK_SIZE, MATRIX_SIZE};
-use super::decode::{pbank, rs1_b0, rs1_iter, xs2_mem_stride};
+use super::decode::{pbank, pbank_group, rs1_b0, rs1_iter, xs2_mem_stride};
 use super::instruction::{ExecContext, Instruction};
 
 pub struct Mvout;
@@ -28,20 +28,40 @@ impl Instruction for Mvout {
             panic!("mvout: bank {bank_id} not allocated");
         }
 
-        let p = pbank(ctx.bank_map, bank_id);
         let cols = ctx.cfgs[bi].cols;
-        let matrix_mode_acc = cols == 4 && depth <= MATRIX_SIZE as u64;
-        let line_bytes = if matrix_mode_acc { 64usize } else { 16usize };
+        let groups = cols.max(1) as usize;
         let actual_stride = if stride == 0 { 1 } else { stride };
 
-        for i in 0..depth {
-            let bank_offset = (i as usize) * line_bytes;
-            if bank_offset + line_bytes > BANK_SIZE {
-                panic!("mvout: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
+        if groups > 1 {
+            for i in 0..depth as usize {
+                for group in 0..groups {
+                    let p = pbank_group(ctx.bank_map, bank_id, group as u64);
+                    let bank_offset = i * 16;
+                    if bank_offset + 16 > BANK_SIZE {
+                        panic!("mvout: bank range: bank_offset={bank_offset} line_bytes=16 depth={depth}");
+                    }
+                    let addr = mem_addr
+                        + i as u64 * groups as u64 * 16 * actual_stride
+                        + group as u64 * 16;
+                    for j in 0..16 {
+                        mem_write(ctx.memory, addr + j as u64, ctx.banks[p][bank_offset + j]);
+                    }
+                }
             }
-            let addr = mem_addr + i * line_bytes as u64 * actual_stride;
-            for j in 0..line_bytes {
-                mem_write(ctx.memory, addr + j as u64, ctx.banks[p][bank_offset + j]);
+        } else {
+            let p = pbank(ctx.bank_map, bank_id);
+            let matrix_mode_acc = cols == 4 && depth <= MATRIX_SIZE as u64;
+            let line_bytes = if matrix_mode_acc { 64usize } else { 16usize };
+
+            for i in 0..depth {
+                let bank_offset = (i as usize) * line_bytes;
+                if bank_offset + line_bytes > BANK_SIZE {
+                    panic!("mvout: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
+                }
+                let addr = mem_addr + i * line_bytes as u64 * actual_stride;
+                for j in 0..line_bytes {
+                    mem_write(ctx.memory, addr + j as u64, ctx.banks[p][bank_offset + j]);
+                }
             }
         }
         0

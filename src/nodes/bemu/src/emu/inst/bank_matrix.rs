@@ -34,3 +34,29 @@ pub fn write_i32_nn(banks: &mut [Vec<u8>], p: usize, mat: &[Vec<i32>], n: usize)
         }
     }
 }
+
+pub fn read_i32_nn_groups(banks: &[Vec<u8>], ps: &[usize], n: usize) -> Vec<Vec<i32>> {
+    (0..n)
+        .map(|i| {
+            (0..n)
+                .map(|j| {
+                    let group = j / 4;
+                    let lane = j % 4;
+                    let off = i * I8_ROW_STRIDE + lane * 4;
+                    i32::from_le_bytes(banks[ps[group]][off..off + 4].try_into().unwrap())
+                })
+                .collect()
+        })
+        .collect()
+}
+
+pub fn write_i32_nn_groups(banks: &mut [Vec<u8>], ps: &[usize], mat: &[Vec<i32>], n: usize) {
+    for (i, row) in mat.iter().enumerate().take(n) {
+        for (j, v) in row.iter().enumerate().take(n) {
+            let group = j / 4;
+            let lane = j % 4;
+            let off = i * I8_ROW_STRIDE + lane * 4;
+            banks[ps[group]][off..off + 4].copy_from_slice(&v.to_le_bytes());
+        }
+    }
+}
