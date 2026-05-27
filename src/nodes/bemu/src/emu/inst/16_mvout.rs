@@ -14,9 +14,12 @@ impl Instruction for Mvout {
         let depth = rs1_iter(xs1);
         let (mem_addr, stride) = xs2_mem_stride(xs2);
 
-        if std::env::var("BEMU_RTRACE").is_ok() {
-            eprintln!("[RTRACE] mvout: bank{} depth={} -> DRAM[0x{:x}] stride={}",
-                bank_id, depth, mem_addr, stride);
+        let rtrace = std::env::var("BEMU_RTRACE").is_ok();
+        if rtrace {
+            eprintln!(
+                "[RTRACE] mvout: bank{} depth={} -> DRAM[0x{:x}] stride={}",
+                bank_id, depth, mem_addr, stride
+            );
         }
 
         if bank_id >= BANK_NUM as u64 {
@@ -50,6 +53,20 @@ impl Instruction for Mvout {
                 depth
             } as usize;
 
+            if rtrace {
+                let bytes = rows as u64 * groups as u64 * 16;
+                let last_row = rows.saturating_sub(1) as u64;
+                let end = if rows == 0 {
+                    mem_addr
+                } else {
+                    mem_addr + last_row * groups as u64 * 16 * stride + groups as u64 * 16
+                };
+                eprintln!(
+                    "[RTRACE] mvout-range: bank{} cols={} groups={} rows={} bytes={} DRAM[0x{:x}..0x{:x})",
+                    bank_id, cols, groups, rows, bytes, mem_addr, end
+                );
+            }
+
             for i in 0..rows {
                 for group in 0..groups {
                     let p = pbank_group(ctx.bank_map, bank_id, group as u64);
@@ -69,6 +86,19 @@ impl Instruction for Mvout {
             let p = pbank(ctx.bank_map, bank_id);
             let matrix_mode_acc = cols == 4 && depth <= MATRIX_SIZE as u64;
             let line_bytes = if matrix_mode_acc { 64usize } else { 16usize };
+
+            if rtrace {
+                let bytes = depth * line_bytes as u64;
+                let end = if depth == 0 {
+                    mem_addr
+                } else {
+                    mem_addr + (depth - 1) * line_bytes as u64 * stride + line_bytes as u64
+                };
+                eprintln!(
+                    "[RTRACE] mvout-range: bank{} cols={} groups={} line_bytes={} rows={} bytes={} DRAM[0x{:x}..0x{:x})",
+                    bank_id, cols, groups, line_bytes, depth, bytes, mem_addr, end
+                );
+            }
 
             for i in 0..depth {
                 let bank_offset = (i as usize) * line_bytes;
