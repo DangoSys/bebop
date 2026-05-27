@@ -1,4 +1,5 @@
 use crate::state::SyscallState;
+use crate::utils::guest_cstr;
 use std::fs::OpenOptions;
 
 pub fn handle_openat(
@@ -9,21 +10,9 @@ pub fn handle_openat(
     _mode: u64,
     memory: &[u8],
 ) -> (u64, bool) {
-    if pathname_addr < 0x80000000 {
+    let Some(path_bytes) = guest_cstr(pathname_addr, 4096, memory) else {
         return ((-1i64 as u64), false);
-    }
-    let offset = (pathname_addr - 0x80000000) as usize;
-    let mut path_bytes = Vec::new();
-    for i in 0..4096 {
-        if offset + i >= memory.len() {
-            return ((-1i64 as u64), false);
-        }
-        let b = memory[offset + i];
-        if b == 0 {
-            break;
-        }
-        path_bytes.push(b);
-    }
+    };
 
     let path = match std::str::from_utf8(&path_bytes) {
         Ok(s) => s,

@@ -1,16 +1,11 @@
-use crate::constants::{ERR_FAULT, ERR_NOTTY, GUEST_MEM_BASE};
+use crate::constants::{ERR_FAULT, ERR_NOTTY};
+use crate::utils::guest_range;
 
 pub fn handle_ioctl(_fd: i64, req: u64, argp: u64, memory: &mut [u8]) -> (u64, bool) {
-    let mem_end = GUEST_MEM_BASE + memory.len() as u64;
     if req == 0x5413 || req == 0x80085413 || req == 0x40085413 {
-        let end = match argp.checked_add(8) {
-            Some(v) => v,
-            None => return ((ERR_FAULT as u64), false),
-        };
-        if argp < GUEST_MEM_BASE || end > mem_end {
+        let Some(off) = guest_range(argp, 8, memory.len()) else {
             return ((ERR_FAULT as u64), false);
-        }
-        let off = (argp - GUEST_MEM_BASE) as usize;
+        };
         let ws_row: u16 = 24;
         let ws_col: u16 = 80;
         let ws_xpixel: u16 = 0;
@@ -22,14 +17,9 @@ pub fn handle_ioctl(_fd: i64, req: u64, argp: u64, memory: &mut [u8]) -> (u64, b
         return (0, false);
     }
     if req == 0x802c542a {
-        let end = match argp.checked_add(44) {
-            Some(v) => v,
-            None => return ((ERR_FAULT as u64), false),
-        };
-        if argp < GUEST_MEM_BASE || end > mem_end {
+        let Some(off) = guest_range(argp, 44, memory.len()) else {
             return ((ERR_FAULT as u64), false);
-        }
-        let off = (argp - GUEST_MEM_BASE) as usize;
+        };
         memory[off..off + 44].fill(0);
         let cflag: u32 = 0x000008b0;
         memory[off + 8..off + 12].copy_from_slice(&cflag.to_le_bytes());

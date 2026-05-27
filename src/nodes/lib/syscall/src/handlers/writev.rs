@@ -1,5 +1,6 @@
 use crate::constants::{ERR_FAULT, ERR_INVAL};
 use crate::state::SyscallState;
+use crate::utils::guest_range;
 use std::io::Write;
 
 pub fn handle_writev(
@@ -18,14 +19,9 @@ pub fn handle_writev(
             None => return ((ERR_FAULT as u64), false),
         };
 
-        if iov_offset < 0x80000000
-            || iov_offset.checked_add(iovec_size as u64).is_none()
-            || iov_offset + iovec_size as u64 > 0x80000000 + memory.len() as u64
-        {
+        let Some(mem_offset) = guest_range(iov_offset, iovec_size, memory.len()) else {
             return ((ERR_FAULT as u64), false);
-        }
-
-        let mem_offset = (iov_offset - 0x80000000) as usize;
+        };
 
         let mut buf_ptr_bytes = [0u8; 8];
         let mut len_bytes = [0u8; 8];
@@ -40,13 +36,9 @@ pub fn handle_writev(
         }
 
         if fd == 1 || fd == 2 {
-            if buf_addr < 0x80000000
-                || buf_addr.checked_add(count as u64).is_none()
-                || buf_addr + count as u64 > 0x80000000 + memory.len() as u64
-            {
+            let Some(offset) = guest_range(buf_addr, count, memory.len()) else {
                 return ((ERR_FAULT as u64), false);
-            }
-            let offset = (buf_addr - 0x80000000) as usize;
+            };
             let data = &memory[offset..offset + count];
 
             if let Ok(s) = std::str::from_utf8(data) {
@@ -57,13 +49,9 @@ pub fn handle_writev(
             }
             total_written += count as u64;
         } else if let Some(file) = state.open_files.get_mut(&fd) {
-            if buf_addr < 0x80000000
-                || buf_addr.checked_add(count as u64).is_none()
-                || buf_addr + count as u64 > 0x80000000 + memory.len() as u64
-            {
+            let Some(offset) = guest_range(buf_addr, count, memory.len()) else {
                 return ((ERR_FAULT as u64), false);
-            }
-            let offset = (buf_addr - 0x80000000) as usize;
+            };
             let data = &memory[offset..offset + count];
 
             match file.write(data) {

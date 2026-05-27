@@ -46,9 +46,7 @@ impl Instruction for Fp2Int {
                     }
                     for j in 0..16 {
                         let off = src_base + j * 4;
-                        let v = f32::from_bits(u32::from_le_bytes(
-                            ctx.banks[ps][off..off + 4].try_into().unwrap(),
-                        ));
+                        let v = f32::from_bits(u32::from_le_bytes(ctx.banks[ps][off..off + 4].try_into().unwrap()));
                         let q = (v * scale).round() as i32;
                         let dst_off = dst_base + j * 4;
                         ctx.banks[pd][dst_off..dst_off + 4].copy_from_slice(&q.to_le_bytes());
@@ -67,9 +65,7 @@ impl Instruction for Fp2Int {
                         let ps = pbank_group(ctx.bank_map, src, group);
                         for lane in 0..4 {
                             let off = src_base + lane * 4;
-                            let v = f32::from_bits(u32::from_le_bytes(
-                                ctx.banks[ps][off..off + 4].try_into().unwrap(),
-                            ));
+                            let v = f32::from_bits(u32::from_le_bytes(ctx.banks[ps][off..off + 4].try_into().unwrap()));
                             let q = (v * scale).round().clamp(-128.0, 127.0) as i8;
                             ctx.banks[pd][dst_base + group as usize * 4 + lane] = q as u8;
                         }

@@ -63,9 +63,7 @@ impl Instruction for Mvin {
                     if bank_offset + 16 > BANK_SIZE {
                         panic!("mvin: bank range: bank_offset={bank_offset} line_bytes=16 depth={depth}");
                     }
-                    let addr = mem_addr
-                        + row as u64 * groups as u64 * 16 * stride
-                        + group as u64 * 16;
+                    let addr = mem_addr + row as u64 * groups as u64 * 16 * stride + group as u64 * 16;
                     for j in 0..16 {
                         ctx.banks[p][bank_offset + j] = mem_read(ctx.memory, addr + j as u64);
                     }

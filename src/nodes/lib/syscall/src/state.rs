@@ -40,3 +40,9 @@ pub fn reset_syscall_state() {
     let mut state = SYSCALL_STATE.lock().unwrap();
     *state = SyscallState::new();
 }
+
+pub fn init_mem_layout(brk_start: u64, mmap_base: u64) {
+    let mut state = SYSCALL_STATE.lock().unwrap();
+    state.brk_addr = brk_start;
+    state.mmap_base = mmap_base;
+}

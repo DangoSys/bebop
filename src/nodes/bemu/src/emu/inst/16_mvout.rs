@@ -74,9 +74,7 @@ impl Instruction for Mvout {
                     if bank_offset + 16 > BANK_SIZE {
                         panic!("mvout: bank range: bank_offset={bank_offset} line_bytes=16 depth={depth}");
                     }
-                    let addr = mem_addr
-                        + i as u64 * groups as u64 * 16 * stride
-                        + group as u64 * 16;
+                    let addr = mem_addr + i as u64 * groups as u64 * 16 * stride + group as u64 * 16;
                     for j in 0..16 {
                         mem_write(ctx.memory, addr + j as u64, ctx.banks[p][bank_offset + j]);
                     }

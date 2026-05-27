@@ -37,9 +37,7 @@ impl Instruction for MulWarp16 {
 
         let p1 = pbank(ctx.bank_map, op1);
         let p2 = pbank(ctx.bank_map, op2);
-        let pw: Vec<_> = (0..cw)
-            .map(|group| pbank_group(ctx.bank_map, wr, group))
-            .collect();
+        let pw: Vec<_> = (0..cw).map(|group| pbank_group(ctx.bank_map, wr, group)).collect();
         let kin = iter as usize;
 
         if kin == 0 {

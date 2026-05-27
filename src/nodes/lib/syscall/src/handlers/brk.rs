@@ -1,4 +1,4 @@
-use crate::constants::{GUEST_MEM_BASE, PAGE_SIZE};
+use crate::constants::{GUEST_MEM_BASE, MMAP_TOP_RESERVED, PAGE_SIZE};
 use crate::state::SyscallState;
 use crate::utils::{align_down, align_up};
 
@@ -8,7 +8,7 @@ pub fn handle_brk(state: &mut SyscallState, addr: u64, memory: &[u8]) -> (u64, b
         state.brk_addr = align_up(GUEST_MEM_BASE + 0x20_0000, PAGE_SIZE);
     }
     if state.mmap_base == 0 {
-        state.mmap_base = align_down(mem_end - PAGE_SIZE, PAGE_SIZE);
+        state.mmap_base = align_down(mem_end - MMAP_TOP_RESERVED, PAGE_SIZE);
     }
     if addr == 0 {
         (state.brk_addr, false)

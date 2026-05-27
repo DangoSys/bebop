@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 
-pub fn load_elf(path: &str, mem_base: &mut [u8], mem_base_addr: u64) -> Result<(u64, Option<TlsInfo>), String> {
+pub fn load_elf(path: &str, mem_base: &mut [u8], mem_base_addr: u64) -> Result<LoadInfo, String> {
     let mut file = File::open(path).map_err(|e| format!("Failed to open ELF file: {}", e))?;
 
     let mut ehdr_bytes = [0u8; std::mem::size_of::<Elf64Ehdr>()];
@@ -38,7 +38,7 @@ pub fn load_elf(path: &str, mem_base: &mut [u8], mem_base_addr: u64) -> Result<(
         HashMap::new()
     };
 
-    let (min_vaddr, needs_relocation, mut tls_info, dynamic_phdr, all_phdrs) =
+    let (min_vaddr, image_end, needs_relocation, mut tls_info, dynamic_phdr, all_phdrs) =
         scan_program_headers(&mut file, &ehdr, mem_base_addr)?;
 
     load_segments(
@@ -77,7 +77,11 @@ pub fn load_elf(path: &str, mem_base: &mut [u8], mem_base_addr: u64) -> Result<(
 
     apply_pointer_fixup(&all_phdrs, &mut ctx);
 
-    Ok((entry, tls_info))
+    Ok(LoadInfo {
+        entry,
+        image_end,
+        tls: tls_info,
+    })
 }
 
 #[allow(clippy::type_complexity)]
@@ -85,8 +89,9 @@ fn scan_program_headers(
     file: &mut File,
     ehdr: &Elf64Ehdr,
     mem_base_addr: u64,
-) -> Result<(u64, bool, Option<TlsInfo>, Option<Elf64Phdr>, Vec<Elf64Phdr>), String> {
+) -> Result<(u64, u64, bool, Option<TlsInfo>, Option<Elf64Phdr>, Vec<Elf64Phdr>), String> {
     let mut min_vaddr = u64::MAX;
+    let mut max_vaddr = 0;
     let mut needs_relocation = false;
     let mut tls_info: Option<TlsInfo> = None;
     let mut dynamic_phdr: Option<Elf64Phdr> = None;
@@ -109,6 +114,13 @@ fn scan_program_headers(
             if phdr.p_vaddr < min_vaddr {
                 min_vaddr = phdr.p_vaddr;
             }
+            let seg_end = phdr
+                .p_vaddr
+                .checked_add(phdr.p_memsz)
+                .ok_or_else(|| "ELF PT_LOAD address range overflows".to_string())?;
+            if seg_end > max_vaddr {
+                max_vaddr = seg_end;
+            }
             if phdr.p_vaddr < mem_base_addr {
                 needs_relocation = true;
             }
@@ -128,7 +140,20 @@ fn scan_program_headers(
         }
     }
 
-    Ok((min_vaddr, needs_relocation, tls_info, dynamic_phdr, all_phdrs))
+    let image_end = if needs_relocation {
+        mem_base_addr + (max_vaddr - min_vaddr)
+    } else {
+        max_vaddr
+    };
+
+    Ok((
+        min_vaddr,
+        image_end,
+        needs_relocation,
+        tls_info,
+        dynamic_phdr,
+        all_phdrs,
+    ))
 }
 
 fn load_segments(
@@ -173,8 +198,10 @@ fn compute_entry(e_entry: u64, mem_base_addr: u64, min_vaddr: u64, is_pie: bool,
     if e_entry >= 0xffffffff80000000 {
         // Linux kernel entry: 0xffffffff80000000 -> 0x80000000
         e_entry - 0xffffffff80000000 + 0x80000000
-    } else if is_pie || needs_relocation {
+    } else if is_pie {
         mem_base_addr + (e_entry - min_vaddr)
+    } else if needs_relocation {
+        e_entry
     } else {
         e_entry
     }

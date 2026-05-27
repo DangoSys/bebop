@@ -30,10 +30,7 @@ pub fn mmio_read_byte(
 
     let region = &mmio_region_table[meta_bank];
     if !region.valid {
-        eprintln!(
-            "[WARN] mmio_read_byte: no MMIO region bound to bank {}",
-            meta_bank
-        );
+        eprintln!("[WARN] mmio_read_byte: no MMIO region bound to bank {}", meta_bank);
         return 0;
     }
 
@@ -42,10 +39,7 @@ pub fn mmio_read_byte(
 
     // Check bounds (16 banks × 1024 bytes = 16384 bytes total)
     if abs_addr >= 16384 {
-        eprintln!(
-            "[WARN] mmio_read_byte: address 0x{:x} out of range",
-            abs_addr
-        );
+        eprintln!("[WARN] mmio_read_byte: address 0x{:x} out of range", abs_addr);
         return 0;
     }
 

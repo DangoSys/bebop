@@ -44,10 +44,15 @@ pub fn run(cli: BemuCli) -> Result<(), Whatever> {
     )?;
     std::fs::create_dir_all(log_dir).ok();
     let log_file_path = log_dir.join("disasm.log");
-    let log_path = log_file_path
-        .to_str()
-        .whatever_context("invalid log_dir path")?;
+    let log_path = log_file_path.to_str().whatever_context("invalid log_dir path")?;
 
-    run_spike(DEFAULT_ISA, DEFAULT_PROCS, DEFAULT_MEM_MB, elf_path, Some(log_path), cli.pk)
-        .whatever_context("spike execution failed")
+    run_spike(
+        DEFAULT_ISA,
+        DEFAULT_PROCS,
+        DEFAULT_MEM_MB,
+        elf_path,
+        Some(log_path),
+        cli.pk,
+    )
+    .whatever_context("spike execution failed")
 }

@@ -4,7 +4,7 @@ pub const BANK_LINES: usize = 1024;
 pub const BANK_SIZE: usize = BANK_LINES * (BANK_WIDTH / 8);
 pub const MATRIX_SIZE: usize = 16;
 
-/// Mirrors RTL `PrivateMemBackend.mappingTable`: 
+/// Mirrors RTL `PrivateMemBackend.mappingTable`:
 /// physical SRAM bank slot -> bound virtual bank id.
 #[derive(Clone, Default, Debug)]
 pub struct MapEntry {

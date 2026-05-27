@@ -1,4 +1,5 @@
-use crate::constants::{ERR_FAULT, ERR_INVAL, ERR_NOENT, GUEST_MEM_BASE};
+use crate::constants::{ERR_FAULT, ERR_INVAL, ERR_NOENT};
+use crate::utils::{guest_cstr, guest_range};
 
 pub fn handle_readlinkat(
     _dirfd: i64,
@@ -7,25 +8,16 @@ pub fn handle_readlinkat(
     buf_size: usize,
     memory: &mut [u8],
 ) -> (u64, bool) {
-    if path_addr < GUEST_MEM_BASE || buf_addr < GUEST_MEM_BASE || buf_size == 0 {
+    if buf_size == 0 {
         return ((ERR_FAULT as u64), false);
     }
-    if buf_addr + buf_size as u64 > GUEST_MEM_BASE + memory.len() as u64 {
+    let Some(buf_offset) = guest_range(buf_addr, buf_size, memory.len()) else {
         return ((ERR_FAULT as u64), false);
-    }
+    };
 
-    let path_offset = (path_addr - GUEST_MEM_BASE) as usize;
-    let mut path_bytes = Vec::new();
-    for i in 0..4096 {
-        if path_offset + i >= memory.len() {
-            return ((ERR_FAULT as u64), false);
-        }
-        let b = memory[path_offset + i];
-        if b == 0 {
-            break;
-        }
-        path_bytes.push(b);
-    }
+    let Some(path_bytes) = guest_cstr(path_addr, 4096, memory) else {
+        return ((ERR_FAULT as u64), false);
+    };
     let path = match std::str::from_utf8(&path_bytes) {
         Ok(s) => s,
         Err(_) => return ((ERR_INVAL as u64), false),
@@ -35,7 +27,6 @@ pub fn handle_readlinkat(
     if path == "/proc/self/exe" {
         let exe = b"/proc/self/exe";
         let n = exe.len().min(buf_size);
-        let buf_offset = (buf_addr - GUEST_MEM_BASE) as usize;
         memory[buf_offset..buf_offset + n].copy_from_slice(&exe[..n]);
         return (n as u64, false);
     }
@@ -56,7 +47,6 @@ pub fn handle_readlinkat(
                 Ok(target) => {
                     let target_bytes = target.to_string_lossy().as_bytes().to_vec();
                     let n = target_bytes.len().min(buf_size);
-                    let buf_offset = (buf_addr - GUEST_MEM_BASE) as usize;
                     memory[buf_offset..buf_offset + n].copy_from_slice(&target_bytes[..n]);
                     (n as u64, false)
                 }

@@ -133,46 +133,6 @@ pub fn apply_dynamic_relocations(
     Ok(())
 }
 
-// Why: relocated non-PIE ELFs have no RELATIVE relocations, but their .data/.got contain raw
-// function pointers compiled for the pre-relocation address. Scan non-executable PT_LOAD
-// segments and add the relocation offset to any 8-byte word that looks like a pre-relocation
-// pointer (lies within (min_vaddr, min_vaddr+0x100000)).
-//
-// Strict greater-than (>) min_vaddr avoids false positives from integer data that happens to
-// equal min_vaddr exactly. For example, the value 0x10000 (= 65536) is a common integer in
-// test data matrices, and would otherwise be mistakenly fixed up as a pointer.
-// Real function pointers point past the entry point (which itself is past min_vaddr).
 pub fn apply_pointer_fixup(all_phdrs: &[Elf64Phdr], ctx: &mut RelocCtx) {
-    if ctx.is_pie || !ctx.needs_relocation {
-        return;
-    }
-    let reloc_offset = ctx.mem_base_addr - ctx.min_vaddr;
-
-    for phdr in all_phdrs.iter() {
-        if phdr.p_type != PT_LOAD || (phdr.p_flags & PF_X) != 0 {
-            continue;
-        }
-        let seg_addr = ctx.relocate_addr(phdr.p_vaddr);
-        if seg_addr < ctx.mem_base_addr || seg_addr + phdr.p_memsz > ctx.mem_base_addr + ctx.mem_base.len() as u64 {
-            continue;
-        }
-        let seg_off = (seg_addr - ctx.mem_base_addr) as usize;
-        let seg_size = phdr.p_memsz as usize;
-        let seg_end = seg_off + seg_size;
-
-        for ptr_offset in (seg_off..seg_end).step_by(8) {
-            if ptr_offset + 8 > seg_end {
-                break;
-            }
-            let mut ptr_bytes = [0u8; 8];
-            ptr_bytes.copy_from_slice(&ctx.mem_base[ptr_offset..ptr_offset + 8]);
-            let ptr = u64::from_le_bytes(ptr_bytes);
-
-            // Use strict > to skip values exactly equal to min_vaddr (common integer in data)
-            if ptr > ctx.min_vaddr && ptr < ctx.min_vaddr + 0x100000 {
-                let new_ptr = ptr + reloc_offset;
-                ctx.mem_base[ptr_offset..ptr_offset + 8].copy_from_slice(&new_ptr.to_le_bytes());
-            }
-        }
-    }
+    let _ = (all_phdrs, ctx);
 }

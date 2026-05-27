@@ -1,4 +1,4 @@
-use crate::constants::GUEST_MEM_BASE;
+use crate::utils::guest_range;
 
 pub fn handle_riscv_hwprobe(
     pairs_addr: u64,
@@ -13,21 +13,17 @@ pub fn handle_riscv_hwprobe(
     }
     let pair_size = 16usize;
     if pair_count > 0 {
-        if pairs_addr < GUEST_MEM_BASE {
-            return ((-1i64 as u64), false);
-        }
         let total_size = match pair_count.checked_mul(pair_size) {
             Some(v) => v as u64,
             None => return ((-1i64 as u64), false),
         };
-        let mem_end = GUEST_MEM_BASE + memory.len() as u64;
-        if pairs_addr + total_size > mem_end {
+        if guest_range(pairs_addr, total_size as usize, memory.len()).is_none() {
             return ((-1i64 as u64), false);
         }
 
         for i in 0..pair_count {
             let item_addr = pairs_addr + (i * pair_size) as u64;
-            let item_offset = (item_addr - GUEST_MEM_BASE) as usize;
+            let item_offset = guest_range(item_addr, pair_size, memory.len()).unwrap();
             let mut key_bytes = [0u8; 8];
             key_bytes.copy_from_slice(&memory[item_offset..item_offset + 8]);
             let key = i64::from_le_bytes(key_bytes);

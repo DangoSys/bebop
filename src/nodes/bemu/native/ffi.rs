@@ -1,6 +1,6 @@
 use bebop_dtb::DtbBuilder;
 use bebop_elf::load_elf;
-use bebop_syscall::{get_exit_code, handle_syscall};
+use bebop_syscall::{get_exit_code, handle_syscall, init_mem_layout, reset_syscall_state};
 use bebop_uart::Uart;
 use once_cell::sync::Lazy;
 use std::os::raw::c_char;
@@ -10,7 +10,6 @@ use crate::bank::{BankConfig, BankMap, BANK_NUM, BANK_SIZE};
 use crate::inst;
 
 const DRAM_BASE: u64 = 0x80000000;
-const DTB_ADDR: u64 = 0x80000000 + (1 << 20); // 1MB after DRAM_BASE
 const UART_BASE: u64 = 0x60020000; // UART base address (matches test workloads)
 
 static EMU_STATE: Lazy<Mutex<EmuState>> = Lazy::new(|| Mutex::new(EmuState::new()));
@@ -28,9 +27,9 @@ struct EmuState {
 
 impl EmuState {
     fn new() -> Self {
-        // 1GB Here is important, for baremetal mode, when we set this to 4GB, 
+        // 1GB Here is important, for baremetal mode, when we set this to 4GB,
         // it will running for a long time.
-        const MEM_SIZE: usize = 1 << 30; 
+        const MEM_SIZE: usize = 1 << 30;
         Self {
             memory: vec![0; MEM_SIZE],
             banks: vec![vec![0; BANK_SIZE]; BANK_NUM],
@@ -151,28 +150,39 @@ extern "C" {
     ) -> i32;
 }
 
-pub fn run_spike(isa: &str, procs: usize, mem_mb: usize, elf_path: &str, log_path: Option<&str>, pk: bool) -> Result<(), String> {
+pub fn run_spike(
+    isa: &str,
+    procs: usize,
+    mem_mb: usize,
+    elf_path: &str,
+    log_path: Option<&str>,
+    pk: bool,
+) -> Result<(), String> {
     use std::ffi::CString;
 
     let mut state = EMU_STATE.lock().unwrap();
 
     // Load ELF into memory (Rust implementation)
-    let (entry, tls_info) = load_elf(elf_path, &mut state.memory, DRAM_BASE)?;
+    let load = load_elf(elf_path, &mut state.memory, DRAM_BASE)?;
+    let entry = load.entry;
+
+    const PAGE_SIZE: u64 = 4096;
+    let mem_end = DRAM_BASE + state.memory.len() as u64;
+    let brk_start = (load.image_end + PAGE_SIZE - 1) & !(PAGE_SIZE - 1);
+    let mmap_base = (mem_end - 8 * 1024 * 1024) & !(PAGE_SIZE - 1);
+    reset_syscall_state();
+    init_mem_layout(brk_start, mmap_base);
 
     // Initialize TLS if present
-    let tp_value = if let Some(tls) = tls_info {
-        // Calculate TLS size with alignment
-        // RISC-V TLS variant I: [TLS data] [TCB]
-        const TCB_SIZE: u64 = 16; // Minimal TCB (just self-pointer)
+    let tp_value = if let Some(tls) = load.tls {
         let align = tls.align.max(16);
         let tls_size = (tls.memsz + align - 1) & !(align - 1);
-        let total_size = tls_size + TCB_SIZE + align;
+        let total_size = tls_size + align;
 
         // Allocate TLS area at high memory
         let tls_area_addr = DRAM_BASE + state.memory.len() as u64 - total_size - 0x10000;
-        let tls_data_start = tls_area_addr;
-        let tcb_start = tls_data_start + tls_size;
-        let tp = tcb_start + TCB_SIZE;
+        let tp = (tls_area_addr + align - 1) & !(align - 1);
+        let tls_data_start = tp;
 
         // Copy TLS initialization data
         if tls.vaddr >= DRAM_BASE && tls.vaddr < DRAM_BASE + state.memory.len() as u64 {
@@ -196,10 +206,10 @@ pub fn run_spike(isa: &str, procs: usize, mem_mb: usize, elf_path: &str, log_pat
             }
         }
 
-        // Initialize TCB (self-pointer)
-        let tcb_offset = (tcb_start - DRAM_BASE) as usize;
+        // RISC-V local-exec TLS addresses are positive offsets from tp.
+        let tcb_offset = (tp - DRAM_BASE) as usize;
         if tcb_offset + 8 <= state.memory.len() {
-            state.memory[tcb_offset..tcb_offset + 8].copy_from_slice(&tcb_start.to_le_bytes());
+            state.memory[tcb_offset..tcb_offset + 8].copy_from_slice(&tp.to_le_bytes());
         }
 
         Some(tp)
@@ -209,7 +219,8 @@ pub fn run_spike(isa: &str, procs: usize, mem_mb: usize, elf_path: &str, log_pat
 
     // Generate DTB and write to memory
     let dtb = DtbBuilder::build_minimal(DRAM_BASE, mem_mb as u64 * (1 << 20), None, None);
-    let dtb_offset = (DTB_ADDR - DRAM_BASE) as usize;
+    let dtb_addr = (mem_end - 0x20_0000 - dtb.len() as u64) & !(PAGE_SIZE - 1);
+    let dtb_offset = (dtb_addr - DRAM_BASE) as usize;
     if dtb_offset + dtb.len() > state.memory.len() {
         return Err("DTB too large for memory".to_string());
     }
@@ -237,7 +248,7 @@ pub fn run_spike(isa: &str, procs: usize, mem_mb: usize, elf_path: &str, log_pat
             mem_ptr,
             mem_size,
             entry,
-            DTB_ADDR,
+            dtb_addr,
             log_c.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null()),
             tp_ptr,
             uart_ptr,

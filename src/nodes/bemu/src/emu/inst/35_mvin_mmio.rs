@@ -46,8 +46,7 @@ impl Instruction for MvinMmio {
             let bank_offset = dst_offset % 1024;
 
             for b in 0..(col as usize).min(bytes_per_row) {
-                ctx.mmio_banks[bank_idx][bank_offset + b] =
-                    mem_read(ctx.memory, src_addr + b as u64);
+                ctx.mmio_banks[bank_idx][bank_offset + b] = mem_read(ctx.memory, src_addr + b as u64);
             }
             // Zero-pad remaining bytes
             for b in (col as usize)..bytes_per_row {

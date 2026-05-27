@@ -14,7 +14,10 @@ impl Instruction for Mset {
         let (rows, col, alloc) = xs2_mset(xs2);
 
         if std::env::var("BEMU_RTRACE").is_ok() {
-            eprintln!("[RTRACE] mset: bank{} rows={} cols={} alloc={}", bank_id, rows, col, alloc);
+            eprintln!(
+                "[RTRACE] mset: bank{} rows={} cols={} alloc={}",
+                bank_id, rows, col, alloc
+            );
         }
 
         if bank_id >= BANK_NUM as u64 {

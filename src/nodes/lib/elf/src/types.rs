@@ -74,3 +74,10 @@ pub struct TlsInfo {
     pub memsz: u64,
     pub align: u64,
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct LoadInfo {
+    pub entry: u64,
+    pub image_end: u64,
+    pub tls: Option<TlsInfo>,
+}

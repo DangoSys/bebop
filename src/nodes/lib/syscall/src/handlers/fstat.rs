@@ -1,16 +1,15 @@
-use crate::constants::{ERR_BADF, ERR_FAULT, GUEST_MEM_BASE};
+use crate::constants::{ERR_BADF, ERR_FAULT};
 use crate::state::SyscallState;
+use crate::utils::guest_range;
 
 pub fn handle_fstat(state: &SyscallState, fd: i64, stat_addr: u64, memory: &mut [u8]) -> (u64, bool) {
     let stat_size = 112usize;
-    let mem_end = GUEST_MEM_BASE + memory.len() as u64;
-    if stat_addr < GUEST_MEM_BASE || stat_addr + stat_size as u64 > mem_end {
+    let Some(off) = guest_range(stat_addr, stat_size, memory.len()) else {
         return ((ERR_FAULT as u64), false);
-    }
+    };
     if fd < 0 {
         return ((ERR_BADF as u64), false);
     }
-    let off = (stat_addr - GUEST_MEM_BASE) as usize;
     memory[off..off + stat_size].fill(0);
 
     let st_mode: u32 = if fd <= 2 { 0x2000 | 0o666 } else { 0x8000 | 0o644 };
@@ -19,7 +18,9 @@ pub fn handle_fstat(state: &SyscallState, fd: i64, stat_addr: u64, memory: &mut 
 
     // Get real file size from open_files if fd >= 3
     let st_size: i64 = if fd >= 3 {
-        state.open_files.get(&(fd as u64))
+        state
+            .open_files
+            .get(&(fd as u64))
             .and_then(|file| file.metadata().ok())
             .map(|meta| meta.len() as i64)
             .unwrap_or(0)

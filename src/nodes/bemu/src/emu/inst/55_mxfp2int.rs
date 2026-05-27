@@ -50,13 +50,12 @@ impl Instruction for Mxfp2Int {
 
         for block_idx in 0..iter {
             // Read E8M0 scale from MMIO (meta_bank = out_bank, rel_addr = block_idx)
-            let scale_e8m0 =
-                mmio_read_byte(ctx.mmio_banks, ctx.mmio_region_table, out_bank as usize, block_idx);
+            let scale_e8m0 = mmio_read_byte(ctx.mmio_banks, ctx.mmio_region_table, out_bank as usize, block_idx);
 
             // Read input MXFP4 block (16 bytes = 1 bank row)
             let in_row_addr = block_idx;
-            let in_row_bytes = &ctx.banks[in_pbank][in_row_addr * (BANK_WIDTH / 8)
-                ..(in_row_addr + 1) * (BANK_WIDTH / 8)];
+            let in_row_bytes =
+                &ctx.banks[in_pbank][in_row_addr * (BANK_WIDTH / 8)..(in_row_addr + 1) * (BANK_WIDTH / 8)];
 
             // Dequantize 32 FP4 elements to INT8
             let mut out_bytes = [0i8; BYTES_PER_OUTPUT_BLOCK];
@@ -73,7 +72,9 @@ impl Instruction for Mxfp2Int {
 
                 // Apply scale and saturate to INT8
                 let scaled = if shift >= 0 {
-                    signed_val.checked_shl(shift as u32).unwrap_or(if signed_val >= 0 { i32::MAX } else { i32::MIN })
+                    signed_val
+                        .checked_shl(shift as u32)
+                        .unwrap_or(if signed_val >= 0 { i32::MAX } else { i32::MIN })
                 } else {
                     let abs_shift = (-shift) as u32;
                     if abs_shift >= 32 {

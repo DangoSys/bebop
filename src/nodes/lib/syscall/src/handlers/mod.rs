@@ -68,9 +68,13 @@ pub fn handle_syscall(
         let offset = (a1 - 0x80000000) as usize;
         let mut bytes = Vec::new();
         for i in 0..256 {
-            if offset + i >= memory.len() { break; }
+            if offset + i >= memory.len() {
+                break;
+            }
             let b = memory[offset + i];
-            if b == 0 { break; }
+            if b == 0 {
+                break;
+            }
             bytes.push(b);
         }
         String::from_utf8_lossy(&bytes).to_string()

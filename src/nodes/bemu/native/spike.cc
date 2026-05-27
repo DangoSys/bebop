@@ -8,6 +8,7 @@
 #include <string>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 #include <csignal>
 #include <execinfo.h>
 #include <unistd.h>
@@ -292,7 +293,7 @@ int spike_run_raw(
     //   sp[2] = NULL
     //   sp[3] = NULL (envp terminator)
     //   sp[4..] = auxv pairs, terminated by AT_NULL
-    uint64_t stack_top = 0x80400000;
+    uint64_t stack_top = (DRAM_BASE + mem_size - 0x400000) & ~0xFULL;
     const char prog_name[] = "tutorial-linux";
     constexpr uint64_t AT_NULL = 0;
     constexpr uint64_t AT_PHDR = 3;
@@ -427,10 +428,17 @@ int spike_run_raw(
     }
 
     // Run until sim_exit or syscall exit
-    int step_count = 0;
+    uint64_t step_count = 0;
     reg_t prev_pc = state->pc;
 
     const uint64_t SYSCALL_MAGIC_ADDR = 0x80000000 + mem_size - 0x1000;
+    uint64_t pctrace_interval = 0;
+    if (const char* pctrace_env = std::getenv("BEMU_PCTRACE")) {
+        pctrace_interval = std::strtoull(pctrace_env, nullptr, 0);
+        if (pctrace_interval <= 1) {
+            pctrace_interval = 1000000;
+        }
+    }
 
     while (!simif.exit_requested && !should_exit()) {
         try {
@@ -502,10 +510,16 @@ int spike_run_raw(
 
             proc.step(1);
             step_count++;
+            if (pctrace_interval != 0 && step_count % pctrace_interval == 0) {
+                fprintf(stderr,
+                        "[PCTRACE] step=%lu pc=0x%lx sp=0x%lx ra=0x%lx a0=0x%lx a1=0x%lx\n",
+                        step_count, state->pc, state->XPR[2], state->XPR[1], state->XPR[10], state->XPR[11]);
+                fflush(stderr);
+            }
 
             // Detect PC jump to 0
             if (state->pc == 0 && prev_pc != 0) {
-                fprintf(stderr, "[ERROR] PC jumped to 0! Previous PC = 0x%lx, step = %d\n", prev_pc, step_count);
+                fprintf(stderr, "[ERROR] PC jumped to 0! Previous PC = 0x%lx, step = %lu\n", prev_pc, step_count);
                 fprintf(stderr, "[ERROR] Register dump:\n");
                 fprintf(stderr, "  ra (x1)  = 0x%lx\n", state->XPR[1]);
                 fprintf(stderr, "  sp (x2)  = 0x%lx\n", state->XPR[2]);
