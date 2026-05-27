@@ -42,17 +42,6 @@ fn exec_loop_impl(memory: &mut [u8]) -> u64 {
         panic!("gemmini_loop_ws: bad stride/n");
     }
 
-    // OS mode HW semantics (matches RTL MeshWithDelays):
-    //   RTL: mesh.a_transpose = !cfg_a_transpose (negated!)
-    //   OS mesh default data flow computes: C[i][j] = sum_k A[k][i] * B[k][j]
-    //
-    //   cfg_a_transpose=0 → mesh.a_transpose=1 → transposer ON
-    //     → reads A, transposes it, feeds A^T to mesh
-    //     → mesh computes (A^T)^T * B = A * B
-    //
-    //   cfg_a_transpose=1 → mesh.a_transpose=0 → transposer OFF
-    //     → reads A, no transpose, feeds A to mesh
-    //     → mesh computes A^T * B
     for i in 0..n {
         for j in 0..n {
             let ii = i as u64;
@@ -65,19 +54,10 @@ fn exec_loop_impl(memory: &mut [u8]) -> u64 {
             };
             for k in 0..n {
                 let kk = k as u64;
-                // OS mode semantics (derived from CISC test expectations):
-                //   a_t=0, b_t=0: A^T * B    (read A[k][i], B[k][j])  [cisc_basic with loaded=A^T]
-                //   a_t=1, b_t=0: A^T * B    (read A[k][i], B[k][j])  [cisc_atranspose: a_t no-op]
-                //   a_t=0, b_t=1: A * B^T    (read A[i][k], B[j][k])  [cisc_btranspose]
-                //   a_t=1, b_t=1: A^T * B^T  (read A[k][i], B[j][k])  [cisc_abtranspose]
-                //
-                // Rule: read A[i][k] iff (b_t AND NOT a_t), else A[k][i]
-                //       read B[j][k] iff b_t,                 else B[k][j]
-                let a_swap = b_transpose && !a_transpose;
-                let av = if a_swap {
-                    mem_i8(memory, lw.addr_a + ii * lw.stride_a + kk)
-                } else {
+                let av = if a_transpose {
                     mem_i8(memory, lw.addr_a + kk * lw.stride_a + ii)
+                } else {
+                    mem_i8(memory, lw.addr_a + ii * lw.stride_a + kk)
                 };
                 let bv = if b_transpose {
                     mem_i8(memory, lw.addr_b + jj * lw.stride_b + kk)

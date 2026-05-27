@@ -55,14 +55,8 @@ impl Instruction for GemminiComputePreloaded {
             }
             write_i32_nn_groups(ctx.banks, &pw, &c, n);
         } else {
-            // OS mode: per RTL GemminiExCtrlPreloadStates, preload feeds D=0 to mesh
-            // in OS mode (regardless of the preload bank contents). So the accumulator
-            // starts at zero — not the bank_c contents written by gemmini_preload.
-            //
-            // RTL: mesh.a_transpose = !cfg_a_transpose (negated!)
-            // OS mesh default: C[i][j] = sum_k A[k][i] * B[k][j]
-            //   cfg_a_transpose=0 → transposer ON → A * B
-            //   cfg_a_transpose=1 → transposer OFF → A^T * B
+            // OS mode: per RTL GemminiExCtrlPreloadStates, preload feeds D=0 to
+            // mesh in OS mode, so the accumulator starts at zero.
             let a = read_i8_nn(ctx.banks, pa, n);
             let b = read_i8_nn(ctx.banks, pb, n);
             let mut c = vec![vec![0i32; n]; n];
@@ -70,11 +64,7 @@ impl Instruction for GemminiComputePreloaded {
                 for j in 0..n {
                     let mut acc = 0i32;
                     for k in 0..n {
-                        // OS mode semantics (matches gemmini_loop_ws):
-                        // read A[i][k] iff (b_t AND NOT a_t), else A[k][i]
-                        // read B[j][k] iff b_t, else B[k][j]
-                        let a_swap = b_transpose && !a_transpose;
-                        let av = if a_swap { a[i][k] } else { a[k][i] };
+                        let av = if a_transpose { a[k][i] } else { a[i][k] };
                         let bv = if b_transpose { b[j][k] } else { b[k][j] };
                         acc += av as i32 * bv as i32;
                     }

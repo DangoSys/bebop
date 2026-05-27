@@ -63,19 +63,24 @@ pub struct BankConfig {
 /// DRAM is mapped at this base address from the guest's perspective.
 /// Must match `DRAM_BASE` in spike.cc.
 pub const DRAM_BASE: u64 = 0x80000000;
+pub const LOW_ALIAS_BASE: u64 = 0x10000;
 
 #[inline]
 fn dram_offset(mem_len: usize, addr: u64) -> usize {
-    // Guest passes absolute DRAM addresses (e.g. 0xbc089350); convert to host buffer offset.
-    // Validate the address falls within DRAM so out-of-bounds RoCC accesses are loud, not silent.
     let mem_end = DRAM_BASE + mem_len as u64;
-    if addr < DRAM_BASE || addr >= mem_end {
-        panic!(
-            "DRAM access out of range: addr=0x{:x} (valid range 0x{:x}-0x{:x})",
-            addr, DRAM_BASE, mem_end
-        );
+    if addr >= DRAM_BASE && addr < mem_end {
+        return (addr - DRAM_BASE) as usize;
     }
-    (addr - DRAM_BASE) as usize
+
+    let low_end = LOW_ALIAS_BASE + mem_len as u64;
+    if addr >= LOW_ALIAS_BASE && addr < low_end {
+        return (addr - LOW_ALIAS_BASE) as usize;
+    }
+
+    panic!(
+        "DRAM access out of range: addr=0x{:x} (valid ranges 0x{:x}-0x{:x}, 0x{:x}-0x{:x})",
+        addr, DRAM_BASE, mem_end, LOW_ALIAS_BASE, low_end
+    );
 }
 
 #[inline]

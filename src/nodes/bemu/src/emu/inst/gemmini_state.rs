@@ -1,4 +1,5 @@
 //! Global config for Gemmini / loop instructions. Mutex is fine because Spike calls in on a single worker.
+use super::super::bank::{mem_read, mem_write};
 use std::sync::{Mutex, OnceLock};
 
 #[derive(Clone, Default)]
@@ -59,11 +60,7 @@ pub fn gemini() -> &'static Mutex<GemminiState> {
 }
 
 pub fn mem_u8(mem: &[u8], addr: u64) -> u8 {
-    let len = mem.len();
-    if len == 0 {
-        return 0;
-    }
-    mem[(addr as usize) % len]
+    mem_read(mem, addr)
 }
 
 pub fn mem_i8(mem: &[u8], addr: u64) -> i8 {
@@ -71,20 +68,16 @@ pub fn mem_i8(mem: &[u8], addr: u64) -> i8 {
 }
 
 pub fn mem_i32_le(mem: &[u8], addr: u64) -> i32 {
-    let len = mem.len();
-    let o = (addr as usize) % len;
     let mut b = [0u8; 4];
     for i in 0..4 {
-        b[i] = mem[(o + i) % len];
+        b[i] = mem_read(mem, addr + i as u64);
     }
     i32::from_le_bytes(b)
 }
 
 pub fn mem_write_i32(mem: &mut [u8], addr: u64, v: i32) {
-    let len = mem.len();
-    let o = (addr as usize) % len;
     let b = v.to_le_bytes();
     for i in 0..4 {
-        mem[(o + i) % len] = b[i];
+        mem_write(mem, addr + i as u64, b[i]);
     }
 }
