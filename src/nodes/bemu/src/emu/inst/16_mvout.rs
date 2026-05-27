@@ -23,6 +23,14 @@ impl Instruction for Mvout {
             panic!("mvout: invalid bank_id {bank_id}");
         }
 
+        if depth == 0 {
+            panic!("mvout: depth must be > 0");
+        }
+
+        if stride == 0 {
+            panic!("mvout: stride must be > 0");
+        }
+
         let bi = bank_id as usize;
         if !ctx.cfgs[bi].allocated {
             panic!("mvout: bank {bank_id} not allocated");
@@ -30,7 +38,6 @@ impl Instruction for Mvout {
 
         let cols = ctx.cfgs[bi].cols;
         let groups = cols.max(1) as usize;
-        let actual_stride = if stride == 0 { 1 } else { stride };
 
         if groups > 1 {
             let rows = if depth > MATRIX_SIZE as u64 {
@@ -51,7 +58,7 @@ impl Instruction for Mvout {
                         panic!("mvout: bank range: bank_offset={bank_offset} line_bytes=16 depth={depth}");
                     }
                     let addr = mem_addr
-                        + i as u64 * groups as u64 * 16 * actual_stride
+                        + i as u64 * groups as u64 * 16 * stride
                         + group as u64 * 16;
                     for j in 0..16 {
                         mem_write(ctx.memory, addr + j as u64, ctx.banks[p][bank_offset + j]);
@@ -68,7 +75,7 @@ impl Instruction for Mvout {
                 if bank_offset + line_bytes > BANK_SIZE {
                     panic!("mvout: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
                 }
-                let addr = mem_addr + i * line_bytes as u64 * actual_stride;
+                let addr = mem_addr + i * line_bytes as u64 * stride;
                 for j in 0..line_bytes {
                     mem_write(ctx.memory, addr + j as u64, ctx.banks[p][bank_offset + j]);
                 }

@@ -18,6 +18,10 @@ impl Instruction for Int2Fp {
             panic!("int2fp: invalid bank_id");
         }
 
+        if depth == 0 {
+            panic!("int2fp: iter must be > 0");
+        }
+
         let sc = ctx.cfgs[src as usize];
         let dc = ctx.cfgs[dst as usize];
         if !sc.allocated || !dc.allocated {

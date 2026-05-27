@@ -41,12 +41,19 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", native_dir.join("verilator.cc").display());
+    println!("cargo:rerun-if-changed={}", native_dir.join("memory").display());
+    println!("cargo:rerun-if-changed={}", build_dir.display());
+    println!("cargo:rerun-if-env-changed=VSRC_PATH");
+    println!("cargo:rerun-if-env-changed=BEBOP_VERILATOR_COVERAGE");
 
     assert_exists(&build_dir, &format!("missing Verilog source directory: {}", vsrc_path));
 
     let vsrcs = collect_files(&build_dir, &["v", "sv"]);
     let csrcs = collect_build_csrcs(&build_dir);
 
+    if obj_dir.exists() {
+        fs::remove_dir_all(&obj_dir).expect("remove stale obj_dir");
+    }
     fs::create_dir_all(&obj_dir).expect("create obj_dir");
     run_verilator(&build_dir, &obj_dir, topname, &jobs, coverage, &vsrcs, &csrcs);
 
@@ -128,10 +135,16 @@ fn main() {
 
     // Compile minimal wrapper + memory model + generated Verilator code
     // All DPI-C callbacks are implemented in Rust (dpi.rs)
-    build.file(native_dir.join("verilator.cc"));
-    build.file(native_dir.join("memory/BBSimDRAM.cc"));
-    build.file(native_dir.join("memory/mm.cc"));
-    build.file(native_dir.join("memory/mm_dramsim2.cc"));
+    let native_csrcs = [
+        native_dir.join("verilator.cc"),
+        native_dir.join("memory/BBSimDRAM.cc"),
+        native_dir.join("memory/mm.cc"),
+        native_dir.join("memory/mm_dramsim2.cc"),
+    ];
+    for src in native_csrcs {
+        println!("cargo:rerun-if-changed={}", src.display());
+        build.file(src);
+    }
 
     for file in &generated_cpps {
         build.file(file);

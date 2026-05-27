@@ -18,6 +18,10 @@ impl Instruction for Fp2Int {
             panic!("fp2int: invalid bank_id");
         }
 
+        if depth == 0 {
+            panic!("fp2int: iter must be > 0");
+        }
+
         let sc = ctx.cfgs[src as usize];
         let dc = ctx.cfgs[dst as usize];
         if !sc.allocated || !dc.allocated {

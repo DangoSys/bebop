@@ -1,4 +1,4 @@
-use super::super::bank::{BANK_NUM, MATRIX_SIZE};
+use super::super::bank::BANK_NUM;
 use super::decode::{pbank, rs1_b0, rs1_b2, rs1_iter};
 use super::instruction::{ExecContext, Instruction};
 
@@ -23,16 +23,21 @@ impl Instruction for Transpose {
             panic!("transpose: invalid bank_id");
         }
 
+        if iter == 0 {
+            panic!("transpose: iter must be > 0");
+        }
+
         let c1 = ctx.cfgs[op1 as usize].cols;
         let cw = ctx.cfgs[wr as usize].cols;
+        if !ctx.cfgs[op1 as usize].allocated || !ctx.cfgs[wr as usize].allocated {
+            panic!("transpose: bank not allocated");
+        }
+
         let k = iter as usize;
         let po = pbank(ctx.bank_map, op1);
         let pw = pbank(ctx.bank_map, wr);
 
         if c1 == 1 && cw == 1 {
-            if k == 0 {
-                panic!("transpose: iter must be > 0");
-            }
             if po == pw {
                 panic!("transpose: op1 and wr must differ");
             }
@@ -58,8 +63,8 @@ impl Instruction for Transpose {
             return 0;
         }
 
-        let n = (iter.min(MATRIX_SIZE as u64)) as usize;
         if c1 == 4 && cw == 4 {
+            let n = k;
             for i in 0..n {
                 for j in 0..n {
                     let src_off = i * 64 + j * 4;
