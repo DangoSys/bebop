@@ -32,8 +32,17 @@ proc run_workload {cycles} {
 
     while {1} {
         incr iteration
-        # puts "  Iteration $iteration: running $cycles cycles..."
-        run $cycles rclk
+        puts "  Iteration $iteration: running $cycles cycles..."
+        # run $cycles rclk
+
+        set_trace_size $cycles rclk
+        
+        tracedb -open waveform$iteration -vcd -overwrite;
+        trace_signals -add *;
+        run $cycles rclk;
+        tracedb -upload;
+        tracedb -close;
+        exec vcd2fst waveform$iteration.vcd waveform$iteration.fst
 
         # Check if Rust side created exit flag
         if {[file exists $exit_flag]} {
