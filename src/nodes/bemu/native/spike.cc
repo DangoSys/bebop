@@ -286,15 +286,17 @@ int spike_run_raw(
         state->XPR.write(10, 0);        // a0 = hartid (0)
         state->XPR.write(11, dtb_addr); // a1 = dtb address
 
-        // Initialize Linux process stack (argc/argv/envp/auxv)
-    // Layout:
-    //   sp[0] = argc
-    //   sp[1] = argv[0]
-    //   sp[2] = NULL
-    //   sp[3] = NULL (envp terminator)
-    //   sp[4..] = auxv pairs, terminated by AT_NULL
+    // Initialize Linux process stack (argc/argv/envp/auxv).
+    // Pass selected host env vars through envp so guest-side tracing helpers
+    // can resolve their output paths under the proxy-kernel flow.
     uint64_t stack_top = (DRAM_BASE + mem_size - 0x400000) & ~0xFULL;
     const char prog_name[] = "tutorial-linux";
+    std::string layer_trace_env;
+    if (const char* trace_path = std::getenv("BB_LAYER_TRACE_PATH")) {
+        if (trace_path[0] != '\0') {
+            layer_trace_env = std::string("BB_LAYER_TRACE_PATH=") + trace_path;
+        }
+    }
     constexpr uint64_t AT_NULL = 0;
     constexpr uint64_t AT_PHDR = 3;
     constexpr uint64_t AT_PHENT = 4;
@@ -312,13 +314,16 @@ int spike_run_raw(
     constexpr uint64_t AT_RANDOM = 25;
     constexpr uint64_t AT_EXECFN = 31;
     const uint64_t word_size = sizeof(uint64_t);
-    const uint64_t stack_words = 36;
     const uint64_t string_len = sizeof(prog_name);
+    const uint64_t env_len = layer_trace_env.empty() ? 0 : static_cast<uint64_t>(layer_trace_env.size() + 1);
     const uint64_t random_len = 16;
 
     uint64_t string_addr = (stack_top - string_len) & ~0xFULL;
-    uint64_t random_addr = (string_addr - random_len) & ~0xFULL;
-    uint64_t sp = (random_addr - stack_words * word_size) & ~0xFULL;
+    uint64_t env_addr = string_addr;
+    if (env_len != 0) {
+        env_addr = (string_addr - env_len) & ~0xFULL;
+    }
+    uint64_t random_addr = ((env_len != 0 ? env_addr : string_addr) - random_len) & ~0xFULL;
     uint64_t at_phdr = 0;
     uint64_t at_phent = 56;
     uint64_t at_phnum = 0;
@@ -340,69 +345,92 @@ int spike_run_raw(
         at_phnum = e_phnum16;
     }
 
-    if (sp < DRAM_BASE || stack_top > DRAM_BASE + mem_size) {
-        fprintf(stderr, "[ERROR] Invalid stack range: sp=0x%lx top=0x%lx\n", sp, stack_top);
-        fflush(stderr);
-        return 1;
-    }
-
-    uint64_t sp_offset = sp - DRAM_BASE;
     uint64_t string_offset = string_addr - DRAM_BASE;
+    uint64_t env_offset = env_len == 0 ? 0 : (env_addr - DRAM_BASE);
     uint64_t random_offset = random_addr - DRAM_BASE;
     if (string_offset + string_len > mem_size ||
-        random_offset + random_len > mem_size ||
-        sp_offset + stack_words * word_size > mem_size) {
+        (env_len != 0 && env_offset + env_len > mem_size) ||
+        random_offset + random_len > mem_size) {
         fprintf(stderr, "[ERROR] Stack layout exceeds guest memory\n");
         fflush(stderr);
         return 1;
     }
 
+    std::vector<uint64_t> stack_entries;
+    stack_entries.reserve(40);
+    stack_entries.push_back(1);          // argc
+    stack_entries.push_back(string_addr); // argv[0]
+    stack_entries.push_back(0);          // argv terminator
+    const uint64_t envp_offset_words = stack_entries.size();
+    if (env_len != 0) {
+        stack_entries.push_back(env_addr);
+    }
+    stack_entries.push_back(0); // envp terminator
+    const uint64_t auxv_offset_words = stack_entries.size();
+    (void)auxv_offset_words;
+    stack_entries.push_back(AT_PHDR);
+    stack_entries.push_back(at_phdr);
+    stack_entries.push_back(AT_PHENT);
+    stack_entries.push_back(at_phent);
+    stack_entries.push_back(AT_PHNUM);
+    stack_entries.push_back(at_phnum);
+    stack_entries.push_back(AT_PAGESZ);
+    stack_entries.push_back(4096);
+    stack_entries.push_back(AT_BASE);
+    stack_entries.push_back(0);
+    stack_entries.push_back(AT_HWCAP);
+    stack_entries.push_back(0);
+    stack_entries.push_back(AT_ENTRY);
+    stack_entries.push_back(entry);
+    stack_entries.push_back(AT_UID);
+    stack_entries.push_back(0);
+    stack_entries.push_back(AT_EUID);
+    stack_entries.push_back(0);
+    stack_entries.push_back(AT_GID);
+    stack_entries.push_back(0);
+    stack_entries.push_back(AT_EGID);
+    stack_entries.push_back(0);
+    stack_entries.push_back(AT_SECURE);
+    stack_entries.push_back(0);
+    stack_entries.push_back(AT_RANDOM);
+    stack_entries.push_back(random_addr);
+    stack_entries.push_back(AT_HWCAP2);
+    stack_entries.push_back(0);
+    stack_entries.push_back(AT_EXECFN);
+    stack_entries.push_back(string_addr);
+    stack_entries.push_back(AT_NULL);
+    stack_entries.push_back(0);
+
+    const uint64_t stack_words = stack_entries.size();
+    uint64_t sp = (random_addr - stack_words * word_size) & ~0xFULL;
+    uint64_t sp_offset = sp - DRAM_BASE;
+    if (sp < DRAM_BASE || stack_top > DRAM_BASE + mem_size) {
+        fprintf(stderr, "[ERROR] Invalid stack range: sp=0x%lx top=0x%lx\n", sp, stack_top);
+        fflush(stderr);
+        return 1;
+    }
+    if (sp_offset + stack_words * word_size > mem_size) {
+        fprintf(stderr, "[ERROR] Stack entries exceed guest memory\n");
+        fflush(stderr);
+        return 1;
+    }
+
     memcpy(mem_ptr + string_offset, prog_name, string_len);
+    if (env_len != 0) {
+        memcpy(mem_ptr + env_offset, layer_trace_env.c_str(), env_len);
+    }
     for (uint64_t i = 0; i < random_len; ++i) {
         mem_ptr[random_offset + i] = static_cast<uint8_t>(0xA5u ^ static_cast<uint8_t>(i));
     }
     uint64_t* stack_words_ptr = reinterpret_cast<uint64_t*>(mem_ptr + sp_offset);
-    stack_words_ptr[0] = 1;
-    stack_words_ptr[1] = string_addr;
-    stack_words_ptr[2] = 0;
-    stack_words_ptr[3] = 0;
-    stack_words_ptr[4] = AT_PHDR;
-    stack_words_ptr[5] = at_phdr;
-    stack_words_ptr[6] = AT_PHENT;
-    stack_words_ptr[7] = at_phent;
-    stack_words_ptr[8] = AT_PHNUM;
-    stack_words_ptr[9] = at_phnum;
-    stack_words_ptr[10] = AT_PAGESZ;
-    stack_words_ptr[11] = 4096;
-    stack_words_ptr[12] = AT_BASE;
-    stack_words_ptr[13] = 0;
-    stack_words_ptr[14] = AT_HWCAP;
-    stack_words_ptr[15] = 0;
-    stack_words_ptr[16] = AT_ENTRY;
-    stack_words_ptr[17] = entry;
-    stack_words_ptr[18] = AT_UID;
-    stack_words_ptr[19] = 0;
-    stack_words_ptr[20] = AT_EUID;
-    stack_words_ptr[21] = 0;
-    stack_words_ptr[22] = AT_GID;
-    stack_words_ptr[23] = 0;
-    stack_words_ptr[24] = AT_EGID;
-    stack_words_ptr[25] = 0;
-    stack_words_ptr[26] = AT_SECURE;
-    stack_words_ptr[27] = 0;
-    stack_words_ptr[28] = AT_RANDOM;
-    stack_words_ptr[29] = random_addr;
-    stack_words_ptr[30] = AT_HWCAP2;
-    stack_words_ptr[31] = 0;
-    stack_words_ptr[32] = AT_EXECFN;
-    stack_words_ptr[33] = string_addr;
-    stack_words_ptr[34] = AT_NULL;
-    stack_words_ptr[35] = 0;
+    for (size_t i = 0; i < stack_entries.size(); ++i) {
+        stack_words_ptr[i] = stack_entries[i];
+    }
 
     state->XPR.write(2, sp); // sp = x2
     state->XPR.write(10, 1); // a0 = argc
     state->XPR.write(11, sp + word_size); // a1 = argv
-    state->XPR.write(12, sp + 3 * word_size); // a2 = envp
+    state->XPR.write(12, sp + envp_offset_words * word_size); // a2 = envp
 
     // Initialize tp (thread pointer) for TLS support if provided
     if (tp_value_ptr != nullptr) {
