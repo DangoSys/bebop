@@ -69,6 +69,10 @@ pub enum Commands {
         bitstream: Option<std::path::PathBuf>,
         #[arg(long, help = "Log directory (for runworkload only)")]
         log_dir: Option<std::path::PathBuf>,
+        #[arg(long, help = "Enable waveform dump during runworkload")]
+        wave: bool,
+        #[arg(long, help = "Start waveform dump from this cycle")]
+        wave_start: Option<u64>,
     },
 }
 
@@ -104,6 +108,8 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
             image,
             bitstream,
             log_dir,
+            wave,
+            wave_start,
         } => {
             if buildbitstream {
                 let build_dir = build_dir.ok_or_else(|| {
@@ -120,12 +126,15 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
                     .ok_or_else(|| Whatever::without_source("--bitstream is required for runworkload".to_string()))?;
                 let build_dir = build_dir.unwrap_or_else(|| std::path::PathBuf::from("./out"));
                 let log = log_dir.unwrap_or_else(|| build_dir.join("log"));
+                let wave = wave || wave_start.is_some();
 
                 run_p2e(P2ECli {
                     image,
                     bitstream,
                     output: build_dir,
                     log,
+                    wave,
+                    wave_start,
                 })
             } else {
                 Err(Whatever::without_source(

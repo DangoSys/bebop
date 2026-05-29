@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
+use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
 
 const SIM_EXIT_ADDR: u64 = 0x6000_0000;
@@ -45,9 +46,17 @@ struct RuntimeState {
     exit_code: Option<i32>,
     uart_files: HashMap<u32, File>,
     log_dir: Option<String>,
+    uart_rx: HashMap<u32, VecDeque<u8>>,
+    console_tx: Option<Sender<UartTx>>,
 }
 
 static STATE: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
+
+#[derive(Debug, Clone, Copy)]
+pub struct UartTx {
+    pub hart_id: u32,
+    pub byte: u8,
+}
 
 fn state() -> &'static Mutex<RuntimeState> {
     STATE.get_or_init(|| Mutex::new(RuntimeState::default()))
@@ -59,6 +68,15 @@ pub fn reset_runtime_state() {
 
 pub fn set_log_dir(log_dir: String) {
     state().lock().unwrap().log_dir = Some(log_dir);
+}
+
+pub fn set_console_tx(tx: Sender<UartTx>) {
+    state().lock().unwrap().console_tx = Some(tx);
+}
+
+pub fn push_uart_rx(hart_id: u32, byte: u8) {
+    let mut guard = state().lock().unwrap();
+    guard.uart_rx.entry(hart_id).or_default().push_back(byte);
 }
 
 pub fn mark_initialized() {
@@ -140,10 +158,39 @@ pub extern "C" fn scu_uart_write(hart_id: u32, ch: u32) {
     // Also write to global uart_log for backward compatibility
     let byte = (ch & 0xff) as u8;
     guard.uart_log.push(byte);
+    if let Some(tx) = &guard.console_tx {
+        let _ = tx.send(UartTx { hart_id, byte });
+    }
 
     // Print to stdout with hart_id prefix
     print!("[hart{}] {}", hart_id, byte as char);
     let _ = std::io::Write::flush(&mut std::io::stdout());
+}
+
+#[no_mangle]
+pub extern "C" fn scu_uart_rx_valid(hart_id: u32) -> i32 {
+    let guard = state().lock().unwrap();
+    guard.uart_rx.get(&hart_id).is_some_and(|queue| !queue.is_empty()) as i32
+}
+
+#[no_mangle]
+pub extern "C" fn scu_uart_peek(hart_id: u32) -> i32 {
+    let guard = state().lock().unwrap();
+    guard
+        .uart_rx
+        .get(&hart_id)
+        .and_then(|queue| queue.front().copied())
+        .unwrap_or(0) as i32
+}
+
+#[no_mangle]
+pub extern "C" fn scu_uart_pop(hart_id: u32) -> i32 {
+    let mut guard = state().lock().unwrap();
+    guard
+        .uart_rx
+        .get_mut(&hart_id)
+        .and_then(|queue| queue.pop_front())
+        .unwrap_or(0) as i32
 }
 
 #[no_mangle]

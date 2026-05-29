@@ -1,5 +1,10 @@
 [workspace]
-members = [".", "src/nodes/verilator", "src/nodes/bemu", "src/nodes/p2e"]
+members = [
+  ".",
+  "src/nodes/verilator",
+  "src/nodes/bemu",
+  "src/nodes/p2e",
+]
 resolver = "2"
 
 [workspace.lints.rust]

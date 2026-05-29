@@ -126,6 +126,21 @@ extern "C" void scu_uart_write(uint32_t hart_id, uint32_t ch) {
     }
 }
 
+extern "C" int scu_uart_rx_valid(uint32_t hart_id) {
+    (void)hart_id;
+    return 0;
+}
+
+extern "C" int scu_uart_peek(uint32_t hart_id) {
+    (void)hart_id;
+    return 0;
+}
+
+extern "C" int scu_uart_pop(uint32_t hart_id) {
+    (void)hart_id;
+    return 0;
+}
+
 extern "C" void scu_sim_exit(uint32_t hart_id, uint32_t code) {
     std::lock_guard<std::mutex> lock(g_scu_mutex);
     g_exit_code = code;

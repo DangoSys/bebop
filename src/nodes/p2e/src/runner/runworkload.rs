@@ -1,5 +1,10 @@
 use crate::ffi::{self, CtbManager};
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -20,12 +25,16 @@ pub fn run(
     image: &Path,
     bitstream: &Path,
     log_dir: &Path,
+    wave: bool,
+    wave_start: u64,
 ) -> Result<SimulationResult, String> {
     log::info!("P2E Simulation Starting");
     log::info!("  FPGA: {}", fpga_location);
     log::info!("  Case Home: {}", case_home.display());
     log::info!("  Image: {}", image.display());
     log::info!("  Bitstream: {}", bitstream.display());
+    log::info!("  Waveform: {}", wave);
+    log::info!("  Waveform Start Cycle: {}", wave_start);
 
     // Validate paths
     if !case_home.exists() {
@@ -50,6 +59,8 @@ pub fn run(
 
     // Set log directory for per-hart UART logs
     ffi::set_log_dir(log_dir.to_string_lossy().to_string());
+    let console = ConsoleServer::start(log_dir)?;
+    ffi::set_console_tx(console.tx_sender());
 
     // IMPORTANT: Change to case_home directory before running vdbg
     log::info!("Changing to case_home directory: {}", case_home.display());
@@ -58,7 +69,7 @@ pub fn run(
 
     // Generate main.tcl dynamically
     log::info!("Generating main.tcl...");
-    let main_tcl = generate_main_tcl(fpga_location, image, bitstream)?;
+    let main_tcl = generate_main_tcl(fpga_location, image, bitstream, wave, wave_start)?;
     let main_tcl_path = case_home.join("main.tcl");
     std::fs::write(&main_tcl_path, main_tcl).map_err(|e| format!("Failed to write main.tcl: {}", e))?;
 
@@ -104,6 +115,165 @@ pub fn run(
 
     // _ctb dropped here -> quit() called after the workload finishes.
     Ok(result)
+}
+
+struct ConsoleServer {
+    socket_path: std::path::PathBuf,
+    stop: Arc<AtomicBool>,
+    tx_sender: mpsc::Sender<ffi::UartTx>,
+    handles: Vec<std::thread::JoinHandle<()>>,
+}
+
+type ConsoleClients = Arc<Mutex<HashMap<u32, Vec<UnixStream>>>>;
+
+impl ConsoleServer {
+    fn start(log_dir: &Path) -> Result<Self, String> {
+        std::fs::create_dir_all(log_dir)
+            .map_err(|e| format!("failed to create log directory {}: {e}", log_dir.display()))?;
+
+        let socket_path = log_dir.join("p2e-console.sock");
+        if socket_path.exists() {
+            std::fs::remove_file(&socket_path)
+                .map_err(|e| format!("failed to remove stale console socket {}: {e}", socket_path.display()))?;
+        }
+
+        let listener = UnixListener::bind(&socket_path)
+            .map_err(|e| format!("failed to bind console socket {}: {e}", socket_path.display()))?;
+        listener
+            .set_nonblocking(true)
+            .map_err(|e| format!("failed to set console socket nonblocking: {e}"))?;
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let clients: ConsoleClients = Arc::new(Mutex::new(HashMap::new()));
+        let (tx_sender, tx_receiver) = mpsc::channel::<ffi::UartTx>();
+
+        let accept_stop = stop.clone();
+        let accept_clients = clients.clone();
+        let accept_handle = std::thread::Builder::new()
+            .name("p2e-console-accept".to_string())
+            .spawn(move || {
+                while !accept_stop.load(Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((stream, _addr)) => {
+                            if let Err(e) = Self::spawn_client(stream, accept_clients.clone(), accept_stop.clone()) {
+                                log::error!("failed to start console client: {e}");
+                            }
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(50));
+                        }
+                        Err(e) => {
+                            log::error!("console accept failed: {e}");
+                            std::thread::sleep(Duration::from_millis(200));
+                        }
+                    }
+                }
+            })
+            .map_err(|e| format!("failed to spawn console accept thread: {e}"))?;
+
+        let tx_stop = stop.clone();
+        let tx_clients = clients.clone();
+        let tx_handle = std::thread::Builder::new()
+            .name("p2e-console-tx".to_string())
+            .spawn(move || {
+                while !tx_stop.load(Ordering::Relaxed) {
+                    match tx_receiver.recv_timeout(Duration::from_millis(100)) {
+                        Ok(msg) => Self::broadcast(&tx_clients, msg),
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+            })
+            .map_err(|e| format!("failed to spawn console tx thread: {e}"))?;
+
+        log::info!("P2E console socket: {}", socket_path.display());
+        Ok(Self {
+            socket_path,
+            stop,
+            tx_sender,
+            handles: vec![accept_handle, tx_handle],
+        })
+    }
+
+    fn tx_sender(&self) -> mpsc::Sender<ffi::UartTx> {
+        self.tx_sender.clone()
+    }
+
+    fn spawn_client(stream: UnixStream, clients: ConsoleClients, stop: Arc<AtomicBool>) -> Result<(), String> {
+        let mut reader = BufReader::new(
+            stream
+                .try_clone()
+                .map_err(|e| format!("failed to clone console stream for reader: {e}"))?,
+        );
+        let mut header = String::new();
+        let n = reader
+            .read_line(&mut header)
+            .map_err(|e| format!("failed to read console handshake: {e}"))?;
+        if n == 0 {
+            return Err("console client closed before handshake".to_string());
+        }
+
+        let hart_id = parse_console_handshake(&header)?;
+        let write_stream = stream
+            .try_clone()
+            .map_err(|e| format!("failed to clone console stream for writer: {e}"))?;
+        clients.lock().unwrap().entry(hart_id).or_default().push(write_stream);
+
+        std::thread::Builder::new()
+            .name(format!("p2e-console-rx-hart-{hart_id}"))
+            .spawn(move || {
+                let mut input = reader;
+                let mut buf = [0_u8; 256];
+
+                while !stop.load(Ordering::Relaxed) {
+                    match input.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            for byte in &buf[..n] {
+                                ffi::push_uart_rx(hart_id, *byte);
+                            }
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                        Err(_) => break,
+                    }
+                }
+            })
+            .map_err(|e| format!("failed to spawn console rx thread: {e}"))?;
+
+        Ok(())
+    }
+
+    fn broadcast(clients: &ConsoleClients, msg: ffi::UartTx) {
+        let mut guard = clients.lock().unwrap();
+        let Some(streams) = guard.get_mut(&msg.hart_id) else {
+            return;
+        };
+
+        streams.retain_mut(|stream| stream.write_all(&[msg.byte]).and_then(|_| stream.flush()).is_ok());
+    }
+}
+
+impl Drop for ConsoleServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        for handle in self.handles.drain(..) {
+            let _ = handle.join();
+        }
+        let _ = std::fs::remove_file(&self.socket_path);
+    }
+}
+
+fn parse_console_handshake(line: &str) -> Result<u32, String> {
+    let line = line.trim_end_matches(['\r', '\n']);
+    let (cmd, value) = line
+        .split_once(' ')
+        .ok_or_else(|| "console handshake must be `hart <id>`".to_string())?;
+    if cmd != "hart" {
+        return Err(format!("console handshake command must be `hart`, got `{cmd}`"));
+    }
+    value
+        .parse::<u32>()
+        .map_err(|e| format!("invalid console hart id `{value}`: {e}"))
 }
 
 /// Initialize CTB (connects to running vdbg)
@@ -163,7 +333,13 @@ fn wait_for_completion() -> Result<SimulationResult, String> {
 }
 
 /// Generate main.tcl dynamically based on simulation parameters
-fn generate_main_tcl(fpga_location: &str, image: &Path, bitstream: &Path) -> Result<String, String> {
+fn generate_main_tcl(
+    fpga_location: &str,
+    image: &Path,
+    bitstream: &Path,
+    wave: bool,
+    wave_start: u64,
+) -> Result<String, String> {
     let script_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner");
 
     let tcl = format!(
@@ -173,6 +349,8 @@ fn generate_main_tcl(fpga_location: &str, image: &Path, bitstream: &Path) -> Res
 set fpga_location "{fpga_location}"
 set image "{image}"
 set bitstream "{bitstream}"
+set wave {wave}
+set wave_start {wave_start}
 
 puts "=========================================="
 puts "P2E Simulation Starting"
@@ -201,7 +379,7 @@ load_image $fpga_location 0 $image
 
 # Step 4: Run workload
 puts "\n========== Step 4: Running Workload =========="
-run_workload 20000
+run_workload 20000 $wave $wave_start
 
 puts "\n=========================================="
 puts "P2E Simulation Completed"
@@ -212,6 +390,8 @@ exit
         fpga_location = fpga_location,
         image = image.display(),
         bitstream = bitstream.display(),
+        wave = if wave { 1 } else { 0 },
+        wave_start = wave_start,
         script_dir = script_dir.display(),
     );
 

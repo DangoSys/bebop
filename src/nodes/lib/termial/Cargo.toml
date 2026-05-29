@@ -1,0 +1,13 @@
+[package]
+name = "bebop-termial"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "bebop-termial"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+
+[workspace]
