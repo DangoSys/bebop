@@ -346,9 +346,8 @@ int spike_run_raw(
     stack_entries.push_back(1);          // argc
     stack_entries.push_back(string_addr); // argv[0]
     stack_entries.push_back(0);          // argv terminator
-    stack_entries.push_back(0); // envp terminator
-    const uint64_t auxv_offset_words = stack_entries.size();
-    (void)auxv_offset_words;
+    const uint64_t envp_offset_words = stack_entries.size();
+    stack_entries.push_back(0);          // envp terminator
     stack_entries.push_back(AT_PHDR);
     stack_entries.push_back(at_phdr);
     stack_entries.push_back(AT_PHENT);
