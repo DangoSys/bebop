@@ -1,7 +1,8 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
+use std::os::unix::fs::FileExt;
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
 
@@ -46,7 +47,12 @@ struct RuntimeState {
     exit_code: Option<i32>,
     uart_files: HashMap<u32, File>,
     log_dir: Option<String>,
-    uart_rx: HashMap<u32, VecDeque<u8>>,
+    uart_rx_read_files: HashMap<u32, File>,
+    uart_rx_write_files: HashMap<u32, File>,
+    uart_rx_offsets: HashMap<u32, u64>,
+    uart_rx_peek: HashMap<u32, u8>,
+    uart_rx_probe_counts: HashMap<u32, u32>,
+    uart_rx_last_probe: HashMap<u32, (u64, u64, bool)>,
     console_tx: Option<Sender<UartTx>>,
 }
 
@@ -67,6 +73,18 @@ pub fn reset_runtime_state() {
 }
 
 pub fn set_log_dir(log_dir: String) {
+    std::fs::create_dir_all(&log_dir).unwrap_or_else(|e| panic!("failed to create log directory {log_dir}: {e}"));
+
+    for entry in std::fs::read_dir(&log_dir).unwrap_or_else(|e| panic!("failed to scan log directory {log_dir}: {e}")) {
+        let entry = entry.unwrap_or_else(|e| panic!("failed to read log directory entry in {log_dir}: {e}"));
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("console_rx_hart_") && name.ends_with(".bin") {
+            std::fs::remove_file(entry.path())
+                .unwrap_or_else(|e| panic!("failed to remove stale console RX file {}: {e}", entry.path().display()));
+        }
+    }
+
     state().lock().unwrap().log_dir = Some(log_dir);
 }
 
@@ -76,7 +94,12 @@ pub fn set_console_tx(tx: Sender<UartTx>) {
 
 pub fn push_uart_rx(hart_id: u32, byte: u8) {
     let mut guard = state().lock().unwrap();
-    guard.uart_rx.entry(hart_id).or_default().push_back(byte);
+    let file = uart_rx_write_file(&mut guard, hart_id);
+    file.write_all(&[byte])
+        .unwrap_or_else(|e| panic!("failed to append console RX byte for hart {hart_id}: {e}"));
+    file.flush()
+        .unwrap_or_else(|e| panic!("failed to flush console RX byte for hart {hart_id}: {e}"));
+    append_console_debug(&guard, format_args!("rx push hart={hart_id} byte=0x{byte:02x}\n"));
 }
 
 pub fn mark_initialized() {
@@ -169,28 +192,166 @@ pub extern "C" fn scu_uart_write(hart_id: u32, ch: u32) {
 
 #[no_mangle]
 pub extern "C" fn scu_uart_rx_valid(hart_id: u32) -> i32 {
-    let guard = state().lock().unwrap();
-    guard.uart_rx.get(&hart_id).is_some_and(|queue| !queue.is_empty()) as i32
+    let mut guard = state().lock().unwrap();
+    ensure_uart_rx_peek(&mut guard, hart_id).is_some() as i32
+}
+
+#[no_mangle]
+pub extern "C" fn scu_uart_rx_sample(hart_id: u32, pop: u32, valid: *mut u32, data: *mut u32) {
+    if valid.is_null() || data.is_null() {
+        panic!("scu_uart_rx_sample received null output pointer");
+    }
+
+    let mut guard = state().lock().unwrap();
+    let byte = if pop != 0 {
+        let byte = ensure_uart_rx_peek(&mut guard, hart_id);
+        if let Some(byte) = byte {
+            guard.uart_rx_peek.remove(&hart_id);
+            *guard.uart_rx_offsets.entry(hart_id).or_insert(0) += 1;
+            append_console_debug(&guard, format_args!("rx pop hart={hart_id} byte=0x{byte:02x}\n"));
+        }
+        ensure_uart_rx_peek(&mut guard, hart_id)
+    } else {
+        ensure_uart_rx_peek(&mut guard, hart_id)
+    };
+
+    unsafe {
+        *valid = byte.is_some() as u32;
+        *data = byte.unwrap_or(0) as u32;
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn scu_uart_peek(hart_id: u32) -> i32 {
-    let guard = state().lock().unwrap();
-    guard
-        .uart_rx
-        .get(&hart_id)
-        .and_then(|queue| queue.front().copied())
-        .unwrap_or(0) as i32
+    let mut guard = state().lock().unwrap();
+    ensure_uart_rx_peek(&mut guard, hart_id).unwrap_or(0) as i32
 }
 
 #[no_mangle]
 pub extern "C" fn scu_uart_pop(hart_id: u32) -> i32 {
     let mut guard = state().lock().unwrap();
-    guard
-        .uart_rx
-        .get_mut(&hart_id)
-        .and_then(|queue| queue.pop_front())
-        .unwrap_or(0) as i32
+    let Some(byte) = ensure_uart_rx_peek(&mut guard, hart_id) else {
+        return 0;
+    };
+    guard.uart_rx_peek.remove(&hart_id);
+    *guard.uart_rx_offsets.entry(hart_id).or_insert(0) += 1;
+    append_console_debug(&guard, format_args!("rx pop hart={hart_id} byte=0x{byte:02x}\n"));
+    byte as i32
+}
+
+fn uart_rx_path(guard: &RuntimeState, hart_id: u32) -> String {
+    let log_dir = guard
+        .log_dir
+        .as_ref()
+        .expect("log_dir must be set via set_log_dir() before console RX is used");
+    format!("{log_dir}/console_rx_hart_{hart_id}.bin")
+}
+
+fn uart_rx_write_file(guard: &mut RuntimeState, hart_id: u32) -> &mut File {
+    if !guard.uart_rx_write_files.contains_key(&hart_id) {
+        let path = uart_rx_path(guard, hart_id);
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .unwrap_or_else(|e| panic!("failed to open console RX file {path} for append: {e}"));
+        guard.uart_rx_write_files.insert(hart_id, file);
+    }
+    guard.uart_rx_write_files.get_mut(&hart_id).unwrap()
+}
+
+fn uart_rx_read_file(guard: &mut RuntimeState, hart_id: u32) -> &File {
+    if !guard.uart_rx_read_files.contains_key(&hart_id) {
+        let path = uart_rx_path(guard, hart_id);
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap_or_else(|e| panic!("failed to open console RX file {path} for read: {e}"));
+        guard.uart_rx_read_files.insert(hart_id, file);
+    }
+    guard.uart_rx_read_files.get(&hart_id).unwrap()
+}
+
+fn ensure_uart_rx_peek(guard: &mut RuntimeState, hart_id: u32) -> Option<u8> {
+    if let Some(byte) = guard.uart_rx_peek.get(&hart_id).copied() {
+        probe_uart_rx(guard, hart_id, true, Some(byte));
+        return Some(byte);
+    }
+
+    let offset = *guard.uart_rx_offsets.entry(hart_id).or_insert(0);
+    let file = uart_rx_read_file(guard, hart_id);
+    let file_len = file
+        .metadata()
+        .unwrap_or_else(|e| panic!("failed to stat console RX file for hart {hart_id}: {e}"))
+        .len();
+    let mut byte = [0_u8; 1];
+    match file.read_at(&mut byte, offset) {
+        Ok(1) => {
+            guard.uart_rx_peek.insert(hart_id, byte[0]);
+            probe_uart_rx(guard, hart_id, true, Some(byte[0]));
+            Some(byte[0])
+        }
+        Ok(0) => {
+            probe_uart_rx_empty(guard, hart_id, offset, file_len);
+            None
+        }
+        Ok(n) => panic!("unexpected short console RX read for hart {hart_id}: {n} bytes"),
+        Err(e) => panic!("failed to read console RX byte for hart {hart_id}: {e}"),
+    }
+}
+
+fn probe_uart_rx(guard: &mut RuntimeState, hart_id: u32, valid: bool, byte: Option<u8>) {
+    let offset = *guard.uart_rx_offsets.entry(hart_id).or_insert(0);
+    let path = uart_rx_path(guard, hart_id);
+    let file_len = std::fs::metadata(&path)
+        .unwrap_or_else(|e| panic!("failed to stat console RX file {path}: {e}"))
+        .len();
+    let last = guard.uart_rx_last_probe.insert(hart_id, (offset, file_len, valid));
+    let count = guard.uart_rx_probe_counts.entry(hart_id).or_insert(0);
+    let should_log = *count < 32 || last != Some((offset, file_len, valid));
+    *count += 1;
+    if should_log {
+        match byte {
+            Some(byte) => append_console_debug(
+                guard,
+                format_args!("rx valid hart={hart_id} offset={offset} len={file_len} byte=0x{byte:02x}\n"),
+            ),
+            None => append_console_debug(
+                guard,
+                format_args!("rx valid hart={hart_id} offset={offset} len={file_len}\n"),
+            ),
+        }
+    }
+}
+
+fn probe_uart_rx_empty(guard: &mut RuntimeState, hart_id: u32, offset: u64, file_len: u64) {
+    let last = guard.uart_rx_last_probe.insert(hart_id, (offset, file_len, false));
+    let count = guard.uart_rx_probe_counts.entry(hart_id).or_insert(0);
+    let should_log = *count < 8 || file_len > 0 || last != Some((offset, file_len, false));
+    *count += 1;
+    if should_log {
+        append_console_debug(
+            guard,
+            format_args!("rx empty hart={hart_id} offset={offset} len={file_len}\n"),
+        );
+    }
+}
+
+fn append_console_debug(guard: &RuntimeState, args: std::fmt::Arguments<'_>) {
+    let log_dir = guard
+        .log_dir
+        .as_ref()
+        .expect("log_dir must be set via set_log_dir() before console debug is used");
+    let path = format!("{log_dir}/p2e-console-debug.log");
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .unwrap_or_else(|e| panic!("failed to open console debug log {path}: {e}"));
+    file.write_fmt(args)
+        .unwrap_or_else(|e| panic!("failed to write console debug log {path}: {e}"));
 }
 
 #[no_mangle]

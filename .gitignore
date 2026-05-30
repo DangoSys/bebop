@@ -35,3 +35,4 @@ xepic_waveform/
 *.key
 
 test-artifacts/
+log/

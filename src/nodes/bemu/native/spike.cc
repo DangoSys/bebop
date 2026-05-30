@@ -287,16 +287,8 @@ int spike_run_raw(
         state->XPR.write(11, dtb_addr); // a1 = dtb address
 
     // Initialize Linux process stack (argc/argv/envp/auxv).
-    // Pass selected host env vars through envp so guest-side tracing helpers
-    // can resolve their output paths under the proxy-kernel flow.
     uint64_t stack_top = (DRAM_BASE + mem_size - 0x400000) & ~0xFULL;
     const char prog_name[] = "tutorial-linux";
-    std::string layer_trace_env;
-    if (const char* trace_path = std::getenv("BB_LAYER_TRACE_PATH")) {
-        if (trace_path[0] != '\0') {
-            layer_trace_env = std::string("BB_LAYER_TRACE_PATH=") + trace_path;
-        }
-    }
     constexpr uint64_t AT_NULL = 0;
     constexpr uint64_t AT_PHDR = 3;
     constexpr uint64_t AT_PHENT = 4;
@@ -315,15 +307,10 @@ int spike_run_raw(
     constexpr uint64_t AT_EXECFN = 31;
     const uint64_t word_size = sizeof(uint64_t);
     const uint64_t string_len = sizeof(prog_name);
-    const uint64_t env_len = layer_trace_env.empty() ? 0 : static_cast<uint64_t>(layer_trace_env.size() + 1);
     const uint64_t random_len = 16;
 
     uint64_t string_addr = (stack_top - string_len) & ~0xFULL;
-    uint64_t env_addr = string_addr;
-    if (env_len != 0) {
-        env_addr = (string_addr - env_len) & ~0xFULL;
-    }
-    uint64_t random_addr = ((env_len != 0 ? env_addr : string_addr) - random_len) & ~0xFULL;
+    uint64_t random_addr = (string_addr - random_len) & ~0xFULL;
     uint64_t at_phdr = 0;
     uint64_t at_phent = 56;
     uint64_t at_phnum = 0;
@@ -346,10 +333,8 @@ int spike_run_raw(
     }
 
     uint64_t string_offset = string_addr - DRAM_BASE;
-    uint64_t env_offset = env_len == 0 ? 0 : (env_addr - DRAM_BASE);
     uint64_t random_offset = random_addr - DRAM_BASE;
     if (string_offset + string_len > mem_size ||
-        (env_len != 0 && env_offset + env_len > mem_size) ||
         random_offset + random_len > mem_size) {
         fprintf(stderr, "[ERROR] Stack layout exceeds guest memory\n");
         fflush(stderr);
@@ -361,10 +346,6 @@ int spike_run_raw(
     stack_entries.push_back(1);          // argc
     stack_entries.push_back(string_addr); // argv[0]
     stack_entries.push_back(0);          // argv terminator
-    const uint64_t envp_offset_words = stack_entries.size();
-    if (env_len != 0) {
-        stack_entries.push_back(env_addr);
-    }
     stack_entries.push_back(0); // envp terminator
     const uint64_t auxv_offset_words = stack_entries.size();
     (void)auxv_offset_words;
@@ -416,9 +397,6 @@ int spike_run_raw(
     }
 
     memcpy(mem_ptr + string_offset, prog_name, string_len);
-    if (env_len != 0) {
-        memcpy(mem_ptr + env_offset, layer_trace_env.c_str(), env_len);
-    }
     for (uint64_t i = 0; i < random_len; ++i) {
         mem_ptr[random_offset + i] = static_cast<uint8_t>(0xA5u ^ static_cast<uint8_t>(i));
     }

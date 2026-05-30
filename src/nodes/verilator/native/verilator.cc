@@ -5,103 +5,107 @@
 #include "verilated.h"
 #include "verilated_fst_c.h"
 
-#include <cstdio>
 #include <cstdint>
-#include <vector>
+#include <cstdio>
+#include <cstdlib>
+#include <deque>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #if VM_COVERAGE
 #include "verilated_cov.h"
 #endif
 
 // Context management
-extern "C" void* verilator_context_new() {
-    return new VerilatedContext;
+extern "C" void *verilator_context_new() { return new VerilatedContext; }
+
+extern "C" void verilator_context_free(void *ctx) {
+  delete static_cast<VerilatedContext *>(ctx);
 }
 
-extern "C" void verilator_context_free(void* ctx) {
-    delete static_cast<VerilatedContext*>(ctx);
+extern "C" void verilator_context_time_inc(void *ctx, uint64_t add) {
+  static_cast<VerilatedContext *>(ctx)->timeInc(add);
 }
 
-extern "C" void verilator_context_time_inc(void* ctx, uint64_t add) {
-    static_cast<VerilatedContext*>(ctx)->timeInc(add);
+extern "C" uint64_t verilator_context_time(void *ctx) {
+  return static_cast<VerilatedContext *>(ctx)->time();
 }
 
-extern "C" uint64_t verilator_context_time(void* ctx) {
-    return static_cast<VerilatedContext*>(ctx)->time();
+extern "C" void verilator_context_command_args(void *ctx, int argc,
+                                               const char **argv) {
+  static_cast<VerilatedContext *>(ctx)->commandArgs(argc,
+                                                    const_cast<char **>(argv));
 }
 
-extern "C" void verilator_context_command_args(void* ctx, int argc, const char** argv) {
-    static_cast<VerilatedContext*>(ctx)->commandArgs(argc, const_cast<char**>(argv));
+extern "C" void verilator_context_trace_ever_on(void *ctx, bool on) {
+  static_cast<VerilatedContext *>(ctx)->traceEverOn(on);
 }
 
-extern "C" void verilator_context_trace_ever_on(void* ctx, bool on) {
-    static_cast<VerilatedContext*>(ctx)->traceEverOn(on);
-}
-
-extern "C" void verilator_context_coverage_write(void* ctx) {
+extern "C" void verilator_context_coverage_write(void *ctx) {
 #if VM_COVERAGE
-    auto* context = static_cast<VerilatedContext*>(ctx);
-    if (context->coveragep()) {
-        context->coveragep()->write();
-    }
+  auto *context = static_cast<VerilatedContext *>(ctx);
+  if (context->coveragep()) {
+    context->coveragep()->write();
+  }
 #endif
 }
 
 // Top module
-extern "C" void* verilator_top_new(void* ctx) {
-    return new VBBSimHarness{static_cast<VerilatedContext*>(ctx)};
+extern "C" void *verilator_top_new(void *ctx) {
+  return new VBBSimHarness{static_cast<VerilatedContext *>(ctx)};
 }
 
-extern "C" void verilator_top_free(void* top) {
-    delete static_cast<VBBSimHarness*>(top);
+extern "C" void verilator_top_free(void *top) {
+  delete static_cast<VBBSimHarness *>(top);
 }
 
-extern "C" void verilator_top_eval(void* top) {
-    static_cast<VBBSimHarness*>(top)->eval();
+extern "C" void verilator_top_eval(void *top) {
+  static_cast<VBBSimHarness *>(top)->eval();
 }
 
-extern "C" void verilator_top_trace(void* top, void* tfp, int levels) {
-    static_cast<VBBSimHarness*>(top)->trace(static_cast<VerilatedFstC*>(tfp), levels);
+extern "C" void verilator_top_trace(void *top, void *tfp, int levels) {
+  static_cast<VBBSimHarness *>(top)->trace(static_cast<VerilatedFstC *>(tfp),
+                                           levels);
 }
 
 // Top module signals
-extern "C" void verilator_top_set_clock(void* top, uint8_t val) {
-    static_cast<VBBSimHarness*>(top)->clock = val;
+extern "C" void verilator_top_set_clock(void *top, uint8_t val) {
+  static_cast<VBBSimHarness *>(top)->clock = val;
 }
 
-extern "C" void verilator_top_set_reset(void* top, uint8_t val) {
-    static_cast<VBBSimHarness*>(top)->reset = val;
+extern "C" void verilator_top_set_reset(void *top, uint8_t val) {
+  static_cast<VBBSimHarness *>(top)->reset = val;
 }
 
-extern "C" uint8_t verilator_top_get_clock(void* top) {
-    return static_cast<VBBSimHarness*>(top)->clock;
+extern "C" uint8_t verilator_top_get_clock(void *top) {
+  return static_cast<VBBSimHarness *>(top)->clock;
 }
 
-extern "C" uint8_t verilator_top_get_reset(void* top) {
-    return static_cast<VBBSimHarness*>(top)->reset;
+extern "C" uint8_t verilator_top_get_reset(void *top) {
+  return static_cast<VBBSimHarness *>(top)->reset;
 }
 
 // =============================================================================
 // SCU shared state (used by both DPI-C callbacks and MMIO tick polling)
 // =============================================================================
 #define SIM_EXIT_ADDR 0x60000000ULL
-#define UART_TX_ADDR  0x60020000ULL
+#define UART_TX_ADDR 0x60020000ULL
 
-static std::vector<uint8_t> g_uart_log;
+static std::vector<uint32_t> g_uart_tx;
+static std::deque<uint8_t> g_uart_rx;
 static int32_t g_exit_code = 0;
 static bool g_has_exit = false;
 static std::mutex g_scu_mutex;
 static std::string g_uart_line_buf;
 
 static void uart_flush_line() {
-    if (!g_uart_line_buf.empty()) {
-        fwrite(g_uart_line_buf.data(), 1, g_uart_line_buf.size(), stdout);
-        fputc('\n', stdout);
-        fflush(stdout);
-        g_uart_line_buf.clear();
-    }
+  if (!g_uart_line_buf.empty()) {
+    fwrite(g_uart_line_buf.data(), 1, g_uart_line_buf.size(), stdout);
+    fputc('\n', stdout);
+    fflush(stdout);
+    g_uart_line_buf.clear();
+  }
 }
 
 // =============================================================================
@@ -115,75 +119,118 @@ static void uart_flush_line() {
 // =============================================================================
 
 extern "C" void scu_uart_write(uint32_t hart_id, uint32_t ch) {
-    (void)hart_id;
-    std::lock_guard<std::mutex> lock(g_scu_mutex);
-    char c = (char)(ch & 0xFF);
-    g_uart_log.push_back((uint8_t)c);
-    if (c == '\n') {
-        uart_flush_line();
-    } else {
-        g_uart_line_buf.push_back(c);
-    }
+  (void)hart_id;
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  char c = (char)(ch & 0xFF);
+  g_uart_tx.push_back(((hart_id & 0x00ffffffu) << 8) | (ch & 0xffu));
+  if (c == '\n') {
+    uart_flush_line();
+  } else {
+    g_uart_line_buf.push_back(c);
+  }
 }
 
 extern "C" int scu_uart_rx_valid(uint32_t hart_id) {
-    (void)hart_id;
-    return 0;
+  (void)hart_id;
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  return !g_uart_rx.empty();
+}
+
+extern "C" void scu_uart_rx_sample(uint32_t hart_id, uint32_t pop,
+                                   uint32_t *valid, uint32_t *data) {
+  (void)hart_id;
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  if (valid == nullptr || data == nullptr) {
+    fprintf(stderr, "scu_uart_rx_sample received null output pointer\n");
+    abort();
+  }
+
+  if (pop && !g_uart_rx.empty()) {
+    g_uart_rx.pop_front();
+  }
+  *valid = !g_uart_rx.empty();
+  *data = g_uart_rx.empty() ? 0 : g_uart_rx.front();
 }
 
 extern "C" int scu_uart_peek(uint32_t hart_id) {
-    (void)hart_id;
+  (void)hart_id;
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  if (g_uart_rx.empty()) {
     return 0;
+  }
+  return g_uart_rx.front();
 }
 
 extern "C" int scu_uart_pop(uint32_t hart_id) {
-    (void)hart_id;
+  (void)hart_id;
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  if (g_uart_rx.empty()) {
     return 0;
+  }
+  uint8_t byte = g_uart_rx.front();
+  g_uart_rx.pop_front();
+  return byte;
 }
 
 extern "C" void scu_sim_exit(uint32_t hart_id, uint32_t code) {
-    std::lock_guard<std::mutex> lock(g_scu_mutex);
-    g_exit_code = code;
-    g_has_exit = true;
-    printf("\n[SCU] sim_exit called: hart_id=%u, exit_code=%u\n", hart_id, code);
-    fflush(stdout);
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  g_exit_code = code;
+  g_has_exit = true;
+  printf("\n[SCU] sim_exit called: hart_id=%u, exit_code=%u\n", hart_id, code);
+  fflush(stdout);
 }
 
 extern "C" bool verilator_scu_has_exit() {
-    std::lock_guard<std::mutex> lock(g_scu_mutex);
-    return g_has_exit;
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  return g_has_exit;
 }
 
 extern "C" int32_t verilator_scu_exit_code() {
-    std::lock_guard<std::mutex> lock(g_scu_mutex);
-    return g_exit_code;
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  return g_exit_code;
 }
 
 extern "C" void verilator_scu_reset() {
-    std::lock_guard<std::mutex> lock(g_scu_mutex);
-    uart_flush_line();
-    g_uart_log.clear();
-    g_exit_code = 0;
-    g_has_exit = false;
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  uart_flush_line();
+  g_uart_tx.clear();
+  g_uart_rx.clear();
+  g_exit_code = 0;
+  g_has_exit = false;
 }
 
-extern "C" void* verilator_trace_new() {
-    return new VerilatedFstC;
+extern "C" void verilator_scu_push_uart_rx(uint32_t hart_id, uint32_t byte) {
+  (void)hart_id;
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  g_uart_rx.push_back((uint8_t)(byte & 0xff));
 }
 
-extern "C" void verilator_trace_free(void* tfp) {
-    delete static_cast<VerilatedFstC*>(tfp);
+extern "C" uint32_t verilator_scu_drain_uart_tx(uint32_t *buf, uint32_t len) {
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  uint32_t n = 0;
+  while (n < len && n < g_uart_tx.size()) {
+    buf[n] = g_uart_tx[n];
+    n++;
+  }
+  g_uart_tx.erase(g_uart_tx.begin(), g_uart_tx.begin() + n);
+  return n;
 }
 
-extern "C" bool verilator_trace_open(void* tfp, const char* filename) {
-    static_cast<VerilatedFstC*>(tfp)->open(filename);
-    return true;
+extern "C" void *verilator_trace_new() { return new VerilatedFstC; }
+
+extern "C" void verilator_trace_free(void *tfp) {
+  delete static_cast<VerilatedFstC *>(tfp);
 }
 
-extern "C" void verilator_trace_dump(void* tfp, uint64_t timeui) {
-    static_cast<VerilatedFstC*>(tfp)->dump(timeui);
+extern "C" bool verilator_trace_open(void *tfp, const char *filename) {
+  static_cast<VerilatedFstC *>(tfp)->open(filename);
+  return true;
 }
 
-extern "C" void verilator_trace_close(void* tfp) {
-    static_cast<VerilatedFstC*>(tfp)->close();
+extern "C" void verilator_trace_dump(void *tfp, uint64_t timeui) {
+  static_cast<VerilatedFstC *>(tfp)->dump(timeui);
+}
+
+extern "C" void verilator_trace_close(void *tfp) {
+  static_cast<VerilatedFstC *>(tfp)->close();
 }

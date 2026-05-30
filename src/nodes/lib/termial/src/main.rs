@@ -58,7 +58,7 @@ fn print_help() {
 fn run(cli: Cli) -> Result<(), String> {
     let socket = match (cli.socket, cli.log_dir) {
         (Some(socket), None) => socket,
-        (None, Some(log_dir)) => log_dir.join("p2e-console.sock"),
+        (None, Some(log_dir)) => resolve_log_dir_socket(&log_dir)?,
         (None, None) => {
             return Err("one of --socket or --log-dir is required".to_string());
         }
@@ -108,15 +108,11 @@ fn run(cli: Cli) -> Result<(), String> {
             Ok(n) => {
                 if let Some(pos) = buf[..n].iter().position(|byte| *byte == 0x1d) {
                     if pos > 0 {
-                        stream
-                            .write_all(&buf[..pos])
-                            .map_err(|e| format!("failed to write input to console: {e}"))?;
+                        write_input(&mut stream, &buf[..pos])?;
                     }
                     break;
                 }
-                stream
-                    .write_all(&buf[..n])
-                    .map_err(|e| format!("failed to write input to console: {e}"))?;
+                write_input(&mut stream, &buf[..n])?;
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e) => return Err(format!("failed to read stdin: {e}")),
@@ -127,6 +123,27 @@ fn run(cli: Cli) -> Result<(), String> {
     drop(stream);
     let _ = rx_handle.join();
     drop(term);
+    Ok(())
+}
+
+fn resolve_log_dir_socket(log_dir: &std::path::Path) -> Result<PathBuf, String> {
+    let path_file = log_dir.join("console.sock.path");
+    let path = std::fs::read_to_string(&path_file)
+        .map_err(|e| format!("failed to read console socket path {}: {e}", path_file.display()))?;
+    let path = path.trim_end_matches(['\r', '\n']);
+    if path.is_empty() {
+        return Err(format!("console socket path file {} is empty", path_file.display()));
+    }
+    Ok(PathBuf::from(path))
+}
+
+fn write_input(stream: &mut UnixStream, buf: &[u8]) -> Result<(), String> {
+    for byte in buf {
+        let out = if *byte == b'\r' { b'\n' } else { *byte };
+        stream
+            .write_all(&[out])
+            .map_err(|e| format!("failed to write input to console: {e}"))?;
+    }
     Ok(())
 }
 

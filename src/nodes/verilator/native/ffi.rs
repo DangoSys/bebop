@@ -1,6 +1,6 @@
 // FFI bindings to minimal C++ Verilator wrapper
 
-use std::os::raw::{c_char, c_int, c_void};
+use std::os::raw::{c_char, c_int};
 
 #[repr(C)]
 pub struct VerilatorContext {
@@ -45,6 +45,8 @@ extern "C" {
     pub fn verilator_scu_has_exit() -> bool;
     pub fn verilator_scu_exit_code() -> i32;
     pub fn verilator_scu_reset();
+    pub fn verilator_scu_push_uart_rx(hart_id: u32, byte: u32);
+    pub fn verilator_scu_drain_uart_tx(buf: *mut u32, len: u32) -> u32;
 
     // FST trace
     pub fn verilator_trace_new() -> *mut VerilatorTrace;

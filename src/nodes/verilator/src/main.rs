@@ -1,7 +1,13 @@
 use snafu::{FromString, Whatever};
 use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::io::{AsRawFd, FromRawFd};
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use std::{collections::HashMap, path::Path};
 
 use crate::{mmio, sim, trace};
 
@@ -139,13 +145,21 @@ impl VerilatorConfig {
         mmio::init_uart(self.stdout.as_deref())
             .map_err(|e| Whatever::without_source(format!("Failed to init UART: {}", e)))?;
 
+        let console = ConsoleServer::start(
+            self.stdout
+                .as_ref()
+                .and_then(|path| path.parent())
+                .ok_or_else(|| Whatever::without_source("stdout path must have a parent directory".to_string()))?,
+        )?;
+        println!("Console socket: {}", console.socket_path.display());
+
         // Create simulator with +elf= argument for BBSimDRAM
         let elf_arg = format!("+elf={}", self.elf.display());
         let mut simulator = sim::Simulator::new(&self.fst, self.coverage, &[elf_arg])
             .map_err(|e| Whatever::without_source(format!("Failed to create simulator: {}", e)))?;
 
         // Run simulation
-        simulator.run_batch();
+        simulator.run_batch(|| console.poll_tx());
 
         // Finalize
         simulator.finalize();
@@ -181,4 +195,158 @@ impl VerilatorConfig {
 
         Ok(())
     }
+}
+
+struct ConsoleServer {
+    socket_path: PathBuf,
+    path_file: PathBuf,
+    stop: Arc<AtomicBool>,
+    clients: Arc<Mutex<HashMap<u32, Vec<UnixStream>>>>,
+    handles: Vec<std::thread::JoinHandle<()>>,
+}
+
+impl ConsoleServer {
+    fn start(log_dir: &Path) -> Result<Self, Whatever> {
+        std::fs::create_dir_all(log_dir)
+            .map_err(|e| Whatever::without_source(format!("Failed to create log directory: {}", e)))?;
+
+        let path_file = log_dir.join("console.sock.path");
+        let socket_path = std::env::temp_dir().join(format!("bebop-console-{}.sock", std::process::id()));
+        if socket_path.exists() {
+            std::fs::remove_file(&socket_path)
+                .map_err(|e| Whatever::without_source(format!("Failed to remove stale console socket: {}", e)))?;
+        }
+
+        let listener = UnixListener::bind(&socket_path)
+            .map_err(|e| Whatever::without_source(format!("Failed to bind console socket: {}", e)))?;
+        listener
+            .set_nonblocking(true)
+            .map_err(|e| Whatever::without_source(format!("Failed to set console socket nonblocking: {}", e)))?;
+        std::fs::write(&path_file, format!("{}\n", socket_path.display()))
+            .map_err(|e| Whatever::without_source(format!("Failed to write console socket path file: {}", e)))?;
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let clients = Arc::new(Mutex::new(HashMap::new()));
+        let accept_stop = stop.clone();
+        let accept_clients = clients.clone();
+        let accept_handle = std::thread::Builder::new()
+            .name("verilator-console-accept".to_string())
+            .spawn(move || {
+                while !accept_stop.load(Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((stream, _addr)) => {
+                            if let Err(e) = Self::spawn_client(stream, accept_clients.clone(), accept_stop.clone()) {
+                                eprintln!("console client error: {e}");
+                            }
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(50));
+                        }
+                        Err(e) => {
+                            eprintln!("console accept failed: {e}");
+                            std::thread::sleep(Duration::from_millis(200));
+                        }
+                    }
+                }
+            })
+            .map_err(|e| Whatever::without_source(format!("Failed to spawn console accept thread: {}", e)))?;
+
+        Ok(Self {
+            socket_path,
+            path_file,
+            stop,
+            clients,
+            handles: vec![accept_handle],
+        })
+    }
+
+    fn spawn_client(
+        stream: UnixStream,
+        clients: Arc<Mutex<HashMap<u32, Vec<UnixStream>>>>,
+        stop: Arc<AtomicBool>,
+    ) -> Result<(), String> {
+        let mut reader = BufReader::new(
+            stream
+                .try_clone()
+                .map_err(|e| format!("failed to clone console stream for reader: {e}"))?,
+        );
+        let mut header = String::new();
+        let n = reader
+            .read_line(&mut header)
+            .map_err(|e| format!("failed to read console handshake: {e}"))?;
+        if n == 0 {
+            return Err("console client closed before handshake".to_string());
+        }
+
+        let hart_id = parse_console_handshake(&header)?;
+        let write_stream = stream
+            .try_clone()
+            .map_err(|e| format!("failed to clone console stream for writer: {e}"))?;
+        clients.lock().unwrap().entry(hart_id).or_default().push(write_stream);
+
+        std::thread::Builder::new()
+            .name(format!("verilator-console-rx-hart-{hart_id}"))
+            .spawn(move || {
+                let mut input = reader;
+                let mut buf = [0_u8; 256];
+
+                while !stop.load(Ordering::Relaxed) {
+                    match input.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            for byte in &buf[..n] {
+                                mmio::push_uart_rx(hart_id, *byte);
+                            }
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                        Err(_) => break,
+                    }
+                }
+            })
+            .map_err(|e| format!("failed to spawn console rx thread: {e}"))?;
+
+        Ok(())
+    }
+
+    fn poll_tx(&self) {
+        let mut buf = [0_u32; 256];
+        let n = mmio::drain_uart_tx(&mut buf);
+        if n == 0 {
+            return;
+        }
+
+        let mut clients = self.clients.lock().unwrap();
+        for item in &buf[..n] {
+            let hart_id = item >> 8;
+            let byte = *item as u8;
+            let Some(streams) = clients.get_mut(&hart_id) else {
+                continue;
+            };
+            streams.retain_mut(|stream| stream.write_all(&[byte]).and_then(|_| stream.flush()).is_ok());
+        }
+    }
+}
+
+impl Drop for ConsoleServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        for handle in self.handles.drain(..) {
+            let _ = handle.join();
+        }
+        let _ = std::fs::remove_file(&self.socket_path);
+        let _ = std::fs::remove_file(&self.path_file);
+    }
+}
+
+fn parse_console_handshake(line: &str) -> Result<u32, String> {
+    let line = line.trim_end_matches(['\r', '\n']);
+    let (cmd, value) = line
+        .split_once(' ')
+        .ok_or_else(|| "console handshake must be `hart <id>`".to_string())?;
+    if cmd != "hart" {
+        return Err(format!("console handshake command must be `hart`, got `{cmd}`"));
+    }
+    value
+        .parse::<u32>()
+        .map_err(|e| format!("invalid console hart id `{value}`: {e}"))
 }

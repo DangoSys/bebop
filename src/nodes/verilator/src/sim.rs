@@ -158,8 +158,12 @@ impl Simulator {
         }
     }
 
-    pub fn run_batch(&mut self) {
+    pub fn run_batch<F>(&mut self, mut poll: F)
+    where
+        F: FnMut(),
+    {
         loop {
+            poll();
             if SHOULD_EXIT.load(Ordering::SeqCst) {
                 eprintln!("Simulation interrupted by user");
                 break;

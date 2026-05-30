@@ -119,6 +119,7 @@ pub fn run(
 
 struct ConsoleServer {
     socket_path: std::path::PathBuf,
+    path_file: std::path::PathBuf,
     stop: Arc<AtomicBool>,
     tx_sender: mpsc::Sender<ffi::UartTx>,
     handles: Vec<std::thread::JoinHandle<()>>,
@@ -131,7 +132,8 @@ impl ConsoleServer {
         std::fs::create_dir_all(log_dir)
             .map_err(|e| format!("failed to create log directory {}: {e}", log_dir.display()))?;
 
-        let socket_path = log_dir.join("p2e-console.sock");
+        let path_file = log_dir.join("console.sock.path");
+        let socket_path = std::env::temp_dir().join(format!("bebop-console-{}.sock", std::process::id()));
         if socket_path.exists() {
             std::fs::remove_file(&socket_path)
                 .map_err(|e| format!("failed to remove stale console socket {}: {e}", socket_path.display()))?;
@@ -142,6 +144,8 @@ impl ConsoleServer {
         listener
             .set_nonblocking(true)
             .map_err(|e| format!("failed to set console socket nonblocking: {e}"))?;
+        std::fs::write(&path_file, format!("{}\n", socket_path.display()))
+            .map_err(|e| format!("failed to write console socket path file {}: {e}", path_file.display()))?;
 
         let stop = Arc::new(AtomicBool::new(false));
         let clients: ConsoleClients = Arc::new(Mutex::new(HashMap::new()));
@@ -186,9 +190,10 @@ impl ConsoleServer {
             })
             .map_err(|e| format!("failed to spawn console tx thread: {e}"))?;
 
-        log::info!("P2E console socket: {}", socket_path.display());
+        log::info!("Console socket: {}", socket_path.display());
         Ok(Self {
             socket_path,
+            path_file,
             stop,
             tx_sender,
             handles: vec![accept_handle, tx_handle],
@@ -218,6 +223,7 @@ impl ConsoleServer {
             .try_clone()
             .map_err(|e| format!("failed to clone console stream for writer: {e}"))?;
         clients.lock().unwrap().entry(hart_id).or_default().push(write_stream);
+        log::info!("console client connected for hart {hart_id}");
 
         std::thread::Builder::new()
             .name(format!("p2e-console-rx-hart-{hart_id}"))
@@ -229,6 +235,7 @@ impl ConsoleServer {
                     match input.read(&mut buf) {
                         Ok(0) => break,
                         Ok(n) => {
+                            log::info!("console rx hart {hart_id}: {n} bytes");
                             for byte in &buf[..n] {
                                 ffi::push_uart_rx(hart_id, *byte);
                             }
@@ -260,6 +267,7 @@ impl Drop for ConsoleServer {
             let _ = handle.join();
         }
         let _ = std::fs::remove_file(&self.socket_path);
+        let _ = std::fs::remove_file(&self.path_file);
     }
 }
 
