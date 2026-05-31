@@ -10,7 +10,7 @@
 #include <cstdlib>
 #include <deque>
 #include <mutex>
-#include <string>
+#include <unordered_map>
 #include <vector>
 
 #if VM_COVERAGE
@@ -93,20 +93,10 @@ extern "C" uint8_t verilator_top_get_reset(void *top) {
 #define UART_TX_ADDR 0x60020000ULL
 
 static std::vector<uint32_t> g_uart_tx;
-static std::deque<uint8_t> g_uart_rx;
+static std::unordered_map<uint32_t, std::deque<uint8_t>> g_uart_rx;
 static int32_t g_exit_code = 0;
 static bool g_has_exit = false;
 static std::mutex g_scu_mutex;
-static std::string g_uart_line_buf;
-
-static void uart_flush_line() {
-  if (!g_uart_line_buf.empty()) {
-    fwrite(g_uart_line_buf.data(), 1, g_uart_line_buf.size(), stdout);
-    fputc('\n', stdout);
-    fflush(stdout);
-    g_uart_line_buf.clear();
-  }
-}
 
 // =============================================================================
 // SCU DPI-C interface
@@ -119,56 +109,55 @@ static void uart_flush_line() {
 // =============================================================================
 
 extern "C" void scu_uart_write(uint32_t hart_id, uint32_t ch) {
-  (void)hart_id;
   std::lock_guard<std::mutex> lock(g_scu_mutex);
-  char c = (char)(ch & 0xFF);
   g_uart_tx.push_back(((hart_id & 0x00ffffffu) << 8) | (ch & 0xffu));
-  if (c == '\n') {
-    uart_flush_line();
-  } else {
-    g_uart_line_buf.push_back(c);
-  }
 }
 
 extern "C" int scu_uart_rx_valid(uint32_t hart_id) {
-  (void)hart_id;
   std::lock_guard<std::mutex> lock(g_scu_mutex);
-  return !g_uart_rx.empty();
+  auto it = g_uart_rx.find(hart_id);
+  return it != g_uart_rx.end() && !it->second.empty();
 }
 
 extern "C" void scu_uart_rx_sample(uint32_t hart_id, uint32_t pop,
                                    uint32_t *valid, uint32_t *data) {
-  (void)hart_id;
   std::lock_guard<std::mutex> lock(g_scu_mutex);
   if (valid == nullptr || data == nullptr) {
     fprintf(stderr, "scu_uart_rx_sample received null output pointer\n");
     abort();
   }
 
-  if (pop && !g_uart_rx.empty()) {
-    g_uart_rx.pop_front();
+  auto it = g_uart_rx.find(hart_id);
+  if (it == g_uart_rx.end() || it->second.empty()) {
+    *valid = 0;
+    *data = 0;
+    return;
   }
-  *valid = !g_uart_rx.empty();
-  *data = g_uart_rx.empty() ? 0 : g_uart_rx.front();
+
+  *valid = 1;
+  *data = it->second.front();
+  if (pop) {
+    it->second.pop_front();
+  }
 }
 
 extern "C" int scu_uart_peek(uint32_t hart_id) {
-  (void)hart_id;
   std::lock_guard<std::mutex> lock(g_scu_mutex);
-  if (g_uart_rx.empty()) {
+  auto it = g_uart_rx.find(hart_id);
+  if (it == g_uart_rx.end() || it->second.empty()) {
     return 0;
   }
-  return g_uart_rx.front();
+  return it->second.front();
 }
 
 extern "C" int scu_uart_pop(uint32_t hart_id) {
-  (void)hart_id;
   std::lock_guard<std::mutex> lock(g_scu_mutex);
-  if (g_uart_rx.empty()) {
+  auto it = g_uart_rx.find(hart_id);
+  if (it == g_uart_rx.end() || it->second.empty()) {
     return 0;
   }
-  uint8_t byte = g_uart_rx.front();
-  g_uart_rx.pop_front();
+  uint8_t byte = it->second.front();
+  it->second.pop_front();
   return byte;
 }
 
@@ -192,7 +181,6 @@ extern "C" int32_t verilator_scu_exit_code() {
 
 extern "C" void verilator_scu_reset() {
   std::lock_guard<std::mutex> lock(g_scu_mutex);
-  uart_flush_line();
   g_uart_tx.clear();
   g_uart_rx.clear();
   g_exit_code = 0;
@@ -200,9 +188,8 @@ extern "C" void verilator_scu_reset() {
 }
 
 extern "C" void verilator_scu_push_uart_rx(uint32_t hart_id, uint32_t byte) {
-  (void)hart_id;
   std::lock_guard<std::mutex> lock(g_scu_mutex);
-  g_uart_rx.push_back((uint8_t)(byte & 0xff));
+  g_uart_rx[hart_id].push_back((uint8_t)(byte & 0xff));
 }
 
 extern "C" uint32_t verilator_scu_drain_uart_tx(uint32_t *buf, uint32_t len) {

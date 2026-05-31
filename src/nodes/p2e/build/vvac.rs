@@ -37,6 +37,8 @@ pub fn add_missing_empty_modules(out_dir: &Path) -> bool {
         "work_DebugCustomXbar.sv",
         "work_IntSyncCrossingSource_n1x1_Registered.sv",
         "work_NullIntSource.sv",
+        "work_SourceX.sv",
+        "work_Queue1_SourceXRequest.sv",
     ];
 
     let mut added_count = 0;
@@ -70,46 +72,60 @@ pub fn add_missing_empty_modules(out_dir: &Path) -> bool {
 }
 
 pub fn remove_empty_module_instantiations(build_dir: &Path) {
-    let digital_top = build_dir.join("DigitalTop.sv");
-    if !digital_top.exists() {
-        println!("cargo:warning=DigitalTop.sv not found, skipping empty module removal");
-        return;
-    }
-
-    let content = fs::read_to_string(&digital_top).expect("Failed to read DigitalTop.sv");
-
     let empty_modules = [
         "IntSyncCrossingSource_n1x1_Registered",
         "NullIntSource",
         "IntXbar_i0_o0",
+        "SourceX",
+        "Queue1_SourceXRequest",
     ];
 
-    let mut removed_count = 0;
-    let new_content: String = content
-        .lines()
-        .filter(|line| {
-            let trimmed = line.trim();
-            let should_remove = empty_modules
-                .iter()
-                .any(|module| trimmed.contains(module) && trimmed.ends_with("();"));
+    let mut total_removed = 0;
+    let entries = fs::read_dir(build_dir).expect("Failed to read Verilog source directory");
+    for entry in entries {
+        let path = entry.expect("Failed to read Verilog source entry").path();
+        let ext = path.extension().and_then(|s| s.to_str());
+        if ext != Some("v") && ext != Some("sv") {
+            continue;
+        }
 
-            if should_remove {
-                println!("cargo:warning=Removing empty module instantiation: {}", trimmed);
-                removed_count += 1;
-            }
-            !should_remove
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+        let content = fs::read_to_string(&path).expect("Failed to read Verilog source");
+        let mut removed_count = 0;
+        let new_content: String = content
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim();
+                let should_remove = empty_modules.iter().any(|module| {
+                    trimmed.starts_with(&format!("{module} ")) && trimmed.ends_with("();")
+                });
 
-    if removed_count > 0 {
-        fs::write(&digital_top, new_content).expect("Failed to write updated DigitalTop.sv");
-        println!(
-            "cargo:warning=Removed {} empty module instantiations from DigitalTop.sv",
-            removed_count
-        );
+                if should_remove {
+                    println!("cargo:warning=Removing empty module instantiation: {}", trimmed);
+                    removed_count += 1;
+                }
+                !should_remove
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if removed_count > 0 {
+            fs::write(&path, new_content).expect("Failed to write updated Verilog source");
+            println!(
+                "cargo:warning=Removed {} empty module instantiations from {}",
+                removed_count,
+                path.display()
+            );
+            total_removed += removed_count;
+        }
+    }
+
+    if total_removed == 0 {
+        println!("cargo:warning=No empty module instantiations found in Verilog sources");
     } else {
-        println!("cargo:warning=No empty module instantiations found in DigitalTop.sv");
+        println!(
+            "cargo:warning=Removed {} empty module instantiations from Verilog sources",
+            total_removed
+        );
     }
 }
 

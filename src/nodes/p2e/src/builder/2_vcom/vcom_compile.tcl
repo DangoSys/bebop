@@ -70,13 +70,12 @@ trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores
 
 # Add BootROM trace for debugging ROM initialization issues
 # Trace depth 2 to capture ROM registers and their connections
-trace_net -add P2ETop.top.soc.bootrom_domain -depth 4
+# trace_net -add P2ETop.top.soc.bootrom_domain -depth 4
 
 # Add P2ETop.top level signals (depth 1) to capture AXI/DDR interconnect signals
 # This includes mem_awaddr, mem_araddr, mem_wdata, mem_rdata etc.
 # trace_net -add P2ETop.top -depth 3
-
-trace_net -add P2ETop.top -depth 5
+# trace_net -add P2ETop.top -depth 5
 
 # Create clock constraints
 # Reference config (VCU118) uses 5MHz for the main SoC clock

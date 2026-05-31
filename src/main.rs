@@ -26,10 +26,12 @@ pub enum Commands {
     Verilator {
         #[arg(long, value_name = "ELF")]
         elf: std::path::PathBuf,
-        #[arg(long, help = "Log directory (creates bdb.ndjson and stdout.log)")]
+        #[arg(long, help = "Log directory (creates bdb.ndjson, stdout.log, stderr.log, and uart/)")]
         log_dir: std::path::PathBuf,
         #[arg(long, help = "Waveform directory (creates waveform.fst)")]
         fst_dir: std::path::PathBuf,
+        #[arg(long, help = "Disable waveform dump")]
+        no_wave: bool,
         #[arg(long, help = "Enable instruction trace")]
         itrace: bool,
         #[arg(long, help = "Enable memory trace")]
@@ -83,6 +85,7 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
             elf,
             log_dir,
             fst_dir,
+            no_wave,
             itrace,
             mtrace,
             pmctrace,
@@ -92,6 +95,7 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
             elf,
             log_dir,
             fst_dir,
+            wave: !no_wave,
             itrace,
             mtrace,
             pmctrace,

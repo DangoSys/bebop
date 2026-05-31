@@ -1,6 +1,6 @@
 use snafu::{FromString, Whatever};
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -16,6 +16,7 @@ pub struct VerilatorCli {
     pub elf: PathBuf,
     pub log_dir: PathBuf,
     pub fst_dir: PathBuf,
+    pub wave: bool,
     pub itrace: bool,
     pub mtrace: bool,
     pub pmctrace: bool,
@@ -33,7 +34,9 @@ struct VerilatorConfig {
     elf: PathBuf,
     log: PathBuf,
     fst: PathBuf,
+    wave: bool,
     stdout: Option<PathBuf>,
+    stderr: Option<PathBuf>,
     trace_config: trace::TraceConfig,
     coverage: bool,
     mem_base: u64,
@@ -54,13 +57,16 @@ impl VerilatorConfig {
         // Generate file paths from directories
         let log = cli.log_dir.join("bdb.ndjson");
         let stdout = Some(cli.log_dir.join("stdout.log"));
+        let stderr = Some(cli.log_dir.join("stderr.log"));
         let fst = cli.fst_dir.join("waveform.fst");
 
         Ok(Self {
             elf: cli.elf,
             log,
             fst,
+            wave: cli.wave,
             stdout,
+            stderr,
             trace_config: trace::TraceConfig {
                 itrace: cli.itrace,
                 mtrace: cli.mtrace,
@@ -79,50 +85,16 @@ impl VerilatorConfig {
         sim::setup_ctrlc_handler();
 
         // Create fst directory if needed
-        if let Some(parent) = self.fst.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| Whatever::without_source(format!("Failed to create fst directory: {}", e)))?;
-        }
-
-        // Redirect stderr to stdout.log if specified
-        let _stderr_guard = if let Some(ref stdout_path) = self.stdout {
-            // Create parent directory if needed
-            if let Some(parent) = stdout_path.parent() {
+        if self.wave {
+            if let Some(parent) = self.fst.parent() {
                 std::fs::create_dir_all(parent)
-                    .map_err(|e| Whatever::without_source(format!("Failed to create log directory: {}", e)))?;
+                    .map_err(|e| Whatever::without_source(format!("Failed to create fst directory: {}", e)))?;
             }
-
-            // Open the stdout log file
-            let file = OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(stdout_path)
-                .map_err(|e| Whatever::without_source(format!("Failed to open stdout log: {}", e)))?;
-
-            // Redirect stderr to the file
-            let stderr_fd = std::io::stderr().as_raw_fd();
-            let file_fd = file.as_raw_fd();
-
-            // SAFETY: libc FFI for file descriptor manipulation. dup() duplicates stderr fd
-            // for later restoration; dup2() redirects stderr to the log file. Both return -1
-            // on error which we check. old_stderr is closed in the restoration block below.
-            unsafe {
-                let old_stderr = libc::dup(stderr_fd);
-                if old_stderr < 0 {
-                    return Err(Whatever::without_source("Failed to duplicate stderr".to_string()));
-                }
-                if libc::dup2(file_fd, stderr_fd) < 0 {
-                    libc::close(old_stderr);
-                    return Err(Whatever::without_source("Failed to redirect stderr".to_string()));
-                }
-
-                // Return a guard that will restore stderr on drop
-                Some((file, old_stderr))
-            }
-        } else {
-            None
-        };
+        }
+        if let Some(parent) = self.log.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| Whatever::without_source(format!("Failed to create log directory: {}", e)))?;
+        }
 
         // Initialize trace logging
         trace::init_trace(&self.log, self.trace_config.clone())
@@ -131,6 +103,9 @@ impl VerilatorConfig {
         println!("NDJSON trace: {}", self.log.display());
         if let Some(ref stdout_path) = self.stdout {
             println!("Stdout log: {}", stdout_path.display());
+        }
+        if let Some(ref stderr_path) = self.stderr {
+            println!("Stderr log: {}", stderr_path.display());
         }
         println!(
             "Trace enabled: [itrace={} mtrace={} pmctrace={} ctrace={} banktrace={}]",
@@ -152,34 +127,42 @@ impl VerilatorConfig {
                 .ok_or_else(|| Whatever::without_source("stdout path must have a parent directory".to_string()))?,
         )?;
         println!("Console socket: {}", console.socket_path.display());
+        println!("UART logs: {}", console.uart_log_dir.display());
+
+        let _stdout_guard = self
+            .stdout
+            .as_ref()
+            .map(|path| FdRedirect::new(std::io::stdout().as_raw_fd(), path, "stdout"))
+            .transpose()?;
+        let _stderr_guard = self
+            .stderr
+            .as_ref()
+            .map(|path| FdRedirect::new(std::io::stderr().as_raw_fd(), path, "stderr"))
+            .transpose()?;
 
         // Create simulator with +elf= argument for BBSimDRAM
         let elf_arg = format!("+elf={}", self.elf.display());
-        let mut simulator = sim::Simulator::new(&self.fst, self.coverage, &[elf_arg])
+        let mut simulator = sim::Simulator::new(self.wave.then_some(self.fst.as_path()), self.coverage, &[elf_arg])
             .map_err(|e| Whatever::without_source(format!("Failed to create simulator: {}", e)))?;
 
         // Run simulation
         simulator.run_batch(|| console.poll_tx());
+        console.poll_tx();
 
         // Finalize
         simulator.finalize();
-        println!("Waveform saved to: {}", self.fst.display());
 
-        // Restore stderr if it was redirected
-        if let Some((_, old_stderr)) = _stderr_guard {
-            // SAFETY: libc FFI to restore stderr from the duplicated fd saved earlier.
-            // old_stderr is valid (created by dup() above) and closed after restoration.
-            unsafe {
-                libc::dup2(old_stderr, std::io::stderr().as_raw_fd());
-                libc::close(old_stderr);
-            }
+        drop(_stderr_guard);
+        drop(_stdout_guard);
+        if self.wave {
+            println!("Waveform saved to: {}", self.fst.display());
         }
 
-        // Run disassembler on stdout.log to generate disasm.log
-        if let Some(ref stdout_path) = self.stdout {
-            let disasm_path = stdout_path.with_file_name("disasm.log");
-            let stdin_file = std::fs::File::open(stdout_path)
-                .map_err(|e| Whatever::without_source(format!("Failed to open stdout.log: {}", e)))?;
+        // Run disassembler on stderr.log to generate disasm.log
+        if let Some(ref stderr_path) = self.stderr {
+            let disasm_path = stderr_path.with_file_name("disasm.log");
+            let stdin_file = std::fs::File::open(stderr_path)
+                .map_err(|e| Whatever::without_source(format!("Failed to open stderr.log: {}", e)))?;
             let stdout_file = std::fs::File::create(&disasm_path)
                 .map_err(|e| Whatever::without_source(format!("Failed to create disasm.log: {}", e)))?;
 
@@ -197,9 +180,67 @@ impl VerilatorConfig {
     }
 }
 
+struct FdRedirect {
+    file: File,
+    saved_fd: i32,
+    target_fd: i32,
+}
+
+impl FdRedirect {
+    fn new(target_fd: i32, path: &Path, name: &str) -> Result<Self, Whatever> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| Whatever::without_source(format!("Failed to create log directory: {}", e)))?;
+        }
+
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)
+            .map_err(|e| Whatever::without_source(format!("Failed to open {name} log: {e}")))?;
+
+        let file_fd = file.as_raw_fd();
+
+        // SAFETY: dup() saves the current fd and dup2() replaces it with the
+        // opened log file. Both return -1 on error, which is checked here.
+        let saved_fd = unsafe { libc::dup(target_fd) };
+        if saved_fd < 0 {
+            return Err(Whatever::without_source(format!("Failed to duplicate {name}")));
+        }
+        if unsafe { libc::dup2(file_fd, target_fd) } < 0 {
+            unsafe {
+                libc::close(saved_fd);
+            }
+            return Err(Whatever::without_source(format!("Failed to redirect {name}")));
+        }
+
+        Ok(Self {
+            file,
+            saved_fd,
+            target_fd,
+        })
+    }
+}
+
+impl Drop for FdRedirect {
+    fn drop(&mut self) {
+        let _ = self.file.flush();
+        // SAFETY: saved_fd was created by dup() in FdRedirect::new and remains
+        // owned by this guard until it is restored and closed here.
+        unsafe {
+            libc::dup2(self.saved_fd, self.target_fd);
+            libc::close(self.saved_fd);
+        }
+    }
+}
+
 struct ConsoleServer {
     socket_path: PathBuf,
     path_file: PathBuf,
+    uart_log_dir: PathBuf,
+    uart_logs: Mutex<HashMap<u32, BufWriter<File>>>,
+    display: Mutex<BufWriter<File>>,
     stop: Arc<AtomicBool>,
     clients: Arc<Mutex<HashMap<u32, Vec<UnixStream>>>>,
     handles: Vec<std::thread::JoinHandle<()>>,
@@ -209,6 +250,9 @@ impl ConsoleServer {
     fn start(log_dir: &Path) -> Result<Self, Whatever> {
         std::fs::create_dir_all(log_dir)
             .map_err(|e| Whatever::without_source(format!("Failed to create log directory: {}", e)))?;
+        let uart_log_dir = log_dir.join("uart");
+        std::fs::create_dir_all(&uart_log_dir)
+            .map_err(|e| Whatever::without_source(format!("Failed to create UART log directory: {}", e)))?;
 
         let path_file = log_dir.join("console.sock.path");
         let socket_path = std::env::temp_dir().join(format!("bebop-console-{}.sock", std::process::id()));
@@ -225,17 +269,39 @@ impl ConsoleServer {
         std::fs::write(&path_file, format!("{}\n", socket_path.display()))
             .map_err(|e| Whatever::without_source(format!("Failed to write console socket path file: {}", e)))?;
 
+        // SAFETY: dup() returns a new fd for the current stdout. File takes
+        // ownership of the duplicate so later stdout redirection does not affect
+        // hart 0 display output.
+        let display_fd = unsafe { libc::dup(std::io::stdout().as_raw_fd()) };
+        if display_fd < 0 {
+            return Err(Whatever::without_source(
+                "Failed to duplicate display stdout".to_string(),
+            ));
+        }
+        let display = unsafe { File::from_raw_fd(display_fd) };
+
         let stop = Arc::new(AtomicBool::new(false));
         let clients = Arc::new(Mutex::new(HashMap::new()));
+        let rx_log_path = log_dir.join("console-rx.log");
+        let rx_log = Arc::new(Mutex::new(BufWriter::new(
+            File::create(&rx_log_path)
+                .map_err(|e| Whatever::without_source(format!("Failed to create console RX log: {}", e)))?,
+        )));
         let accept_stop = stop.clone();
         let accept_clients = clients.clone();
+        let accept_rx_log = rx_log.clone();
         let accept_handle = std::thread::Builder::new()
             .name("verilator-console-accept".to_string())
             .spawn(move || {
                 while !accept_stop.load(Ordering::Relaxed) {
                     match listener.accept() {
                         Ok((stream, _addr)) => {
-                            if let Err(e) = Self::spawn_client(stream, accept_clients.clone(), accept_stop.clone()) {
+                            if let Err(e) = Self::spawn_client(
+                                stream,
+                                accept_clients.clone(),
+                                accept_stop.clone(),
+                                accept_rx_log.clone(),
+                            ) {
                                 eprintln!("console client error: {e}");
                             }
                         }
@@ -254,6 +320,9 @@ impl ConsoleServer {
         Ok(Self {
             socket_path,
             path_file,
+            uart_log_dir,
+            uart_logs: Mutex::new(HashMap::new()),
+            display: Mutex::new(BufWriter::new(display)),
             stop,
             clients,
             handles: vec![accept_handle],
@@ -264,6 +333,7 @@ impl ConsoleServer {
         stream: UnixStream,
         clients: Arc<Mutex<HashMap<u32, Vec<UnixStream>>>>,
         stop: Arc<AtomicBool>,
+        rx_log: Arc<Mutex<BufWriter<File>>>,
     ) -> Result<(), String> {
         let mut reader = BufReader::new(
             stream
@@ -283,6 +353,7 @@ impl ConsoleServer {
             .try_clone()
             .map_err(|e| format!("failed to clone console stream for writer: {e}"))?;
         clients.lock().unwrap().entry(hart_id).or_default().push(write_stream);
+        Self::log_rx(&rx_log, format_args!("connect hart={hart_id}\n"));
 
         std::thread::Builder::new()
             .name(format!("verilator-console-rx-hart-{hart_id}"))
@@ -294,6 +365,7 @@ impl ConsoleServer {
                     match input.read(&mut buf) {
                         Ok(0) => break,
                         Ok(n) => {
+                            Self::log_rx(&rx_log, format_args!("rx hart={hart_id} bytes={:?}\n", &buf[..n]));
                             for byte in &buf[..n] {
                                 mmio::push_uart_rx(hart_id, *byte);
                             }
@@ -308,21 +380,68 @@ impl ConsoleServer {
         Ok(())
     }
 
+    fn log_rx(log: &Arc<Mutex<BufWriter<File>>>, args: std::fmt::Arguments<'_>) {
+        let mut log = log.lock().unwrap();
+        log.write_fmt(args).unwrap_or_else(|e| panic!("failed to write console RX log: {e}"));
+        log.flush().unwrap_or_else(|e| panic!("failed to flush console RX log: {e}"));
+    }
+
     fn poll_tx(&self) {
         let mut buf = [0_u32; 256];
-        let n = mmio::drain_uart_tx(&mut buf);
-        if n == 0 {
+        loop {
+            let n = mmio::drain_uart_tx(&mut buf);
+            if n == 0 {
+                return;
+            }
+
+            for item in &buf[..n] {
+                let hart_id = item >> 8;
+                let byte = *item as u8;
+                self.write_uart_log(hart_id, byte);
+                self.write_display(hart_id, byte);
+                let mut clients = self.clients.lock().unwrap();
+                let Some(streams) = clients.get_mut(&hart_id) else {
+                    continue;
+                };
+                streams.retain_mut(|stream| stream.write_all(&[byte]).and_then(|_| stream.flush()).is_ok());
+            }
+        }
+    }
+
+    fn write_uart_log(&self, hart_id: u32, byte: u8) {
+        let mut logs = self.uart_logs.lock().unwrap();
+        let writer = logs.entry(hart_id).or_insert_with(|| {
+            let path = self.uart_log_dir.join(format!("hart-{hart_id}.log"));
+            let file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&path)
+                .unwrap_or_else(|e| panic!("failed to open UART log {}: {}", path.display(), e));
+            BufWriter::new(file)
+        });
+
+        writer
+            .write_all(&[byte])
+            .unwrap_or_else(|e| panic!("failed to write UART log for hart {hart_id}: {e}"));
+        writer
+            .flush()
+            .unwrap_or_else(|e| panic!("failed to flush UART log for hart {hart_id}: {e}"));
+    }
+
+    fn write_display(&self, hart_id: u32, byte: u8) {
+        if hart_id != 0 {
             return;
         }
 
-        let mut clients = self.clients.lock().unwrap();
-        for item in &buf[..n] {
-            let hart_id = item >> 8;
-            let byte = *item as u8;
-            let Some(streams) = clients.get_mut(&hart_id) else {
-                continue;
-            };
-            streams.retain_mut(|stream| stream.write_all(&[byte]).and_then(|_| stream.flush()).is_ok());
+        let mut display = self.display.lock().unwrap();
+        display
+            .write_all(&[byte])
+            .unwrap_or_else(|e| panic!("failed to write hart 0 display output: {e}"));
+        if byte == b'\n' {
+            display
+                .flush()
+                .unwrap_or_else(|e| panic!("failed to flush hart 0 display output: {e}"));
         }
     }
 }

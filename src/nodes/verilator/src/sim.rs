@@ -5,9 +5,7 @@ use crate::mmio;
 use std::ffi::CString;
 use std::io;
 use std::path::Path;
-use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
 
@@ -28,7 +26,7 @@ pub struct Simulator {
 }
 
 impl Simulator {
-    pub fn new(fst_path: &Path, coverage: bool, args: &[String]) -> io::Result<Self> {
+    pub fn new(fst_path: Option<&Path>, coverage: bool, args: &[String]) -> io::Result<Self> {
         // SAFETY: FFI calls to Verilator C++ runtime. All raw pointers returned by
         // verilator_*_new are null-checked before use; ownership is transferred to
         // Simulator which frees them in Drop. CString args outlive the FFI call.
@@ -50,35 +48,39 @@ impl Simulator {
             let c_argv: Vec<*const i8> = c_args.iter().map(|s| s.as_ptr()).collect();
             verilator_context_command_args(context, c_argv.len() as i32, c_argv.as_ptr());
 
-            // Create trace
-            let trace = verilator_trace_new();
-            if trace.is_null() {
-                verilator_context_free(context);
-                return Err(io::Error::new(io::ErrorKind::Other, "Failed to create trace"));
-            }
-
             // Create top module
             let top = verilator_top_new(context);
             if top.is_null() {
-                verilator_trace_free(trace);
                 verilator_context_free(context);
                 return Err(io::Error::new(io::ErrorKind::Other, "Failed to create top module"));
             }
 
-            // Enable tracing
-            verilator_context_trace_ever_on(context, true);
-            verilator_top_trace(top, trace, 0);
+            let trace = if let Some(fst_path) = fst_path {
+                let trace = verilator_trace_new();
+                if trace.is_null() {
+                    verilator_top_free(top);
+                    verilator_context_free(context);
+                    return Err(io::Error::new(io::ErrorKind::Other, "Failed to create trace"));
+                }
 
-            // Open FST file
-            let fst_cstr = CString::new(fst_path.to_str().unwrap()).unwrap();
-            if !verilator_trace_open(trace, fst_cstr.as_ptr()) {
-                verilator_top_free(top);
-                verilator_trace_free(trace);
-                verilator_context_free(context);
-                return Err(io::Error::new(io::ErrorKind::Other, "Failed to open FST file"));
-            }
+                // Enable tracing
+                verilator_context_trace_ever_on(context, true);
+                verilator_top_trace(top, trace, 0);
 
-            println!("Waveform will be saved to: {}", fst_path.display());
+                // Open FST file
+                let fst_cstr = CString::new(fst_path.to_str().unwrap()).unwrap();
+                if !verilator_trace_open(trace, fst_cstr.as_ptr()) {
+                    verilator_top_free(top);
+                    verilator_trace_free(trace);
+                    verilator_context_free(context);
+                    return Err(io::Error::new(io::ErrorKind::Other, "Failed to open FST file"));
+                }
+
+                println!("Waveform will be saved to: {}", fst_path.display());
+                trace
+            } else {
+                std::ptr::null_mut()
+            };
 
             let mut sim = Simulator {
                 context,
@@ -128,7 +130,9 @@ impl Simulator {
             verilator_top_eval(self.top);
             verilator_context_time_inc(self.context, 1);
             let time = verilator_context_time(self.context);
-            verilator_trace_dump(self.trace, time);
+            if !self.trace.is_null() {
+                verilator_trace_dump(self.trace, time);
+            }
             self.sim_time += 1;
         }
     }
@@ -147,7 +151,9 @@ impl Simulator {
 
             verilator_context_time_inc(self.context, 1);
             let time = verilator_context_time(self.context);
-            verilator_trace_dump(self.trace, time);
+            if !self.trace.is_null() {
+                verilator_trace_dump(self.trace, time);
+            }
             self.sim_time += 1;
 
             // Negedge: clock=0
@@ -186,8 +192,10 @@ impl Simulator {
         unsafe {
             verilator_context_time_inc(self.context, 1);
             let time = verilator_context_time(self.context);
-            verilator_trace_dump(self.trace, time);
-            verilator_trace_close(self.trace);
+            if !self.trace.is_null() {
+                verilator_trace_dump(self.trace, time);
+                verilator_trace_close(self.trace);
+            }
 
             if self.coverage {
                 verilator_context_coverage_write(self.context);
