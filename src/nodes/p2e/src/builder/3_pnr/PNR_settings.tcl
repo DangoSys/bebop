@@ -2,7 +2,7 @@
 
 #*********************Example******************#
 #
-#ena_auto_MPAR 0
+ena_auto_MPAR 0
 #ena_auto_PRT_opt 1
 #ena_pre_opt_cons_check_stop_PNR 0
 #MPAR_mode "hold_meet"
