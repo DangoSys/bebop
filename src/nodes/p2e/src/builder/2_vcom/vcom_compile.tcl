@@ -92,6 +92,9 @@ create_clock -sig_name ${top_module}.P2ETop.top.user_clk -frequency 5Mhz
 # Enable design rule mode
 set_dr_mode -add enable
 
+# Enable this when this board is reousrces are limited for design
+# memory_options -add{bram_balance SMART}
+
 # Generate FPGA design
 design_edit
 design_generation

@@ -1,14 +1,18 @@
 # Flash bitstream to FPGA
 # This script is called by run.tcl
 
-proc flash_bitstream {fpga_location} {
+proc flash_bitstream {fpga_location {multi_fpga 0}} {
     puts "========== Flashing Bitstream =========="
 
     # Load design from current directory
     design .
 
     # Connect to hardware server
-    hw_server . -location $fpga_location
+    if {$multi_fpga} {
+        hw_server .
+    } else {
+        hw_server . -location $fpga_location
+    }
 
     # Configure DDR voltage (required for DDR4 to work)
     # Bank 3,4,5 need 1.2V for DDR4

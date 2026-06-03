@@ -25,6 +25,7 @@ pub fn run(
     image: &Path,
     bitstream: &Path,
     log_dir: &Path,
+    multi_fpga: bool,
     wave: bool,
     wave_start: u64,
 ) -> Result<SimulationResult, String> {
@@ -33,6 +34,7 @@ pub fn run(
     log::info!("  Case Home: {}", case_home.display());
     log::info!("  Image: {}", image.display());
     log::info!("  Bitstream: {}", bitstream.display());
+    log::info!("  Multi FPGA: {}", multi_fpga);
     log::info!("  Waveform: {}", wave);
     log::info!("  Waveform Start Cycle: {}", wave_start);
 
@@ -69,7 +71,7 @@ pub fn run(
 
     // Generate main.tcl dynamically
     log::info!("Generating main.tcl...");
-    let main_tcl = generate_main_tcl(fpga_location, image, bitstream, wave, wave_start)?;
+    let main_tcl = generate_main_tcl(fpga_location, image, bitstream, multi_fpga, wave, wave_start)?;
     let main_tcl_path = case_home.join("main.tcl");
     std::fs::write(&main_tcl_path, main_tcl).map_err(|e| format!("Failed to write main.tcl: {}", e))?;
 
@@ -345,6 +347,7 @@ fn generate_main_tcl(
     fpga_location: &str,
     image: &Path,
     bitstream: &Path,
+    multi_fpga: bool,
     wave: bool,
     wave_start: u64,
 ) -> Result<String, String> {
@@ -357,12 +360,14 @@ fn generate_main_tcl(
 set fpga_location "{fpga_location}"
 set image "{image}"
 set bitstream "{bitstream}"
+set multi_fpga {multi_fpga}
 set wave {wave}
 set wave_start {wave_start}
 
 puts "=========================================="
 puts "P2E Simulation Starting"
 puts "  FPGA Location: $fpga_location"
+puts "  Multi FPGA: $multi_fpga"
 puts "  Bitstream: $bitstream"
 puts "  Image: $image"
 puts "=========================================="
@@ -375,7 +380,7 @@ source $script_dir/2_runworkload/workload.tcl
 
 # Step 1: Flash bitstream
 puts "\n========== Step 1: Flashing Bitstream =========="
-flash_bitstream $fpga_location
+flash_bitstream $fpga_location $multi_fpga
 
 # Step 2: Initialize FPGA and DDR
 puts "\n========== Step 2: Initializing FPGA =========="
@@ -398,6 +403,7 @@ exit
         fpga_location = fpga_location,
         image = image.display(),
         bitstream = bitstream.display(),
+        multi_fpga = if multi_fpga { 1 } else { 0 },
         wave = if wave { 1 } else { 0 },
         wave_start = wave_start,
         script_dir = script_dir.display(),

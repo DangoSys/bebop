@@ -283,10 +283,9 @@ impl ConsoleServer {
         let stop = Arc::new(AtomicBool::new(false));
         let clients = Arc::new(Mutex::new(HashMap::new()));
         let rx_log_path = log_dir.join("console-rx.log");
-        let rx_log = Arc::new(Mutex::new(BufWriter::new(
-            File::create(&rx_log_path)
-                .map_err(|e| Whatever::without_source(format!("Failed to create console RX log: {}", e)))?,
-        )));
+        let rx_log = Arc::new(Mutex::new(BufWriter::new(File::create(&rx_log_path).map_err(|e| {
+            Whatever::without_source(format!("Failed to create console RX log: {}", e))
+        })?)));
         let accept_stop = stop.clone();
         let accept_clients = clients.clone();
         let accept_rx_log = rx_log.clone();
@@ -382,8 +381,10 @@ impl ConsoleServer {
 
     fn log_rx(log: &Arc<Mutex<BufWriter<File>>>, args: std::fmt::Arguments<'_>) {
         let mut log = log.lock().unwrap();
-        log.write_fmt(args).unwrap_or_else(|e| panic!("failed to write console RX log: {e}"));
-        log.flush().unwrap_or_else(|e| panic!("failed to flush console RX log: {e}"));
+        log.write_fmt(args)
+            .unwrap_or_else(|e| panic!("failed to write console RX log: {e}"));
+        log.flush()
+            .unwrap_or_else(|e| panic!("failed to flush console RX log: {e}"));
     }
 
     fn poll_tx(&self) {

@@ -95,9 +95,9 @@ pub fn remove_empty_module_instantiations(build_dir: &Path) {
             .lines()
             .filter(|line| {
                 let trimmed = line.trim();
-                let should_remove = empty_modules.iter().any(|module| {
-                    trimmed.starts_with(&format!("{module} ")) && trimmed.ends_with("();")
-                });
+                let should_remove = empty_modules
+                    .iter()
+                    .any(|module| trimmed.starts_with(&format!("{module} ")) && trimmed.ends_with("();"));
 
                 if should_remove {
                     println!("cargo:warning=Removing empty module instantiation: {}", trimmed);

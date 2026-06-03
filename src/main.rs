@@ -71,6 +71,8 @@ pub enum Commands {
         bitstream: Option<std::path::PathBuf>,
         #[arg(long, help = "Log directory (for runworkload only)")]
         log_dir: Option<std::path::PathBuf>,
+        #[arg(long, help = "Use multi-FPGA hw_server connection without a location selector")]
+        multi_fpga: bool,
         #[arg(long, help = "Enable waveform dump during runworkload")]
         wave: bool,
         #[arg(long, help = "Start waveform dump from this cycle")]
@@ -112,6 +114,7 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
             image,
             bitstream,
             log_dir,
+            multi_fpga,
             wave,
             wave_start,
         } => {
@@ -137,6 +140,7 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
                     bitstream,
                     output: build_dir,
                     log,
+                    multi_fpga,
                     wave,
                     wave_start,
                 })

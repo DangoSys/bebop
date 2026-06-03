@@ -14,6 +14,8 @@ pub struct P2ECli {
     pub output: PathBuf,
     /// Log directory
     pub log: PathBuf,
+    /// Use multi-FPGA hw_server connection without a location selector
+    pub multi_fpga: bool,
     /// Enable waveform dump
     pub wave: bool,
     /// Start waveform dump from this cycle
@@ -70,6 +72,7 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
     log::info!("  FPGA: {}", FPGA_LOCATION);
     log::info!("  Output: {}", case_home.display());
     log::info!("  UART Log: {}", uart_log_path.display());
+    log::info!("  Multi FPGA: {}", cli.multi_fpga);
     log::info!("  Waveform: {}", cli.wave);
     log::info!("  Waveform Start Cycle: {}", cli.wave_start.unwrap_or(0));
 
@@ -81,6 +84,7 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
         &cli.image,
         &cli.bitstream,
         &cli.log,
+        cli.multi_fpga,
         cli.wave,
         cli.wave_start.unwrap_or(0),
     )
