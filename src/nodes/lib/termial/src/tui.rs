@@ -12,7 +12,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 
-use crate::app::{App, Conn, Mode, Pane};
+use crate::app::{App, Conn, Mode, Pane, Run};
 use crate::cli::Cli;
 use crate::conn::{self, Msg};
 
@@ -39,7 +39,8 @@ fn loop_ui(
     if app.session_done() {
       app.disconnect("disconnected: simulation ended".to_string());
     }
-    term.draw(|f| draw(f, app))
+    term
+      .draw(|f| draw(f, app))
       .map_err(|e| format!("failed to draw UI: {e}"))?;
     let timeout = TICK.saturating_sub(last.elapsed());
     if event::poll(timeout).map_err(|e| format!("failed to poll terminal event: {e}"))? {
@@ -97,13 +98,21 @@ fn key(app: &mut App, msg_tx: &mpsc::Sender<Msg>, ev: Event) -> Result<(), Strin
 
 fn start_key(app: &mut App, msg_tx: &mpsc::Sender<Msg>, k: KeyEvent) -> Result<(), String> {
   match k {
-    KeyEvent { code: KeyCode::Tab, .. } | KeyEvent { code: KeyCode::Down, .. } => {
+    KeyEvent { code: KeyCode::Tab, .. }
+    | KeyEvent {
+      code: KeyCode::Down, ..
+    } => {
       app.form.active = (app.form.active + 1) % app.form.fields.len();
     }
-    KeyEvent { code: KeyCode::BackTab, .. } | KeyEvent { code: KeyCode::Up, .. } => {
+    KeyEvent {
+      code: KeyCode::BackTab, ..
+    }
+    | KeyEvent { code: KeyCode::Up, .. } => {
       app.form.active = (app.form.active + app.form.fields.len() - 1) % app.form.fields.len();
     }
-    KeyEvent { code: KeyCode::Enter, .. } => {
+    KeyEvent {
+      code: KeyCode::Enter, ..
+    } => {
       if let Err(e) = connect(app, msg_tx) {
         if matches!(app.mode, Mode::Session) {
           app.disconnect(format!("connect failed: {e}"));
@@ -112,10 +121,17 @@ fn start_key(app: &mut App, msg_tx: &mpsc::Sender<Msg>, k: KeyEvent) -> Result<(
         }
       }
     }
-    KeyEvent { code: KeyCode::Backspace, .. } => {
+    KeyEvent {
+      code: KeyCode::Backspace,
+      ..
+    } => {
       app.form.fields[app.form.active].pop();
     }
-    KeyEvent { code: KeyCode::Char(c), modifiers: KeyModifiers::NONE | KeyModifiers::SHIFT, .. } => {
+    KeyEvent {
+      code: KeyCode::Char(c),
+      modifiers: KeyModifiers::NONE | KeyModifiers::SHIFT,
+      ..
+    } => {
       app.form.fields[app.form.active].push(c);
     }
     _ => {}
@@ -183,30 +199,102 @@ fn form_u32(app: &App, idx: usize, name: &str) -> Result<u32, String> {
 fn session_key(app: &mut App, k: KeyEvent) -> Result<(), String> {
   match k {
     KeyEvent { code: KeyCode::Tab, .. } => app.active = (app.active + 1) % app.panes.len(),
-    KeyEvent { code: KeyCode::BackTab, .. } => app.active = (app.active + app.panes.len() - 1) % app.panes.len(),
-    KeyEvent { code: KeyCode::Left, .. } => app.active = (app.active + app.panes.len() - 1) % app.panes.len(),
-    KeyEvent { code: KeyCode::Right, .. } => app.active = (app.active + 1) % app.panes.len(),
+    KeyEvent {
+      code: KeyCode::BackTab, ..
+    } => app.active = (app.active + app.panes.len() - 1) % app.panes.len(),
+    KeyEvent {
+      code: KeyCode::Left, ..
+    } => move_input_cursor(app, -1),
+    KeyEvent {
+      code: KeyCode::Right, ..
+    } => move_input_cursor(app, 1),
+    KeyEvent {
+      code: KeyCode::Home, ..
+    } => app.pane_mut().input_cursor = 0,
+    KeyEvent { code: KeyCode::End, .. } => app.pane_mut().input_cursor = app.pane().input.len(),
     KeyEvent { code: KeyCode::Up, .. } => move_row(app, -1),
-    KeyEvent { code: KeyCode::Down, .. } => move_row(app, 1),
-    KeyEvent { code: KeyCode::Enter, .. } => send_input(app)?,
+    KeyEvent {
+      code: KeyCode::Down, ..
+    } => move_row(app, 1),
+    KeyEvent {
+      code: KeyCode::Enter, ..
+    } => send_input(app)?,
     KeyEvent { code: KeyCode::Esc, .. } => app.disconnect("disconnected by user".to_string()),
-    KeyEvent { code: KeyCode::Backspace, .. } => {
-      app.pane_mut().input.pop();
+    KeyEvent {
+      code: KeyCode::Backspace,
+      ..
+    } => {
+      backspace_input(app);
     }
-    KeyEvent { code: KeyCode::Char('f'), modifiers: KeyModifiers::NONE, .. } => app.grid = !app.grid,
-    KeyEvent { code: KeyCode::Char(c), modifiers: KeyModifiers::NONE | KeyModifiers::SHIFT, .. } => {
-      app.pane_mut().input.push(c);
+    KeyEvent {
+      code: KeyCode::Delete, ..
+    } => {
+      delete_input(app);
+    }
+    KeyEvent {
+      code: KeyCode::Char('f'),
+      modifiers: KeyModifiers::NONE,
+      ..
+    } => app.grid = !app.grid,
+    KeyEvent {
+      code: KeyCode::Char(c),
+      modifiers: KeyModifiers::NONE | KeyModifiers::SHIFT,
+      ..
+    } => {
+      insert_input(app, c);
     }
     _ => {}
   }
   Ok(())
 }
 
+fn move_input_cursor(app: &mut App, dir: isize) {
+  let p = app.pane_mut();
+  if dir < 0 {
+    p.input_cursor = prev_char_boundary(&p.input, p.input_cursor);
+  } else {
+    p.input_cursor = next_char_boundary(&p.input, p.input_cursor);
+  }
+}
+
+fn insert_input(app: &mut App, ch: char) {
+  let p = app.pane_mut();
+  p.input.insert(p.input_cursor, ch);
+  p.input_cursor += ch.len_utf8();
+}
+
+fn backspace_input(app: &mut App) {
+  let p = app.pane_mut();
+  if p.input_cursor > 0 {
+    p.input_cursor = prev_char_boundary(&p.input, p.input_cursor);
+    p.input.remove(p.input_cursor);
+  }
+}
+
+fn delete_input(app: &mut App) {
+  let p = app.pane_mut();
+  if p.input_cursor < p.input.len() {
+    p.input.remove(p.input_cursor);
+  }
+}
+
+fn prev_char_boundary(s: &str, cursor: usize) -> usize {
+  s[..cursor].char_indices().last().map(|(idx, _)| idx).unwrap_or(0)
+}
+
+fn next_char_boundary(s: &str, cursor: usize) -> usize {
+  s[cursor..]
+    .char_indices()
+    .nth(1)
+    .map(|(idx, _)| cursor + idx)
+    .unwrap_or(s.len())
+}
+
 fn send_input(app: &mut App) -> Result<(), String> {
   let input = app.pane().input.clone();
   app.send_input()?;
   if !input.is_empty() {
-    app.pane_mut().lines.push_back(format!("tx> {input}"));
+    app.pane_mut().push_plain(format!("tx> {input}"));
   }
   Ok(())
 }
@@ -249,15 +337,30 @@ fn draw_start(f: &mut Frame<'_>, app: &App) {
   f.render_widget(Paragraph::new(app.form.msg.clone()).wrap(Wrap { trim: false }), rows[1]);
   field(f, rows[2], app, 0, "log dir");
   field(f, rows[3], app, 1, "harts");
-  f.render_widget(Paragraph::new("tab/up/down switch  enter connect  ctrl-c quit"), rows[4]);
+  f.render_widget(
+    Paragraph::new("tab/up/down switch  enter connect  ctrl-c quit"),
+    rows[4],
+  );
 }
 
 fn field(f: &mut Frame<'_>, area: Rect, app: &App, idx: usize, label: &str) {
   let active = idx == app.form.active;
   let color = if active { Color::Yellow } else { Color::Gray };
-  let title = if active { format!(" > {label} ") } else { format!("   {label} ") };
-  let block = Block::default().title(title).borders(Borders::ALL).border_style(Style::default().fg(color));
-  f.render_widget(Paragraph::new(app.form.fields[idx].clone()).block(block).wrap(Wrap { trim: false }), area);
+  let title = if active {
+    format!(" > {label} ")
+  } else {
+    format!("   {label} ")
+  };
+  let block = Block::default()
+    .title(title)
+    .borders(Borders::ALL)
+    .border_style(Style::default().fg(color));
+  f.render_widget(
+    Paragraph::new(app.form.fields[idx].clone())
+      .block(block)
+      .wrap(Wrap { trim: false }),
+    area,
+  );
 }
 
 fn draw_session(f: &mut Frame<'_>, app: &App) {
@@ -277,31 +380,59 @@ fn draw_session(f: &mut Frame<'_>, app: &App) {
 fn centered(area: Rect, w: u16, h: u16) -> Rect {
   let v = Layout::default()
     .direction(Direction::Vertical)
-    .constraints([Constraint::Min(0), Constraint::Length(h.min(area.height)), Constraint::Min(0)])
+    .constraints([
+      Constraint::Min(0),
+      Constraint::Length(h.min(area.height)),
+      Constraint::Min(0),
+    ])
     .split(area);
   Layout::default()
     .direction(Direction::Horizontal)
-    .constraints([Constraint::Min(0), Constraint::Length(w.min(area.width)), Constraint::Min(0)])
+    .constraints([
+      Constraint::Min(0),
+      Constraint::Length(w.min(area.width)),
+      Constraint::Min(0),
+    ])
     .split(v[1])[1]
 }
 
 fn tabs(f: &mut Frame<'_>, area: Rect, app: &App) {
-  let mut spans = vec![Span::styled(" bebop-termial ", Style::default().fg(Color::Black).bg(Color::Cyan))];
+  let mut spans = vec![Span::styled(
+    " bebop-termial ",
+    Style::default().fg(Color::Black).bg(Color::Cyan),
+  )];
   for (idx, p) in app.panes.iter().enumerate() {
-    let color = if idx == app.active { Color::Yellow } else if p.connected { Color::Green } else { Color::Red };
+    let color = if idx == app.active {
+      Color::Yellow
+    } else if p.connected {
+      Color::Green
+    } else {
+      Color::Red
+    };
     spans.push(Span::raw(" "));
-    spans.push(Span::styled(format!("hart{}", p.hart), Style::default().fg(color).add_modifier(Modifier::BOLD)));
+    spans.push(Span::styled(
+      format!("hart{}", p.hart),
+      Style::default().fg(color).add_modifier(Modifier::BOLD),
+    ));
   }
-  spans.push(Span::raw("  tab switch  f grid  enter send  esc disconnect  ctrl-c quit"));
+  spans.push(Span::raw(
+    "  tab switch  left/right edit  f grid  enter send  esc disconnect  ctrl-c quit",
+  ));
   f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn grid(f: &mut Frame<'_>, area: Rect, app: &App) {
   let cols = cols(app.panes.len());
   let rows = app.panes.len().div_ceil(cols);
-  let rs = Layout::default().direction(Direction::Vertical).constraints(vec![Constraint::Ratio(1, rows as u32); rows]).split(area);
+  let rs = Layout::default()
+    .direction(Direction::Vertical)
+    .constraints(vec![Constraint::Ratio(1, rows as u32); rows])
+    .split(area);
   for r in 0..rows {
-    let cs = Layout::default().direction(Direction::Horizontal).constraints(vec![Constraint::Ratio(1, cols as u32); cols]).split(rs[r]);
+    let cs = Layout::default()
+      .direction(Direction::Horizontal)
+      .constraints(vec![Constraint::Ratio(1, cols as u32); cols])
+      .split(rs[r]);
     for c in 0..cols {
       let idx = r * cols + c;
       if let Some(p) = app.panes.get(idx) {
@@ -312,28 +443,64 @@ fn grid(f: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn cols(n: usize) -> usize {
-  if n <= 2 { n.max(1) } else { (n as f64).sqrt().ceil() as usize }
+  if n <= 2 {
+    n.max(1)
+  } else {
+    (n as f64).sqrt().ceil() as usize
+  }
 }
 
 fn pane(f: &mut Frame<'_>, area: Rect, p: &Pane, active: bool) {
-  let color = if active { Color::Yellow } else if p.connected { Color::Green } else { Color::Red };
+  let color = if active {
+    Color::Yellow
+  } else if p.connected {
+    Color::Green
+  } else {
+    Color::Red
+  };
   let title = format!(" hart{}  {}  rx:{} tx:{} ", p.hart, p.status, p.rx, p.tx);
   let rows = area.height.saturating_sub(2) as usize;
   let cap = rows.saturating_sub((!p.cur.is_empty()) as usize);
-  let mut lines: Vec<Line<'static>> = p.lines.iter().rev().take(cap).map(|s| Line::from(s.clone())).collect();
+  let mut lines: Vec<Line<'static>> = p.lines.iter().rev().take(cap).map(|runs| runs_line(runs)).collect();
   lines.reverse();
   if !p.cur.is_empty() && lines.len() < rows {
-    lines.push(Line::from(p.cur.clone()));
+    lines.push(runs_line(&p.cur));
   }
-  let block = Block::default().title(title).borders(Borders::ALL).border_style(Style::default().fg(color));
+  let block = Block::default()
+    .title(title)
+    .borders(Borders::ALL)
+    .border_style(Style::default().fg(color));
   f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+}
+
+fn runs_line(runs: &[Run]) -> Line<'static> {
+  Line::from(
+    runs
+      .iter()
+      .map(|run| Span::styled(run.text.clone(), run.style))
+      .collect::<Vec<_>>(),
+  )
 }
 
 fn input(f: &mut Frame<'_>, area: Rect, app: &App) {
   let p = app.pane();
-  let text = if p.input.is_empty() { "type command and press enter".to_string() } else { p.input.clone() };
-  let block = Block::default().title(format!(" input hart{} ", p.hart)).borders(Borders::ALL).border_style(Style::default().fg(Color::Yellow));
+  let has_input = !p.input.is_empty();
+  let text = if has_input {
+    p.input.clone()
+  } else {
+    "type command and press enter".to_string()
+  };
+  let block = Block::default()
+    .title(format!(" input hart{} ", p.hart))
+    .borders(Borders::ALL)
+    .border_style(Style::default().fg(Color::Yellow));
+  let inner = block.inner(area);
   f.render_widget(Paragraph::new(text).block(block), area);
+  if has_input {
+    let x = inner.x + (p.input[..p.input_cursor].chars().count() as u16).min(inner.width.saturating_sub(1));
+    let y = inner.y;
+    f.set_cursor_position((x, y));
+  }
 }
 
 struct Tui {
@@ -345,7 +512,8 @@ impl Tui {
     terminal::enable_raw_mode().map_err(|e| format!("failed to enable raw mode: {e}"))?;
     let mut stdout = std::io::stdout();
     execute!(stdout, EnterAlternateScreen).map_err(|e| format!("failed to enter alt screen: {e}"))?;
-    let terminal = Terminal::new(CrosstermBackend::new(stdout)).map_err(|e| format!("failed to create terminal: {e}"))?;
+    let terminal =
+      Terminal::new(CrosstermBackend::new(stdout)).map_err(|e| format!("failed to create terminal: {e}"))?;
     Ok(Self { terminal })
   }
 }
