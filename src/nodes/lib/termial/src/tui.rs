@@ -233,7 +233,7 @@ fn session_key(app: &mut App, k: KeyEvent) -> Result<(), String> {
     }
     KeyEvent {
       code: KeyCode::Char('f'),
-      modifiers: KeyModifiers::NONE,
+      modifiers: KeyModifiers::CONTROL,
       ..
     } => app.grid = !app.grid,
     KeyEvent {
@@ -416,7 +416,7 @@ fn tabs(f: &mut Frame<'_>, area: Rect, app: &App) {
     ));
   }
   spans.push(Span::raw(
-    "  tab switch  left/right edit  f grid  enter send  esc disconnect  ctrl-c quit",
+    "  tab switch  left/right edit  ctrl-f grid  enter send  esc disconnect  ctrl-c quit",
   ));
   f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
