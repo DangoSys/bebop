@@ -21,14 +21,15 @@ impl Instruction for Im2col {
             panic!("im2col: op1 and wr must differ");
         }
 
-        let kcol = (xs2 & 0xF) as usize;
-        let krow = ((xs2 >> 4) & 0xF) as usize;
-        let incol = ((xs2 >> 8) & 0x1F) as usize;
-        let inrow = ((xs2 >> 13) & 0x3FF) as usize;
-        let startcol = ((xs2 >> 23) & 0x1F) as usize;
-        let startrow = ((xs2 >> 28) & 0x3FF) as usize;
+        let kcol = (xs2 & 0xFF) as usize;
+        let krow = ((xs2 >> 8) & 0xFF) as usize;
+        let incol = ((xs2 >> 16) & 0xFF) as usize;
+        let inrow = ((xs2 >> 24) & 0xFF) as usize;
+        let startcol = ((xs2 >> 32) & 0xFF) as usize;
+        let startrow = ((xs2 >> 40) & 0xFF) as usize;
+        let col_step = ((xs2 >> 48) & 0xFF) as usize;
 
-        if kcol == 0 || krow == 0 || incol == 0 || inrow == 0 {
+        if kcol == 0 || krow == 0 || incol == 0 || inrow == 0 || col_step == 0 {
             panic!("im2col: invalid shape (zero dim)");
         }
         if incol < kcol || inrow < krow {
@@ -53,7 +54,7 @@ impl Instruction for Im2col {
 
         let mut out = 0usize;
         for r in startrow..=row_end {
-            for c in startcol..=col_end {
+            for c in (startcol..=col_end).step_by(col_step) {
                 for kr in 0..krow {
                     for kc in 0..kcol {
                         let src = r * incol + c + kr * incol + kc;
@@ -70,14 +71,15 @@ impl Instruction for Im2col {
     }
 
     fn latency(_xs1: u64, xs2: u64) -> u64 {
-        let kcol = xs2 & 0xF;
-        let krow = (xs2 >> 4) & 0xF;
-        let incol = (xs2 >> 8) & 0x1F;
-        let inrow = (xs2 >> 13) & 0x3FF;
-        let startcol = (xs2 >> 23) & 0x1F;
-        let startrow = (xs2 >> 28) & 0x3FF;
+        let kcol = xs2 & 0xFF;
+        let krow = (xs2 >> 8) & 0xFF;
+        let incol = (xs2 >> 16) & 0xFF;
+        let inrow = (xs2 >> 24) & 0xFF;
+        let startcol = (xs2 >> 32) & 0xFF;
+        let startrow = (xs2 >> 40) & 0xFF;
+        let col_step = (xs2 >> 48) & 0xFF;
 
-        if kcol == 0 || krow == 0 || incol == 0 || inrow == 0 {
+        if kcol == 0 || krow == 0 || incol == 0 || inrow == 0 || col_step == 0 {
             return 16;
         }
         if incol < kcol || inrow < krow {
@@ -90,7 +92,8 @@ impl Instruction for Im2col {
             return 16;
         }
 
-        let nwin = (row_end - startrow + 1).saturating_mul(col_end - startcol + 1);
+        let col_windows = ((col_end - startcol) / col_step) + 1;
+        let nwin = (row_end - startrow + 1).saturating_mul(col_windows);
         nwin.saturating_mul(krow).saturating_mul(kcol).max(16)
     }
 }
