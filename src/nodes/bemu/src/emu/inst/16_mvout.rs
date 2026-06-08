@@ -45,7 +45,7 @@ impl Instruction for Mvout {
         if groups > 1 {
             let rows = if depth > MATRIX_SIZE as u64 {
                 let group_count = groups as u64;
-                if depth % group_count != 0 {
+                if !depth.is_multiple_of(group_count) {
                     panic!("mvout: acc depth {depth} is not divisible by groups {groups}");
                 }
                 depth / group_count

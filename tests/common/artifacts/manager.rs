@@ -21,13 +21,6 @@ pub struct ArtifactManager {
 }
 
 impl ArtifactManager {
-    pub fn create_named(workload_name: &str, _keep_temp: bool) -> std::io::Result<Self> {
-        let root = workspace_root().join(ARTIFACT_ROOT).join(workload_name);
-        fs::create_dir_all(root.join(DIR_LOG))?;
-        fs::create_dir_all(root.join(DIR_FST))?;
-        Ok(ArtifactManager { root })
-    }
-
     /// Create artifact directory with backend and timestamp prefix.
     /// Format: <backend>-<YYYY-MM-DD-HH-MM-SS>-<workload-name>
     pub fn create_with_backend(backend: &str, workload_name: &str, _keep_temp: bool) -> std::io::Result<Self> {

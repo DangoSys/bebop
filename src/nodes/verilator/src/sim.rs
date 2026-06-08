@@ -34,10 +34,7 @@ impl Simulator {
             // Create context
             let context = verilator_context_new();
             if context.is_null() {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "Failed to create Verilator context",
-                ));
+                return Err(io::Error::other("Failed to create Verilator context"));
             }
 
             // Pass command args (need to prepend program name for VPI)
@@ -52,7 +49,7 @@ impl Simulator {
             let top = verilator_top_new(context);
             if top.is_null() {
                 verilator_context_free(context);
-                return Err(io::Error::new(io::ErrorKind::Other, "Failed to create top module"));
+                return Err(io::Error::other("Failed to create top module"));
             }
 
             let trace = if let Some(fst_path) = fst_path {
@@ -60,7 +57,7 @@ impl Simulator {
                 if trace.is_null() {
                     verilator_top_free(top);
                     verilator_context_free(context);
-                    return Err(io::Error::new(io::ErrorKind::Other, "Failed to create trace"));
+                    return Err(io::Error::other("Failed to create trace"));
                 }
 
                 // Enable tracing
@@ -73,7 +70,7 @@ impl Simulator {
                     verilator_top_free(top);
                     verilator_trace_free(trace);
                     verilator_context_free(context);
-                    return Err(io::Error::new(io::ErrorKind::Other, "Failed to open FST file"));
+                    return Err(io::Error::other("Failed to open FST file"));
                 }
 
                 println!("Waveform will be saved to: {}", fst_path.display());

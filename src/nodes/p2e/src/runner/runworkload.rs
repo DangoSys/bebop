@@ -15,41 +15,43 @@ pub struct SimulationResult {
     pub uart_log: String,
 }
 
+pub struct RunConfig<'a> {
+    pub fpga_location: &'a str,
+    pub case_home: &'a Path,
+    pub rtcfg_path: &'a Path,
+    pub image: &'a Path,
+    pub bitstream: &'a Path,
+    pub log_dir: &'a Path,
+    pub multi_fpga: bool,
+    pub wave: bool,
+    pub wave_start: u64,
+}
+
 /// Run P2E simulation - main entry point
 ///
 /// This is the main entry point for P2E simulation, similar to Verilator's run_batch().
-pub fn run(
-    fpga_location: &str,
-    case_home: &Path,
-    rtcfg_path: &Path,
-    image: &Path,
-    bitstream: &Path,
-    log_dir: &Path,
-    multi_fpga: bool,
-    wave: bool,
-    wave_start: u64,
-) -> Result<SimulationResult, String> {
+pub fn run(cfg: RunConfig<'_>) -> Result<SimulationResult, String> {
     log::info!("P2E Simulation Starting");
-    log::info!("  FPGA: {}", fpga_location);
-    log::info!("  Case Home: {}", case_home.display());
-    log::info!("  Image: {}", image.display());
-    log::info!("  Bitstream: {}", bitstream.display());
-    log::info!("  Multi FPGA: {}", multi_fpga);
-    log::info!("  Waveform: {}", wave);
-    log::info!("  Waveform Start Cycle: {}", wave_start);
+    log::info!("  FPGA: {}", cfg.fpga_location);
+    log::info!("  Case Home: {}", cfg.case_home.display());
+    log::info!("  Image: {}", cfg.image.display());
+    log::info!("  Bitstream: {}", cfg.bitstream.display());
+    log::info!("  Multi FPGA: {}", cfg.multi_fpga);
+    log::info!("  Waveform: {}", cfg.wave);
+    log::info!("  Waveform Start Cycle: {}", cfg.wave_start);
 
     // Validate paths
-    if !case_home.exists() {
-        return Err(format!("case_home not found: {}", case_home.display()));
+    if !cfg.case_home.exists() {
+        return Err(format!("case_home not found: {}", cfg.case_home.display()));
     }
-    if !rtcfg_path.exists() {
-        return Err(format!("rtcfg_path not found: {}", rtcfg_path.display()));
+    if !cfg.rtcfg_path.exists() {
+        return Err(format!("rtcfg_path not found: {}", cfg.rtcfg_path.display()));
     }
-    if !image.exists() {
-        return Err(format!("image not found: {}", image.display()));
+    if !cfg.image.exists() {
+        return Err(format!("image not found: {}", cfg.image.display()));
     }
-    if !bitstream.exists() {
-        return Err(format!("bitstream not found: {}", bitstream.display()));
+    if !cfg.bitstream.exists() {
+        return Err(format!("bitstream not found: {}", cfg.bitstream.display()));
     }
 
     // Source sourceme.sh to set up VVAC environment
@@ -60,25 +62,32 @@ pub fn run(
     ffi::reset_runtime_state();
 
     // Set log directory for per-hart UART logs
-    ffi::set_log_dir(log_dir.to_string_lossy().to_string());
-    let console = ConsoleServer::start(log_dir)?;
+    ffi::set_log_dir(cfg.log_dir.to_string_lossy().to_string());
+    let console = ConsoleServer::start(cfg.log_dir)?;
     ffi::set_console_tx(console.tx_sender());
 
     // IMPORTANT: Change to case_home directory before running vdbg
-    log::info!("Changing to case_home directory: {}", case_home.display());
-    std::env::set_current_dir(case_home).map_err(|e| format!("Failed to change to case_home directory: {}", e))?;
+    log::info!("Changing to case_home directory: {}", cfg.case_home.display());
+    std::env::set_current_dir(cfg.case_home).map_err(|e| format!("Failed to change to case_home directory: {}", e))?;
     log::info!("Current directory: {:?}", std::env::current_dir());
 
     // Generate main.tcl dynamically
     log::info!("Generating main.tcl...");
-    let main_tcl = generate_main_tcl(fpga_location, image, bitstream, multi_fpga, wave, wave_start)?;
-    let main_tcl_path = case_home.join("main.tcl");
+    let main_tcl = generate_main_tcl(
+        cfg.fpga_location,
+        cfg.image,
+        cfg.bitstream,
+        cfg.multi_fpga,
+        cfg.wave,
+        cfg.wave_start,
+    )?;
+    let main_tcl_path = cfg.case_home.join("main.tcl");
     std::fs::write(&main_tcl_path, main_tcl).map_err(|e| format!("Failed to write main.tcl: {}", e))?;
 
     // Clean up old flag files before starting
-    let flash_done_flag = case_home.join("flash_done.flag");
-    let host_init_flag = case_home.join("host_init_done.flag");
-    let sim_exit_flag = case_home.join("sim_exit.flag");
+    let flash_done_flag = cfg.case_home.join("flash_done.flag");
+    let host_init_flag = cfg.case_home.join("host_init_done.flag");
+    let sim_exit_flag = cfg.case_home.join("sim_exit.flag");
     let _ = std::fs::remove_file(&flash_done_flag);
     let _ = std::fs::remove_file(&host_init_flag);
     let _ = std::fs::remove_file(&sim_exit_flag);
@@ -100,7 +109,7 @@ pub fn run(
     // IMPORTANT: keep `_ctb` alive until wait_for_completion returns;
     // dropping it triggers quit() and tears down the host-side CTB connection
     // before the workload can run.
-    let _ctb = init_ctb(case_home, rtcfg_path)?;
+    let _ctb = init_ctb(cfg.case_home, cfg.rtcfg_path)?;
 
     // Signal TCL that host init is done
     std::fs::write(&host_init_flag, "").map_err(|e| format!("Failed to write host_init_done.flag: {}", e))?;

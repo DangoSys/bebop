@@ -16,18 +16,6 @@ pub fn should_exit() -> bool {
     unsafe { crate::ffi::verilator_scu_has_exit() }
 }
 
-/// Get exit code (valid only if should_exit() returns true)
-pub fn exit_code() -> i32 {
-    // SAFETY: FFI call to C++ Verilator runtime; function is extern "C" and always safe to call.
-    unsafe { crate::ffi::verilator_scu_exit_code() }
-}
-
-/// Reset SCU state (call at start of new simulation)
-pub fn reset() {
-    // SAFETY: FFI call to C++ Verilator runtime; function is extern "C" and always safe to call.
-    unsafe { crate::ffi::verilator_scu_reset() }
-}
-
 pub fn push_uart_rx(hart_id: u32, byte: u8) {
     // SAFETY: FFI call to C++ Verilator runtime; function appends one byte to
     // the protected SCU RX queue.

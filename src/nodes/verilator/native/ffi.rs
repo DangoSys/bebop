@@ -38,13 +38,9 @@ extern "C" {
     // Top module signals
     pub fn verilator_top_set_clock(top: *mut VerilatorTop, val: u8);
     pub fn verilator_top_set_reset(top: *mut VerilatorTop, val: u8);
-    pub fn verilator_top_get_clock(top: *mut VerilatorTop) -> u8;
-    pub fn verilator_top_get_reset(top: *mut VerilatorTop) -> u8;
 
     // SCU state query (DPI-C functions are called from RTL automatically)
     pub fn verilator_scu_has_exit() -> bool;
-    pub fn verilator_scu_exit_code() -> i32;
-    pub fn verilator_scu_reset();
     pub fn verilator_scu_push_uart_rx(hart_id: u32, byte: u32);
     pub fn verilator_scu_drain_uart_tx(buf: *mut u32, len: u32) -> u32;
 

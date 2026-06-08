@@ -20,7 +20,16 @@ pub extern "C" fn dpi_itrace(
     rs2: u64,
     bank_enable: u8,
 ) {
-    trace::itrace(is_issue, rob_id, domain_id, funct, pc, rs1, rs2, bank_enable);
+    trace::itrace(trace::ITraceEvent {
+        is_issue,
+        rob_id,
+        domain_id,
+        funct,
+        pc,
+        rs1,
+        rs2,
+        bank_enable,
+    });
 }
 
 #[no_mangle]
@@ -36,9 +45,18 @@ pub extern "C" fn dpi_mtrace(
     data_lo: u64,
     data_hi: u64,
 ) {
-    trace::mtrace(
-        is_write, is_shared, channel, hart_id, vbank_id, pbank_id, group_id, addr, data_lo, data_hi,
-    );
+    trace::mtrace(trace::MTraceEvent {
+        is_write,
+        is_shared,
+        channel,
+        hart_id,
+        vbank_id,
+        pbank_id,
+        group_id,
+        addr,
+        data_lo,
+        data_hi,
+    });
 }
 
 #[no_mangle]

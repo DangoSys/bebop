@@ -77,17 +77,17 @@ pub fn run(cli: P2ECli) -> Result<(), Whatever> {
     log::info!("  Waveform Start Cycle: {}", cli.wave_start.unwrap_or(0));
 
     // Run simulation
-    let result = crate::runner::run(
-        FPGA_LOCATION,
-        &case_home,
-        &rtcfg_path,
-        &cli.image,
-        &cli.bitstream,
-        &cli.log,
-        cli.multi_fpga,
-        cli.wave,
-        cli.wave_start.unwrap_or(0),
-    )
+    let result = crate::runner::run(crate::runner::RunConfig {
+        fpga_location: FPGA_LOCATION,
+        case_home: &case_home,
+        rtcfg_path: &rtcfg_path,
+        image: &cli.image,
+        bitstream: &cli.bitstream,
+        log_dir: &cli.log,
+        multi_fpga: cli.multi_fpga,
+        wave: cli.wave,
+        wave_start: cli.wave_start.unwrap_or(0),
+    })
     .whatever_context("simulation failed")?;
 
     // Save UART log

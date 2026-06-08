@@ -51,7 +51,7 @@ pub fn load_elf(path: &str, mem_base: &mut [u8], mem_base_addr: u64) -> Result<L
         needs_relocation,
     )?;
 
-    let entry = compute_entry(ehdr.e_entry, mem_base_addr, min_vaddr, is_pie, needs_relocation);
+    let entry = compute_entry(ehdr.e_entry, mem_base_addr, min_vaddr, is_pie);
 
     let mut ctx = RelocCtx {
         mem_base,
@@ -194,14 +194,12 @@ fn load_segments(
     Ok(())
 }
 
-fn compute_entry(e_entry: u64, mem_base_addr: u64, min_vaddr: u64, is_pie: bool, needs_relocation: bool) -> u64 {
+fn compute_entry(e_entry: u64, mem_base_addr: u64, min_vaddr: u64, is_pie: bool) -> u64 {
     if e_entry >= 0xffffffff80000000 {
         // Linux kernel entry: 0xffffffff80000000 -> 0x80000000
         e_entry - 0xffffffff80000000 + 0x80000000
     } else if is_pie {
         mem_base_addr + (e_entry - min_vaddr)
-    } else if needs_relocation {
-        e_entry
     } else {
         e_entry
     }

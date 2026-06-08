@@ -67,7 +67,7 @@ impl InitStep {
         Ok(())
     }
 
-    fn run_init_script(&self, tcl_path: &PathBuf) -> Result<(), String> {
+    fn run_init_script(&self, tcl_path: &Path) -> Result<(), String> {
         let sourceme = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
         if !sourceme.exists() {
             return Err(format!("sourceme.sh not found: {}", sourceme.display()));

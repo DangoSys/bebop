@@ -6,6 +6,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{collections::HashMap, path::Path};
 
@@ -39,8 +40,6 @@ struct VerilatorConfig {
     stderr: Option<PathBuf>,
     trace_config: trace::TraceConfig,
     coverage: bool,
-    mem_base: u64,
-    mem_size: usize,
 }
 
 impl VerilatorConfig {
@@ -49,10 +48,6 @@ impl VerilatorConfig {
         let coverage = std::env::var("BEBOP_VERILATOR_COVERAGE")
             .map(|v| v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
-
-        // Default memory config (can be made configurable)
-        let mem_base = 0x8000_0000;
-        let mem_size = 256 * 1024 * 1024; // 256MB
 
         // Generate file paths from directories
         let log = cli.log_dir.join("bdb.ndjson");
@@ -75,8 +70,6 @@ impl VerilatorConfig {
                 banktrace: cli.banktrace,
             },
             coverage,
-            mem_base,
-            mem_size,
         })
     }
 
@@ -116,6 +109,17 @@ impl VerilatorConfig {
             self.trace_config.banktrace,
         );
 
+        let _stdout_guard = self
+            .stdout
+            .as_ref()
+            .map(|path| FdRedirect::new_tee(std::io::stdout().as_raw_fd(), path, "stdout"))
+            .transpose()?;
+        let _stderr_guard = self
+            .stderr
+            .as_ref()
+            .map(|path| FdRedirect::new(std::io::stderr().as_raw_fd(), path, "stderr"))
+            .transpose()?;
+
         // Initialize UART
         mmio::init_uart(self.stdout.as_deref())
             .map_err(|e| Whatever::without_source(format!("Failed to init UART: {}", e)))?;
@@ -128,17 +132,6 @@ impl VerilatorConfig {
         )?;
         println!("Console socket: {}", console.socket_path.display());
         println!("UART logs: {}", console.uart_log_dir.display());
-
-        let _stdout_guard = self
-            .stdout
-            .as_ref()
-            .map(|path| FdRedirect::new(std::io::stdout().as_raw_fd(), path, "stdout"))
-            .transpose()?;
-        let _stderr_guard = self
-            .stderr
-            .as_ref()
-            .map(|path| FdRedirect::new(std::io::stderr().as_raw_fd(), path, "stderr"))
-            .transpose()?;
 
         // Create simulator with +elf= argument for BBSimDRAM
         let elf_arg = format!("+elf={}", self.elf.display());
@@ -181,9 +174,10 @@ impl VerilatorConfig {
 }
 
 struct FdRedirect {
-    file: File,
+    file: Option<File>,
     saved_fd: i32,
     target_fd: i32,
+    handle: Option<JoinHandle<Result<(), String>>>,
 }
 
 impl FdRedirect {
@@ -216,21 +210,120 @@ impl FdRedirect {
         }
 
         Ok(Self {
-            file,
+            file: Some(file),
             saved_fd,
             target_fd,
+            handle: None,
+        })
+    }
+
+    fn new_tee(target_fd: i32, path: &Path, name: &str) -> Result<Self, Whatever> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| Whatever::without_source(format!("Failed to create log directory: {}", e)))?;
+        }
+
+        let mut log = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)
+            .map_err(|e| Whatever::without_source(format!("Failed to open {name} log: {e}")))?;
+
+        let saved_fd = unsafe { libc::dup(target_fd) };
+        if saved_fd < 0 {
+            return Err(Whatever::without_source(format!("Failed to duplicate {name}")));
+        }
+
+        let display_fd = unsafe { libc::dup(saved_fd) };
+        if display_fd < 0 {
+            unsafe {
+                libc::close(saved_fd);
+            }
+            return Err(Whatever::without_source(format!("Failed to duplicate {name} display")));
+        }
+
+        let mut pipe_fds = [0; 2];
+        if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } < 0 {
+            unsafe {
+                libc::close(display_fd);
+                libc::close(saved_fd);
+            }
+            return Err(Whatever::without_source(format!("Failed to create {name} tee pipe")));
+        }
+
+        if unsafe { libc::dup2(pipe_fds[1], target_fd) } < 0 {
+            unsafe {
+                libc::close(pipe_fds[0]);
+                libc::close(pipe_fds[1]);
+                libc::close(display_fd);
+                libc::close(saved_fd);
+            }
+            return Err(Whatever::without_source(format!("Failed to redirect {name}")));
+        }
+        unsafe {
+            libc::close(pipe_fds[1]);
+        }
+
+        let mut input = unsafe { File::from_raw_fd(pipe_fds[0]) };
+        let mut display = unsafe { File::from_raw_fd(display_fd) };
+        let name = name.to_string();
+        let tee_name = name.clone();
+        let handle = std::thread::Builder::new()
+            .name(format!("verilator-{name}-tee"))
+            .spawn(move || {
+                let mut buf = [0_u8; 8192];
+                loop {
+                    let n = input
+                        .read(&mut buf)
+                        .map_err(|e| format!("failed to read {tee_name} tee pipe: {e}"))?;
+                    if n == 0 {
+                        break;
+                    }
+                    log.write_all(&buf[..n])
+                        .map_err(|e| format!("failed to write {tee_name} log: {e}"))?;
+                    display
+                        .write_all(&buf[..n])
+                        .map_err(|e| format!("failed to write {tee_name} display: {e}"))?;
+                    log.flush()
+                        .map_err(|e| format!("failed to flush {tee_name} log: {e}"))?;
+                    display
+                        .flush()
+                        .map_err(|e| format!("failed to flush {tee_name} display: {e}"))?;
+                }
+                Ok(())
+            })
+            .map_err(|e| Whatever::without_source(format!("Failed to spawn {name} tee thread: {e}")))?;
+
+        Ok(Self {
+            file: None,
+            saved_fd,
+            target_fd,
+            handle: Some(handle),
         })
     }
 }
 
 impl Drop for FdRedirect {
     fn drop(&mut self) {
-        let _ = self.file.flush();
+        if self.target_fd == std::io::stdout().as_raw_fd() {
+            let _ = std::io::stdout().flush();
+        } else if self.target_fd == std::io::stderr().as_raw_fd() {
+            let _ = std::io::stderr().flush();
+        }
+        if let Some(file) = self.file.as_mut() {
+            let _ = file.flush();
+        }
         // SAFETY: saved_fd was created by dup() in FdRedirect::new and remains
         // owned by this guard until it is restored and closed here.
         unsafe {
             libc::dup2(self.saved_fd, self.target_fd);
             libc::close(self.saved_fd);
+        }
+        if let Some(handle) = self.handle.take() {
+            if let Ok(Err(e)) = handle.join() {
+                eprintln!("{e}");
+            }
         }
     }
 }

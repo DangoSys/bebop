@@ -21,7 +21,7 @@ fn get_rtl_clk() -> &'static Mutex<u64> {
     RTL_CLK.get_or_init(|| Mutex::new(0))
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TraceConfig {
     pub itrace: bool,
     pub mtrace: bool,
@@ -30,28 +30,28 @@ pub struct TraceConfig {
     pub banktrace: bool,
 }
 
-impl Clone for TraceConfig {
-    fn clone(&self) -> Self {
-        Self {
-            itrace: self.itrace,
-            mtrace: self.mtrace,
-            pmctrace: self.pmctrace,
-            ctrace: self.ctrace,
-            banktrace: self.banktrace,
-        }
-    }
+pub struct ITraceEvent {
+    pub is_issue: u8,
+    pub rob_id: u32,
+    pub domain_id: u32,
+    pub funct: u32,
+    pub pc: u64,
+    pub rs1: u64,
+    pub rs2: u64,
+    pub bank_enable: u8,
 }
 
-impl Default for TraceConfig {
-    fn default() -> Self {
-        Self {
-            itrace: false,
-            mtrace: false,
-            pmctrace: false,
-            ctrace: false,
-            banktrace: false,
-        }
-    }
+pub struct MTraceEvent {
+    pub is_write: u8,
+    pub is_shared: u8,
+    pub channel: u32,
+    pub hart_id: u64,
+    pub vbank_id: u32,
+    pub pbank_id: u32,
+    pub group_id: u32,
+    pub addr: u32,
+    pub data_lo: u64,
+    pub data_hi: u64,
 }
 
 pub fn init_trace(log_path: &Path, config: TraceConfig) -> io::Result<()> {
@@ -86,21 +86,12 @@ fn write_trace(json: &str) {
 }
 
 // Instruction trace
-pub fn itrace(
-    is_issue: u8, // 2=alloc, 1=issue, 0=complete
-    rob_id: u32,
-    domain_id: u32,
-    funct: u32,
-    pc: u64,
-    rs1: u64,
-    rs2: u64,
-    bank_enable: u8,
-) {
+pub fn itrace(event: ITraceEvent) {
     if !*ENABLE_ITRACE.get_or_init(|| Mutex::new(false)).lock().unwrap() {
         return;
     }
 
-    let bank_str = match bank_enable {
+    let bank_str = match event.bank_enable {
         0 => "---",
         1 => "R--",
         2 => "--W",
@@ -110,21 +101,30 @@ pub fn itrace(
     };
 
     let clk = rtl_clk();
-    let event = match is_issue {
+    let event_name = match event.is_issue {
         2 => "alloc",
         1 => "issue",
         _ => "complete",
     };
 
-    let json = if is_issue >= 1 {
+    let json = if event.is_issue >= 1 {
         format!(
             r#"{{"type":"itrace","clk":{},"event":"{}","rob_id":{},"domain_id":{},"funct":"0x{:02x}","bank_enable":{},"bank":"{}","pc":"0x{:016x}","rs1":"0x{:016x}","rs2":"0x{:016x}"}}"#,
-            clk, event, rob_id, domain_id, funct, bank_enable, bank_str, pc, rs1, rs2
+            clk,
+            event_name,
+            event.rob_id,
+            event.domain_id,
+            event.funct,
+            event.bank_enable,
+            bank_str,
+            event.pc,
+            event.rs1,
+            event.rs2
         )
     } else {
         format!(
             r#"{{"type":"itrace","clk":{},"event":"{}","rob_id":{},"domain_id":{},"funct":"0x{:02x}","bank_enable":{},"bank":"{}","pc":"0x{:016x}"}}"#,
-            clk, event, rob_id, domain_id, funct, bank_enable, bank_str, pc
+            clk, event_name, event.rob_id, event.domain_id, event.funct, event.bank_enable, bank_str, event.pc
         )
     };
 
@@ -132,32 +132,37 @@ pub fn itrace(
 }
 
 // Memory trace
-pub fn mtrace(
-    is_write: u8,
-    is_shared: u8,
-    channel: u32,
-    hart_id: u64,
-    vbank_id: u32,
-    pbank_id: u32,
-    group_id: u32,
-    addr: u32,
-    data_lo: u64,
-    data_hi: u64,
-) {
+pub fn mtrace(event: MTraceEvent) {
     if !*ENABLE_MTRACE.get_or_init(|| Mutex::new(false)).lock().unwrap() {
         return;
     }
 
     let clk = rtl_clk();
-    let json = if is_write != 0 {
+    let json = if event.is_write != 0 {
         format!(
             r#"{{"type":"mtrace","clk":{},"event":"write","channel":{},"hart_id":{},"is_shared":{},"vbank_id":{},"pbank_id":{},"group_id":{},"addr":"0x{:08x}","data":"0x{:016x}{:016x}"}}"#,
-            clk, channel, hart_id, is_shared, vbank_id, pbank_id, group_id, addr, data_hi, data_lo
+            clk,
+            event.channel,
+            event.hart_id,
+            event.is_shared,
+            event.vbank_id,
+            event.pbank_id,
+            event.group_id,
+            event.addr,
+            event.data_hi,
+            event.data_lo
         )
     } else {
         format!(
             r#"{{"type":"mtrace","clk":{},"event":"read","channel":{},"hart_id":{},"is_shared":{},"vbank_id":{},"pbank_id":{},"group_id":{},"addr":"0x{:08x}"}}"#,
-            clk, channel, hart_id, is_shared, vbank_id, pbank_id, group_id, addr
+            clk,
+            event.channel,
+            event.hart_id,
+            event.is_shared,
+            event.vbank_id,
+            event.pbank_id,
+            event.group_id,
+            event.addr
         )
     };
 

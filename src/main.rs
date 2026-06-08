@@ -1,6 +1,8 @@
+#[cfg(any(feature = "verilator", feature = "bemu", feature = "p2e"))]
 use clap::{Parser, Subcommand};
 #[cfg(feature = "p2e")]
 use snafu::FromString;
+#[cfg(any(feature = "verilator", feature = "bemu", feature = "p2e"))]
 use snafu::Whatever;
 
 #[cfg(feature = "verilator")]
@@ -12,6 +14,7 @@ use bebop_bemu::{run as run_bemu, BemuCli};
 #[cfg(feature = "p2e")]
 use bebop_p2e::{run as run_p2e, BitstreamBuilder, P2ECli};
 
+#[cfg(any(feature = "verilator", feature = "bemu", feature = "p2e"))]
 #[derive(Debug, Parser)]
 #[command(name = "bebop", about = "Bebop CLI")]
 pub struct Cli {
@@ -19,6 +22,7 @@ pub struct Cli {
     pub command: Commands,
 }
 
+#[cfg(any(feature = "verilator", feature = "bemu", feature = "p2e"))]
 #[derive(Debug, Subcommand)]
 pub enum Commands {
     #[cfg(feature = "verilator")]
@@ -80,6 +84,7 @@ pub enum Commands {
     },
 }
 
+#[cfg(any(feature = "verilator", feature = "bemu", feature = "p2e"))]
 fn dispatch(cli: Cli) -> Result<(), Whatever> {
     match cli.command {
         #[cfg(feature = "verilator")]
@@ -153,10 +158,17 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
     }
 }
 
+#[cfg(any(feature = "verilator", feature = "bemu", feature = "p2e"))]
 fn main() {
     let cli = Cli::parse();
     if let Err(e) = dispatch(cli) {
         eprintln!("Error: {}", e);
         std::process::exit(1);
     }
+}
+
+#[cfg(not(any(feature = "verilator", feature = "bemu", feature = "p2e")))]
+fn main() {
+    eprintln!("Error: at least one backend feature must be enabled");
+    std::process::exit(1);
 }

@@ -8,7 +8,7 @@ pub use scan::{filter_tests, scan_elf_files, scan_elf_files_by_stems};
 pub use test_case::ElfTestCase;
 pub use workloads_toml::{load_workload_spec, WorkloadTomlError};
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{collections::BTreeSet, fs};
 
 use super::args::RegressionArgs;
@@ -44,11 +44,11 @@ pub fn discover_tests(
 fn discover_from_workload_toml(
     args: &RegressionArgs,
     extension: Option<&str>,
-    toml_path: &PathBuf,
+    toml_path: &Path,
 ) -> Result<Vec<ElfTestCase>, DiscoveryError> {
     let spec = load_workload_spec(toml_path).map_err(|e| DiscoveryError::WorkloadToml {
-        path: toml_path.clone(),
-        source: e,
+        path: toml_path.to_path_buf(),
+        source: Box::new(e),
     })?;
 
     // Resolve search_path: if specified in toml, use it relative to bb_tests_root;
@@ -68,7 +68,7 @@ fn discover_from_workload_toml(
 
     if !missing.is_empty() {
         return Err(DiscoveryError::WorkloadTomlMissing {
-            path: toml_path.clone(),
+            path: toml_path.to_path_buf(),
             missing,
         });
     }
@@ -118,12 +118,28 @@ fn apply_case_list(tests: Vec<ElfTestCase>, args: &RegressionArgs) -> Result<Vec
 
 #[derive(Debug)]
 pub enum DiscoveryError {
-    RootMissing { path: PathBuf },
-    CaseListRead { path: PathBuf, source: std::io::Error },
-    CaseListEmpty { path: PathBuf },
-    CaseListMissing { path: PathBuf, missing: Vec<String> },
-    WorkloadToml { path: PathBuf, source: WorkloadTomlError },
-    WorkloadTomlMissing { path: PathBuf, missing: Vec<String> },
+    RootMissing {
+        path: PathBuf,
+    },
+    CaseListRead {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    CaseListEmpty {
+        path: PathBuf,
+    },
+    CaseListMissing {
+        path: PathBuf,
+        missing: Vec<String>,
+    },
+    WorkloadToml {
+        path: PathBuf,
+        source: Box<WorkloadTomlError>,
+    },
+    WorkloadTomlMissing {
+        path: PathBuf,
+        missing: Vec<String>,
+    },
 }
 
 impl std::fmt::Display for DiscoveryError {

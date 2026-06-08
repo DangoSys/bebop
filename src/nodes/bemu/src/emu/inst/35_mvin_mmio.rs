@@ -58,7 +58,7 @@ impl Instruction for MvinMmio {
 
     fn latency(_xs1: u64, _xs2: u64) -> u64 {
         // row count is in xs1[63:30], not xs2
-        let row = ((_xs1 >> 30) & 0x3_FFFF_FFFF) as u64;
+        let row = (_xs1 >> 30) & 0x3_FFFF_FFFF;
         row.max(1)
     }
 }

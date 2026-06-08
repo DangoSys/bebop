@@ -215,6 +215,12 @@ pub extern "C" fn scu_uart_rx_sample(hart_id: u32, pop: u32, valid: *mut u32, da
         ensure_uart_rx_peek(&mut guard, hart_id)
     };
 
+    set_uart_rx_sample(valid, data, byte);
+}
+
+fn set_uart_rx_sample(valid: *mut u32, data: *mut u32, byte: Option<u8>) {
+    // SAFETY: callers validate both pointers are non-null before passing them
+    // here; the C side provides writable output slots for one u32 each.
     unsafe {
         *valid = byte.is_some() as u32;
         *data = byte.unwrap_or(0) as u32;
@@ -267,6 +273,7 @@ fn uart_rx_read_file(guard: &mut RuntimeState, hart_id: u32) -> &File {
             .create(true)
             .read(true)
             .write(true)
+            .truncate(false)
             .open(&path)
             .unwrap_or_else(|e| panic!("failed to open console RX file {path} for read: {e}"));
         guard.uart_rx_read_files.insert(hart_id, file);

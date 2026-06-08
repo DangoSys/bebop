@@ -78,14 +78,6 @@ extern "C" void verilator_top_set_reset(void *top, uint8_t val) {
   static_cast<VBBSimHarness *>(top)->reset = val;
 }
 
-extern "C" uint8_t verilator_top_get_clock(void *top) {
-  return static_cast<VBBSimHarness *>(top)->clock;
-}
-
-extern "C" uint8_t verilator_top_get_reset(void *top) {
-  return static_cast<VBBSimHarness *>(top)->reset;
-}
-
 // =============================================================================
 // SCU shared state (used by both DPI-C callbacks and MMIO tick polling)
 // =============================================================================
@@ -172,19 +164,6 @@ extern "C" void scu_sim_exit(uint32_t hart_id, uint32_t code) {
 extern "C" bool verilator_scu_has_exit() {
   std::lock_guard<std::mutex> lock(g_scu_mutex);
   return g_has_exit;
-}
-
-extern "C" int32_t verilator_scu_exit_code() {
-  std::lock_guard<std::mutex> lock(g_scu_mutex);
-  return g_exit_code;
-}
-
-extern "C" void verilator_scu_reset() {
-  std::lock_guard<std::mutex> lock(g_scu_mutex);
-  g_uart_tx.clear();
-  g_uart_rx.clear();
-  g_exit_code = 0;
-  g_has_exit = false;
 }
 
 extern "C" void verilator_scu_push_uart_rx(uint32_t hart_id, uint32_t byte) {

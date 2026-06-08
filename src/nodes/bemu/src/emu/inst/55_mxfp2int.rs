@@ -43,8 +43,6 @@ impl Instruction for Mxfp2Int {
             .resolve(out_bank)
             .unwrap_or_else(|| panic!("mxfp2int: output bank {} not allocated", out_bank));
 
-        // MXFP4: 32 x 4-bit FP per block = 16 bytes input
-        const BYTES_PER_INPUT_BLOCK: usize = 16;
         const FP4_PER_BLOCK: usize = 32;
         const BYTES_PER_OUTPUT_BLOCK: usize = 32; // 32 x INT8
 
@@ -59,7 +57,7 @@ impl Instruction for Mxfp2Int {
 
             // Dequantize 32 FP4 elements to INT8
             let mut out_bytes = [0i8; BYTES_PER_OUTPUT_BLOCK];
-            for elem_idx in 0..FP4_PER_BLOCK {
+            for (elem_idx, out_byte) in out_bytes.iter_mut().enumerate().take(FP4_PER_BLOCK) {
                 let byte_idx = elem_idx / 2;
                 let nibble_shift = (elem_idx % 2) * 4;
                 let fp4_raw = (in_row_bytes[byte_idx] >> nibble_shift) & 0x0F;
@@ -85,7 +83,7 @@ impl Instruction for Mxfp2Int {
                 };
                 let saturated = scaled.clamp(-128, 127) as i8;
 
-                out_bytes[elem_idx] = saturated;
+                *out_byte = saturated;
             }
 
             // Write output INT8 data (32 bytes = 2 bank rows)
@@ -107,7 +105,7 @@ impl Instruction for Mxfp2Int {
     }
 
     fn latency(_xs1: u64, _xs2: u64) -> u64 {
-        let iter = rs1_iter(_xs1) as u64;
+        let iter = rs1_iter(_xs1);
         // Approximate: each block needs 1 MMIO read + 1 input read + 2 output writes
         iter * 4
     }

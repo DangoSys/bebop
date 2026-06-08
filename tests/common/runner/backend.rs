@@ -1,5 +1,7 @@
 use assert_cmd::Command;
 use std::path::Path;
+#[cfg(feature = "p2e")]
+use std::path::PathBuf;
 use std::time::Duration;
 
 use super::super::artifacts::ArtifactManager;
