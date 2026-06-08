@@ -145,6 +145,7 @@ impl VerilatorConfig {
         // Finalize
         simulator.finalize();
 
+        drop(console);
         drop(_stderr_guard);
         drop(_stdout_guard);
         if self.wave {
