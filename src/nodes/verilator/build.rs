@@ -37,7 +37,7 @@ fn main() {
 
     let topname = "BBSimHarness";
     let coverage = env_flag("BEBOP_VERILATOR_COVERAGE");
-    let jobs = env::var("NUM_JOBS").unwrap_or_else(|_| "1".to_string());
+    let jobs = capped_jobs();
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", native_dir.join("verilator.cc").display());
@@ -191,6 +191,15 @@ fn main() {
 
     println!("cargo:rustc-link-lib=dylib=dramsim");
     println!("cargo:rustc-link-lib=z");
+}
+
+fn capped_jobs() -> String {
+    let jobs = env::var("NUM_JOBS")
+        .unwrap_or_else(|_| "1".to_string())
+        .parse::<usize>()
+        .expect("NUM_JOBS must be a positive integer");
+    assert!(jobs > 0, "NUM_JOBS must be a positive integer");
+    jobs.min(16).to_string()
 }
 
 fn env_flag(name: &str) -> bool {
