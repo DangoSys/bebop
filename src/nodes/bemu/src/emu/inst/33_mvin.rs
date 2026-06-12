@@ -64,9 +64,19 @@ impl Instruction for Mvin {
                         panic!("mvin: bank range: bank_offset={bank_offset} line_bytes=16 depth={depth}");
                     }
                     let addr = mem_addr + row as u64 * groups as u64 * 16 * stride + group as u64 * 16;
+                    let mut data = [0u8; 16];
                     for j in 0..16 {
-                        ctx.banks[p][bank_offset + j] = mem_read(ctx.memory, addr + j as u64);
+                        data[j] = mem_read(ctx.memory, addr + j as u64);
+                        ctx.banks[p][bank_offset + j] = data[j];
                     }
+                    crate::trace::mtrace(crate::trace::MTraceEvent {
+                        is_write: false,
+                        addr,
+                        data: data.to_vec(),
+                        vbank_id: bank_id as u32,
+                        pbank_id: p as u32,
+                        group_id: group as u32,
+                    });
                 }
             }
         } else {
@@ -93,9 +103,19 @@ impl Instruction for Mvin {
                 if bank_offset + line_bytes > BANK_SIZE {
                     panic!("mvin: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
                 }
+                let mut data = vec![0u8; line_bytes];
                 for j in 0..line_bytes {
-                    ctx.banks[p][bank_offset + j] = mem_read(ctx.memory, addr + j as u64);
+                    data[j] = mem_read(ctx.memory, addr + j as u64);
+                    ctx.banks[p][bank_offset + j] = data[j];
                 }
+                crate::trace::mtrace(crate::trace::MTraceEvent {
+                    is_write: false,
+                    addr,
+                    data,
+                    vbank_id: bank_id as u32,
+                    pbank_id: p as u32,
+                    group_id: 0,
+                });
             }
         }
         0

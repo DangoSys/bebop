@@ -9,4 +9,6 @@ mod bank;
 #[path = "emu/inst/mod.rs"]
 mod inst;
 
+mod trace;
+
 pub use sim::{run, BemuCli};

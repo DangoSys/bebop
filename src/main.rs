@@ -56,6 +56,12 @@ pub enum Commands {
         log_dir: Option<std::path::PathBuf>,
         #[arg(long, help = "Run with proxy kernel (Linux mode, starts in S-mode)")]
         pk: bool,
+        #[arg(long, help = "Enable instruction trace")]
+        itrace: bool,
+        #[arg(long, help = "Enable memory trace")]
+        mtrace: bool,
+        #[arg(long, help = "Enable bank trace")]
+        banktrace: bool,
     },
     #[cfg(feature = "p2e")]
     /// Run the P2E FPGA flow.
@@ -110,7 +116,21 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
             banktrace,
         }),
         #[cfg(feature = "bemu")]
-        Commands::Bemu { elf, log_dir, pk } => run_bemu(BemuCli { elf, log_dir, pk }),
+        Commands::Bemu {
+            elf,
+            log_dir,
+            pk,
+            itrace,
+            mtrace,
+            banktrace,
+        } => run_bemu(BemuCli {
+            elf,
+            log_dir,
+            pk,
+            itrace,
+            mtrace,
+            banktrace,
+        }),
         #[cfg(feature = "p2e")]
         Commands::P2e {
             buildbitstream,

@@ -68,10 +68,19 @@ pub extern "C" fn buckyball_reset() {
 }
 
 #[no_mangle]
-pub extern "C" fn buckyball_exec(funct7: u8, xs1: u64, xs2: u64) -> u64 {
+pub extern "C" fn buckyball_exec(funct7: u8, xs1: u64, xs2: u64, pc: u64) -> u64 {
     let mut state = EMU_STATE.lock().unwrap();
     let lat = inst::decode::cycles_after_issue(funct7 as u32, xs1, xs2);
     state.total_lat += lat;
+    crate::trace::set_bemu_clk(state.total_lat);
+
+    crate::trace::itrace(crate::trace::ITraceEvent {
+        funct: funct7 as u32,
+        pc,
+        rs1: xs1,
+        rs2: xs2,
+    });
+
     let EmuState {
         memory,
         banks,

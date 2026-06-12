@@ -19,10 +19,11 @@
 //
 //===-----------------------------------------------------------------===//-----===//
 
-use snafu::{OptionExt, ResultExt, Whatever};
+use snafu::{FromString, OptionExt, ResultExt, Whatever};
 use std::path::PathBuf;
 
 use crate::ffi::run_spike;
+use crate::trace::{init_trace, TraceConfig};
 
 // Default configuration
 const DEFAULT_ISA: &str = "rv64gc";
@@ -34,6 +35,9 @@ pub struct BemuCli {
     pub elf: PathBuf,
     pub log_dir: Option<PathBuf>,
     pub pk: bool,
+    pub itrace: bool,
+    pub mtrace: bool,
+    pub banktrace: bool,
 }
 
 pub fn run(cli: BemuCli) -> Result<(), Whatever> {
@@ -45,6 +49,14 @@ pub fn run(cli: BemuCli) -> Result<(), Whatever> {
     std::fs::create_dir_all(log_dir).ok();
     let log_file_path = log_dir.join("disasm.log");
     let log_path = log_file_path.to_str().whatever_context("invalid log_dir path")?;
+
+    // Initialize BEMU trace logging
+    let trace_path = log_dir.join("bdb.ndjson");
+    init_trace(&trace_path, TraceConfig {
+        itrace: cli.itrace,
+        mtrace: cli.mtrace,
+        banktrace: cli.banktrace,
+    }).map_err(|e| Whatever::without_source(format!("Failed to init bemu trace: {}", e)))?;
 
     run_spike(
         DEFAULT_ISA,
