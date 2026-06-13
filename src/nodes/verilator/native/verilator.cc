@@ -166,6 +166,11 @@ extern "C" bool verilator_scu_has_exit() {
   return g_has_exit;
 }
 
+extern "C" int32_t verilator_scu_exit_code() {
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  return g_exit_code;
+}
+
 extern "C" void verilator_scu_push_uart_rx(uint32_t hart_id, uint32_t byte) {
   std::lock_guard<std::mutex> lock(g_scu_mutex);
   g_uart_rx[hart_id].push_back((uint8_t)(byte & 0xff));

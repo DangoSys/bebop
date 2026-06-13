@@ -139,11 +139,21 @@ impl VerilatorConfig {
             .map_err(|e| Whatever::without_source(format!("Failed to create simulator: {}", e)))?;
 
         // Run simulation
-        simulator.run_batch(|| console.poll_tx());
+        let exit_code = simulator.run_batch(|| console.poll_tx());
         console.poll_tx();
 
         // Finalize
         simulator.finalize();
+
+        // Return error if ELF reported failure via sim_exit
+        if let Some(code) = exit_code {
+            if code != 0 {
+                return Err(Whatever::without_source(format!(
+                    "Simulation exited with code {}",
+                    code
+                )));
+            }
+        }
 
         drop(console);
         drop(_stderr_guard);

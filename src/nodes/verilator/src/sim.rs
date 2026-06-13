@@ -134,7 +134,9 @@ impl Simulator {
         }
     }
 
-    pub fn exec_once(&mut self) -> bool {
+    /// Execute one clock cycle. Returns `None` if simulation should continue,
+    /// or `Some(exit_code)` if SCU sim_exit was triggered.
+    pub fn exec_once(&mut self) -> Option<i32> {
         // SAFETY: self.{top, context, trace} are valid; FFI calls drive one clock cycle,
         // sample MMIO, and dump waveforms. SCU DPI-C callbacks are invoked from RTL but
         // their unsafety is encapsulated in their extern "C" declarations.
@@ -157,11 +159,17 @@ impl Simulator {
             verilator_top_set_clock(self.top, 0);
             self.step_and_dump();
 
-            should_exit
+            if should_exit {
+                Some(mmio::exit_code())
+            } else {
+                None
+            }
         }
     }
 
-    pub fn run_batch<F>(&mut self, mut poll: F)
+    /// Run simulation until SCU sim_exit or user interrupt.
+    /// Returns `Some(exit_code)` on normal sim_exit, `None` on user interrupt.
+    pub fn run_batch<F>(&mut self, mut poll: F) -> Option<i32>
     where
         F: FnMut(),
     {
@@ -169,10 +177,10 @@ impl Simulator {
             poll();
             if SHOULD_EXIT.load(Ordering::SeqCst) {
                 eprintln!("Simulation interrupted by user");
-                break;
+                return None;
             }
-            if self.exec_once() {
-                break;
+            if let Some(code) = self.exec_once() {
+                return Some(code);
             }
         }
     }

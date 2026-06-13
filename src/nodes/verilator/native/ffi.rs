@@ -41,6 +41,7 @@ extern "C" {
 
     // SCU state query (DPI-C functions are called from RTL automatically)
     pub fn verilator_scu_has_exit() -> bool;
+    pub fn verilator_scu_exit_code() -> i32;
     pub fn verilator_scu_push_uart_rx(hart_id: u32, byte: u32);
     pub fn verilator_scu_drain_uart_tx(buf: *mut u32, len: u32) -> u32;
 
