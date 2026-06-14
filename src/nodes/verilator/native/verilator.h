@@ -29,7 +29,7 @@ void verilator_top_set_reset(void* top, uint8_t val);
 
 // SCU state query (DPI-C functions are called from RTL automatically)
 bool verilator_scu_has_exit();
-
+int32_t verilator_scu_exit_code();
 // FST trace
 void* verilator_trace_new();
 void verilator_trace_free(void* tfp);

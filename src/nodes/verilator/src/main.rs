@@ -142,6 +142,9 @@ impl VerilatorConfig {
         simulator.run_batch(|| console.poll_tx());
         console.poll_tx();
 
+        // Check ELF exit code propagated via SCU DPI-C
+        let exit_code = mmio::exit_code();
+
         // Finalize
         simulator.finalize();
 
@@ -168,6 +171,13 @@ impl VerilatorConfig {
             } else {
                 println!("Disassembly saved to: {}", disasm_path.display());
             }
+        }
+
+        if exit_code != 0 {
+            return Err(Whatever::without_source(format!(
+                "Simulation exited with non-zero exit code: {}",
+                exit_code
+            )));
         }
 
         Ok(())

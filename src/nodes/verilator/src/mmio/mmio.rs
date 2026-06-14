@@ -16,6 +16,12 @@ pub fn should_exit() -> bool {
     unsafe { crate::ffi::verilator_scu_has_exit() }
 }
 
+/// Return the exit code set by the ELF via scu_sim_exit DPI-C.
+pub fn exit_code() -> i32 {
+    // SAFETY: FFI call to C++ Verilator runtime; function is extern "C" and always safe to call.
+    unsafe { crate::ffi::verilator_scu_exit_code() }
+}
+
 pub fn push_uart_rx(hart_id: u32, byte: u8) {
     // SAFETY: FFI call to C++ Verilator runtime; function appends one byte to
     // the protected SCU RX queue.
