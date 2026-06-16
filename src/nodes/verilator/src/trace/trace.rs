@@ -8,7 +8,7 @@ use bebop_bank_hash::{
     BankHashEventClass, BankHashPacket, BankHashPacketId, BankHashSource, BankHashTime, CanonicalBankHashPacket,
     BANK_NUM, BANK_SIZE,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
@@ -98,6 +98,75 @@ struct StableHashTask {
     pc: u64,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct RtlBankConfig {
+    allocated: bool,
+    cols: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct RtlBankMapEntry {
+    valid: bool,
+    vbank_id: u32,
+    group_id: u32,
+}
+
+#[derive(Clone, Debug)]
+struct RtlBankMap {
+    slots: [RtlBankMapEntry; BANK_NUM],
+}
+
+impl RtlBankMap {
+    fn new() -> Self {
+        Self {
+            slots: [RtlBankMapEntry::default(); BANK_NUM],
+        }
+    }
+
+    fn delete_vbank(&mut self, vbank_id: u32) {
+        for slot in &mut self.slots {
+            if slot.valid && slot.vbank_id == vbank_id {
+                *slot = RtlBankMapEntry::default();
+            }
+        }
+    }
+
+    fn first_free_pbank(&self) -> Option<usize> {
+        self.slots.iter().position(|slot| !slot.valid)
+    }
+
+    fn bind_group(&mut self, pbank_id: usize, vbank_id: u32, group_id: u32) {
+        if pbank_id >= BANK_NUM {
+            return;
+        }
+
+        self.slots[pbank_id] = RtlBankMapEntry {
+            valid: true,
+            vbank_id,
+            group_id,
+        };
+    }
+
+    fn resolve_group(&self, vbank_id: u32, group_id: u32) -> Option<usize> {
+        self.slots
+            .iter()
+            .position(|slot| slot.valid && slot.vbank_id == vbank_id && slot.group_id == group_id)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ProducerMeta {
+    instruction_id: u64,
+    comparable_seq: Option<u64>,
+    funct7: u32,
+    op_type: String,
+    pc: u64,
+    bank_enable: u8,
+    affected_bank_set: BTreeSet<usize>,
+    alloc_cycle: u64,
+    complete_cycle: Option<u64>,
+}
+
 #[derive(Clone, Debug)]
 struct PendingHashTask {
     task_id: u64,
@@ -108,6 +177,10 @@ struct PendingHashTask {
     op_type: String,
     cycle: u64,
     pc: u64,
+    bank_enable: u8,
+    alloc_cycle: u64,
+    complete_cycle: u64,
+    stable_cycle: Option<u64>,
     observed_write_count: u64,
 }
 
@@ -120,7 +193,9 @@ struct BankStabilitySnapshot {
 
 #[derive(Debug)]
 struct BankStabilityMonitor {
-    write_request_banks: BTreeSet<usize>,
+    producer_metadata: BTreeMap<u64, ProducerMeta>,
+    bank_cfgs: [RtlBankConfig; BANK_NUM],
+    bank_map: RtlBankMap,
     write_request_counts: [u64; BANK_NUM],
     pending_hash_tasks: Vec<PendingHashTask>,
     task_count: u64,
@@ -130,7 +205,9 @@ struct BankStabilityMonitor {
 impl BankStabilityMonitor {
     fn new() -> Self {
         Self {
-            write_request_banks: BTreeSet::new(),
+            producer_metadata: BTreeMap::new(),
+            bank_cfgs: [RtlBankConfig::default(); BANK_NUM],
+            bank_map: RtlBankMap::new(),
             write_request_counts: [0; BANK_NUM],
             pending_hash_tasks: Vec::new(),
             task_count: 0,
@@ -139,11 +216,76 @@ impl BankStabilityMonitor {
     }
 
     fn reset(&mut self) {
-        self.write_request_banks.clear();
+        self.producer_metadata.clear();
+        self.bank_cfgs = [RtlBankConfig::default(); BANK_NUM];
+        self.bank_map = RtlBankMap::new();
         self.write_request_counts = [0; BANK_NUM];
         self.pending_hash_tasks.clear();
         self.task_count = 0;
         self.write_request_count = 0;
+    }
+
+    fn record_producer(&mut self, event: &ITraceEvent, cycle: u64) {
+        if event.is_issue != 2 {
+            return;
+        }
+
+        if event.funct == 32 {
+            self.apply_mset(event.rs1, event.rs2);
+        }
+
+        let affected_bank_set = candidate_rtl_affected_banks(event.funct, event.rs1, &self.bank_cfgs, &self.bank_map);
+        let event_class = classify_rtl_bank_hash(event.funct, event.pc);
+        let comparable_seq = if affected_bank_set.is_empty() {
+            None
+        } else {
+            get_rtl_canonical_state()
+                .lock()
+                .unwrap()
+                .allocate_comparable_seq(event_class)
+        };
+        let instruction_id = event.rob_id as u64;
+        self.producer_metadata.insert(
+            instruction_id,
+            ProducerMeta {
+                instruction_id,
+                comparable_seq,
+                funct7: event.funct,
+                op_type: format!("funct7_{}", event.funct),
+                pc: event.pc,
+                bank_enable: event.bank_enable,
+                affected_bank_set,
+                alloc_cycle: cycle,
+                complete_cycle: None,
+            },
+        );
+    }
+
+    fn apply_mset(&mut self, xs1: u64, xs2: u64) {
+        let bank_id = rs1_b0(xs1);
+        if bank_id >= BANK_NUM as u64 {
+            return;
+        }
+
+        let (_rows, cols, alloc) = xs2_mset(xs2);
+        let vbank_id = bank_id as u32;
+        let bank_idx = bank_id as usize;
+        self.bank_map.delete_vbank(vbank_id);
+
+        if alloc == 1 {
+            let groups = cols.max(1).min(BANK_NUM as u64);
+            for group in 0..groups {
+                if let Some(pbank_id) = self.bank_map.first_free_pbank() {
+                    self.bank_map.bind_group(pbank_id, vbank_id, group as u32);
+                }
+            }
+            self.bank_cfgs[bank_idx] = RtlBankConfig { allocated: true, cols };
+        } else {
+            self.bank_cfgs[bank_idx] = RtlBankConfig {
+                allocated: false,
+                cols: 0,
+            };
+        }
     }
 
     fn record_write_request(&mut self, pbank_id: u32) {
@@ -152,7 +294,6 @@ impl BankStabilityMonitor {
             return;
         }
 
-        self.write_request_banks.insert(bank_id);
         self.write_request_counts[bank_id] = self.write_request_counts[bank_id].wrapping_add(1);
         self.write_request_count = self.write_request_count.wrapping_add(1);
     }
@@ -165,27 +306,41 @@ impl BankStabilityMonitor {
         cycle: u64,
         pc: u64,
     ) -> Vec<StableHashTask> {
-        if self.write_request_banks.is_empty() {
+        let mut producer = self
+            .producer_metadata
+            .remove(&instruction_id)
+            .unwrap_or_else(|| ProducerMeta {
+                instruction_id,
+                comparable_seq: None,
+                funct7,
+                op_type: op_type.to_string(),
+                pc,
+                bank_enable: 0,
+                affected_bank_set: BTreeSet::new(),
+                alloc_cycle: cycle,
+                complete_cycle: None,
+            });
+        producer.complete_cycle = Some(cycle);
+
+        if producer.affected_bank_set.is_empty() {
             return Vec::new();
         }
 
-        let event_class = classify_rtl_bank_hash(funct7, pc);
-        let comparable_seq = get_rtl_canonical_state()
-            .lock()
-            .unwrap()
-            .allocate_comparable_seq(event_class);
-
-        for bank_id in std::mem::take(&mut self.write_request_banks) {
+        for bank_id in producer.affected_bank_set {
             self.task_count = self.task_count.wrapping_add(1);
             let task = PendingHashTask {
                 task_id: self.task_count,
-                instruction_id,
-                comparable_seq,
+                instruction_id: producer.instruction_id,
+                comparable_seq: producer.comparable_seq,
                 bank_id,
-                funct7,
-                op_type: op_type.to_string(),
+                funct7: producer.funct7,
+                op_type: producer.op_type.clone(),
                 cycle,
-                pc,
+                pc: producer.pc,
+                bank_enable: producer.bank_enable,
+                alloc_cycle: producer.alloc_cycle,
+                complete_cycle: cycle,
+                stable_cycle: None,
                 observed_write_count: self.write_request_counts[bank_id],
             };
             let snapshot = read_bank_stability_snapshot(bank_id as u32);
@@ -204,6 +359,8 @@ impl BankStabilityMonitor {
             let snapshot = read_bank_stability_snapshot(task.bank_id as u32);
 
             if self.is_stable(&task, snapshot) {
+                let mut task = task;
+                task.stable_cycle = Some(rtl_clk());
                 write_bank_hash_stability_event("stable", &task, snapshot);
                 stable_tasks.push(StableHashTask {
                     instruction_id: task.instruction_id,
@@ -281,6 +438,77 @@ fn read_bank_stability_snapshot(bank_id: u32) -> BankStabilitySnapshot {
         scoreboard_rd_count,
         scoreboard_wr_busy,
     }
+}
+
+fn rs1_b0(xs1: u64) -> u64 {
+    xs1 & 0x3ff
+}
+
+fn rs1_b2(xs1: u64) -> u64 {
+    (xs1 >> 20) & 0x3ff
+}
+
+fn xs2_mset(xs2: u64) -> (u64, u64, u64) {
+    let rows = xs2 & 0x1f;
+    let cols = (xs2 >> 5) & 0x1f;
+    let alloc = (xs2 >> 10) & 1;
+    (rows, cols, alloc)
+}
+
+fn add_resolved_bank(out: &mut BTreeSet<usize>, bank_map: &RtlBankMap, vbank: u64, group: u64) {
+    if vbank < BANK_NUM as u64 {
+        if let Some(pbank_id) = bank_map.resolve_group(vbank as u32, group as u32) {
+            out.insert(pbank_id);
+        }
+    }
+}
+
+fn add_vbank_group0(out: &mut BTreeSet<usize>, bank_map: &RtlBankMap, vbank: u64) {
+    add_resolved_bank(out, bank_map, vbank, 0);
+}
+
+fn add_vbank_groups(out: &mut BTreeSet<usize>, cfgs: &[RtlBankConfig; BANK_NUM], bank_map: &RtlBankMap, vbank: u64) {
+    if vbank >= cfgs.len() as u64 {
+        return;
+    }
+
+    if !cfgs[vbank as usize].allocated {
+        return;
+    }
+
+    let groups = cfgs[vbank as usize].cols.max(1).min(BANK_NUM as u64);
+    for group in 0..groups {
+        add_resolved_bank(out, bank_map, vbank, group);
+    }
+}
+
+fn candidate_rtl_affected_banks(
+    funct7: u32,
+    xs1: u64,
+    cfgs: &[RtlBankConfig; BANK_NUM],
+    bank_map: &RtlBankMap,
+) -> BTreeSet<usize> {
+    let mut out = BTreeSet::new();
+    let b0 = rs1_b0(xs1);
+    let b2 = rs1_b2(xs1);
+
+    match funct7 {
+        33 => add_vbank_groups(&mut out, cfgs, bank_map, b0),
+        48 | 49 | 50 | 51 | 55 => add_vbank_group0(&mut out, bank_map, b2),
+        52 => {
+            let src_cols = cfgs.get(b0 as usize).map(|cfg| cfg.cols).unwrap_or(0);
+            let dst_cols = cfgs.get(b2 as usize).map(|cfg| cfg.cols).unwrap_or(0);
+            if src_cols == 4 && dst_cols == 4 {
+                add_vbank_groups(&mut out, cfgs, bank_map, b2);
+            } else {
+                add_vbank_group0(&mut out, bank_map, b2);
+            }
+        }
+        64 | 65 | 66 | 67 => add_vbank_groups(&mut out, cfgs, bank_map, b2),
+        _ => {}
+    }
+
+    out
 }
 
 #[derive(Clone, Debug, Default)]
@@ -392,7 +620,7 @@ fn write_trace(json: &str) {
 
 fn write_bank_hash_stability_event(event: &str, task: &PendingHashTask, snapshot: BankStabilitySnapshot) {
     let json = format!(
-        r#"{{"type":"bank_hash_stability","clk":{},"event":"{}","task_id":{},"source":"RTL","instruction_id":{},"bank_id":{},"version":0,"funct7":{},"op_type":"{}","pc":"0x{:016x}","observed_write_count":{},"pending_same_bank_writes":{},"scoreboard_rd_count":{},"scoreboard_wr_busy":{},"strategy":"verilated_write_ack_and_bank_scoreboard"}}"#,
+        r#"{{"type":"bank_hash_stability","clk":{},"event":"{}","task_id":{},"source":"RTL","instruction_id":{},"bank_id":{},"version":0,"funct7":{},"op_type":"{}","pc":"0x{:016x}","bank_enable":{},"alloc_cycle":{},"complete_cycle":{},"stable_cycle":{},"observed_write_count":{},"pending_same_bank_writes":{},"scoreboard_rd_count":{},"scoreboard_wr_busy":{},"strategy":"verilated_write_ack_and_bank_scoreboard"}}"#,
         task.cycle,
         event,
         task.task_id,
@@ -401,6 +629,10 @@ fn write_bank_hash_stability_event(event: &str, task: &PendingHashTask, snapshot
         task.funct7,
         task.op_type,
         task.pc,
+        task.bank_enable,
+        task.alloc_cycle,
+        task.complete_cycle,
+        task.stable_cycle.unwrap_or(0),
         task.observed_write_count,
         snapshot.pending_same_bank_writes,
         snapshot.scoreboard_rd_count,
@@ -499,6 +731,13 @@ fn emit_stable_rtl_bank_hash_tasks(stable_tasks: Vec<StableHashTask>) {
 
 // Instruction trace
 pub fn itrace(event: ITraceEvent) {
+    if event.is_issue == 2 {
+        get_rtl_bank_stability_monitor()
+            .lock()
+            .unwrap()
+            .record_producer(&event, rtl_clk());
+    }
+
     if event.is_issue == 0 {
         let op_type = format!("funct7_{}", event.funct);
         let stable_tasks = get_rtl_bank_stability_monitor().lock().unwrap().complete_instruction(
@@ -740,6 +979,57 @@ mod tests {
             state.allocate_comparable_seq(BankHashEventClass::BankDataWrite),
             Some(3)
         );
+    }
+
+    #[test]
+    fn rtl_comparable_seq_follows_producer_order_when_complete_is_out_of_order() {
+        get_rtl_canonical_state().lock().unwrap().reset();
+        let mut monitor = BankStabilityMonitor::new();
+        let mset_cols4_alloc = (4 << 5) | (1 << 10);
+        monitor.apply_mset(0, mset_cols4_alloc);
+        monitor.apply_mset(4, mset_cols4_alloc);
+
+        monitor.record_producer(
+            &ITraceEvent {
+                is_issue: 2,
+                rob_id: 1,
+                domain_id: 0,
+                funct: 33,
+                pc: 0x8000_0634,
+                rs1: 0,
+                rs2: 0,
+                bank_enable: 0,
+            },
+            10,
+        );
+        monitor.record_producer(
+            &ITraceEvent {
+                is_issue: 2,
+                rob_id: 2,
+                domain_id: 0,
+                funct: 33,
+                pc: 0x8000_0638,
+                rs1: 4,
+                rs2: 0,
+                bank_enable: 0,
+            },
+            11,
+        );
+
+        monitor.complete_instruction(2, 33, "funct7_33", 20, 0x8000_0638);
+        monitor.complete_instruction(1, 33, "funct7_33", 21, 0x8000_0634);
+
+        let mut task_seq_by_bank = BTreeMap::new();
+        for task in &monitor.pending_hash_tasks {
+            task_seq_by_bank.insert(task.bank_id, task.comparable_seq);
+        }
+
+        for bank_id in 0..4 {
+            assert_eq!(task_seq_by_bank.get(&bank_id), Some(&Some(1)));
+        }
+        for bank_id in 4..8 {
+            assert_eq!(task_seq_by_bank.get(&bank_id), Some(&Some(2)));
+        }
     }
 
     #[test]
