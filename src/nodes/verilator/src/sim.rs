@@ -2,6 +2,7 @@
 
 use crate::ffi::*;
 use crate::mmio;
+use crate::trace;
 use std::ffi::CString;
 use std::io;
 use std::path::Path;
@@ -51,10 +52,12 @@ impl Simulator {
                 verilator_context_free(context);
                 return Err(io::Error::other("Failed to create top module"));
             }
+            trace::set_verilator_top(top);
 
             let trace = if let Some(fst_path) = fst_path {
                 let trace = verilator_trace_new();
                 if trace.is_null() {
+                    trace::set_verilator_top(std::ptr::null_mut());
                     verilator_top_free(top);
                     verilator_context_free(context);
                     return Err(io::Error::other("Failed to create trace"));
@@ -67,6 +70,7 @@ impl Simulator {
                 // Open FST file
                 let fst_cstr = CString::new(fst_path.to_str().unwrap()).unwrap();
                 if !verilator_trace_open(trace, fst_cstr.as_ptr()) {
+                    trace::set_verilator_top(std::ptr::null_mut());
                     verilator_top_free(top);
                     verilator_trace_free(trace);
                     verilator_context_free(context);
@@ -125,6 +129,7 @@ impl Simulator {
         // FFI calls advance simulation time and write to the trace file.
         unsafe {
             verilator_top_eval(self.top);
+            trace::poll_rtl_bank_hash_stability();
             verilator_context_time_inc(self.context, 1);
             let time = verilator_context_time(self.context);
             if !self.trace.is_null() {
@@ -142,6 +147,7 @@ impl Simulator {
             // Posedge: clock=1, eval (SCU DPI-C functions called automatically from RTL)
             verilator_top_set_clock(self.top, 1);
             verilator_top_eval(self.top);
+            trace::poll_rtl_bank_hash_stability();
 
             // Check if SCU triggered sim_exit (via DPI-C callbacks)
             let should_exit = mmio::should_exit();
@@ -207,6 +213,7 @@ impl Drop for Simulator {
         // failures in new(). After this, the raw pointers must not be used again.
         unsafe {
             if !self.top.is_null() {
+                trace::set_verilator_top(std::ptr::null_mut());
                 verilator_top_free(self.top);
             }
             if !self.trace.is_null() {

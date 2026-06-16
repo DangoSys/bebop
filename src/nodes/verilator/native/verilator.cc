@@ -2,6 +2,7 @@
 
 #include "verilator.h"
 #include "VBBSimHarness.h"
+#include "VBBSimHarness___024root.h"
 #include "verilated.h"
 #include "verilated_fst_c.h"
 
@@ -9,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
+#include <cstring>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -67,6 +69,281 @@ extern "C" void verilator_top_eval(void *top) {
 extern "C" void verilator_top_trace(void *top, void *tfp, int levels) {
   static_cast<VBBSimHarness *>(top)->trace(static_cast<VerilatedFstC *>(tfp),
                                            levels);
+}
+
+namespace {
+
+constexpr uint32_t kPrivateBankCount = 32;
+// The generated private SRAM arrays in this RTL config are 128 rows of 128 bits.
+// Callers may pass the larger unified BEMU bank buffer; bytes past the RTL array are zero-filled.
+constexpr uint32_t kPrivateBankRows = 128;
+constexpr uint32_t kPrivateBankWordsPerRow = 4;
+constexpr uint32_t kPrivateBankBytes = kPrivateBankRows * kPrivateBankWordsPerRow * sizeof(uint32_t);
+constexpr uint32_t kPrivateBankChannelCount = 7;
+
+template <typename BankMemory>
+void copy_private_bank(BankMemory &memory, uint8_t *out) {
+  for (uint32_t row = 0; row < kPrivateBankRows; ++row) {
+    for (uint32_t word = 0; word < kPrivateBankWordsPerRow; ++word) {
+      const uint32_t value = memory[row][word];
+      const uint32_t offset = (row * kPrivateBankWordsPerRow + word) * sizeof(uint32_t);
+      out[offset + 0] = static_cast<uint8_t>(value & 0xffu);
+      out[offset + 1] = static_cast<uint8_t>((value >> 8) & 0xffu);
+      out[offset + 2] = static_cast<uint8_t>((value >> 16) & 0xffu);
+      out[offset + 3] = static_cast<uint8_t>((value >> 24) & 0xffu);
+    }
+  }
+}
+
+} // namespace
+
+#define COPY_PRIVATE_BANK_CASE(ID)                                                                  \
+  case ID:                                                                                          \
+    copy_private_bank(                                                                              \
+        root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__banks_##ID##__DOT__mem_ext__DOT__Memory, \
+        out);                                                                                       \
+    return true
+
+extern "C" bool verilator_read_private_bank(void *top, uint32_t bank_id, uint8_t *out,
+                                             uint32_t out_len) {
+  if (top == nullptr || out == nullptr || bank_id >= kPrivateBankCount ||
+      out_len < kPrivateBankBytes) {
+    return false;
+  }
+
+  auto *root = static_cast<VBBSimHarness *>(top)->rootp;
+  if (root == nullptr) {
+    return false;
+  }
+
+  std::memset(out, 0, out_len);
+  switch (bank_id) {
+    COPY_PRIVATE_BANK_CASE(0);
+    COPY_PRIVATE_BANK_CASE(1);
+    COPY_PRIVATE_BANK_CASE(2);
+    COPY_PRIVATE_BANK_CASE(3);
+    COPY_PRIVATE_BANK_CASE(4);
+    COPY_PRIVATE_BANK_CASE(5);
+    COPY_PRIVATE_BANK_CASE(6);
+    COPY_PRIVATE_BANK_CASE(7);
+    COPY_PRIVATE_BANK_CASE(8);
+    COPY_PRIVATE_BANK_CASE(9);
+    COPY_PRIVATE_BANK_CASE(10);
+    COPY_PRIVATE_BANK_CASE(11);
+    COPY_PRIVATE_BANK_CASE(12);
+    COPY_PRIVATE_BANK_CASE(13);
+    COPY_PRIVATE_BANK_CASE(14);
+    COPY_PRIVATE_BANK_CASE(15);
+    COPY_PRIVATE_BANK_CASE(16);
+    COPY_PRIVATE_BANK_CASE(17);
+    COPY_PRIVATE_BANK_CASE(18);
+    COPY_PRIVATE_BANK_CASE(19);
+    COPY_PRIVATE_BANK_CASE(20);
+    COPY_PRIVATE_BANK_CASE(21);
+    COPY_PRIVATE_BANK_CASE(22);
+    COPY_PRIVATE_BANK_CASE(23);
+    COPY_PRIVATE_BANK_CASE(24);
+    COPY_PRIVATE_BANK_CASE(25);
+    COPY_PRIVATE_BANK_CASE(26);
+    COPY_PRIVATE_BANK_CASE(27);
+    COPY_PRIVATE_BANK_CASE(28);
+    COPY_PRIVATE_BANK_CASE(29);
+    COPY_PRIVATE_BANK_CASE(30);
+    COPY_PRIVATE_BANK_CASE(31);
+  default:
+    return false;
+  }
+}
+
+#undef COPY_PRIVATE_BANK_CASE
+
+#define READ_SCOREBOARD_CASE(ID)                                                                    \
+  case ID:                                                                                          \
+    *rd_count =                                                                                     \
+        root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__frontend__DOT__scheduler__DOT__rob__DOT__scoreboard__DOT__bankRdCount_##ID; \
+    *wr_busy =                                                                                      \
+        root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__frontend__DOT__scheduler__DOT__rob__DOT__scoreboard__DOT__bankWrBusy_##ID; \
+    return true
+
+extern "C" bool verilator_read_bank_scoreboard(void *top, uint32_t bank_id,
+                                               uint32_t *rd_count,
+                                               bool *wr_busy) {
+  if (top == nullptr || rd_count == nullptr || wr_busy == nullptr ||
+      bank_id >= kPrivateBankCount) {
+    return false;
+  }
+
+  auto *root = static_cast<VBBSimHarness *>(top)->rootp;
+  if (root == nullptr) {
+    return false;
+  }
+
+  switch (bank_id) {
+    READ_SCOREBOARD_CASE(0);
+    READ_SCOREBOARD_CASE(1);
+    READ_SCOREBOARD_CASE(2);
+    READ_SCOREBOARD_CASE(3);
+    READ_SCOREBOARD_CASE(4);
+    READ_SCOREBOARD_CASE(5);
+    READ_SCOREBOARD_CASE(6);
+    READ_SCOREBOARD_CASE(7);
+    READ_SCOREBOARD_CASE(8);
+    READ_SCOREBOARD_CASE(9);
+    READ_SCOREBOARD_CASE(10);
+    READ_SCOREBOARD_CASE(11);
+    READ_SCOREBOARD_CASE(12);
+    READ_SCOREBOARD_CASE(13);
+    READ_SCOREBOARD_CASE(14);
+    READ_SCOREBOARD_CASE(15);
+    READ_SCOREBOARD_CASE(16);
+    READ_SCOREBOARD_CASE(17);
+    READ_SCOREBOARD_CASE(18);
+    READ_SCOREBOARD_CASE(19);
+    READ_SCOREBOARD_CASE(20);
+    READ_SCOREBOARD_CASE(21);
+    READ_SCOREBOARD_CASE(22);
+    READ_SCOREBOARD_CASE(23);
+    READ_SCOREBOARD_CASE(24);
+    READ_SCOREBOARD_CASE(25);
+    READ_SCOREBOARD_CASE(26);
+    READ_SCOREBOARD_CASE(27);
+    READ_SCOREBOARD_CASE(28);
+    READ_SCOREBOARD_CASE(29);
+    READ_SCOREBOARD_CASE(30);
+    READ_SCOREBOARD_CASE(31);
+  default:
+    return false;
+  }
+}
+
+#undef READ_SCOREBOARD_CASE
+
+#define PRIVATE_MAPPING_MATCH_CASE(ID, VBANK, GROUP)                                                \
+  case ID:                                                                                          \
+    return root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__mappingTable_##ID##_valid && \
+           root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__mappingTable_##ID##_vbank_id == (VBANK) && \
+           (!root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__mappingTable_##ID##_is_multi || \
+            root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__mappingTable_##ID##_group_id == (GROUP))
+
+static bool private_mapping_matches(VBBSimHarness___024root *root,
+                                    uint32_t pbank_id, uint32_t vbank_id,
+                                    uint32_t group_id) {
+  switch (pbank_id) {
+    PRIVATE_MAPPING_MATCH_CASE(0, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(1, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(2, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(3, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(4, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(5, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(6, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(7, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(8, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(9, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(10, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(11, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(12, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(13, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(14, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(15, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(16, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(17, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(18, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(19, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(20, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(21, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(22, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(23, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(24, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(25, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(26, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(27, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(28, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(29, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(30, vbank_id, group_id);
+    PRIVATE_MAPPING_MATCH_CASE(31, vbank_id, group_id);
+  default:
+    return false;
+  }
+}
+
+#undef PRIVATE_MAPPING_MATCH_CASE
+
+static bool private_channel_pending_for_bank(VBBSimHarness___024root *root,
+                                             uint32_t channel,
+                                             uint32_t bank_id) {
+  switch (channel) {
+  case 0:
+    return root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writePending_0 &&
+           !root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writeRouteShared_0 &&
+           private_mapping_matches(
+               root, bank_id,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeBank,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeGroup);
+  case 1:
+    return root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writePending_1 &&
+           !root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writeRouteShared_1 &&
+           private_mapping_matches(
+               root, bank_id,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeBank_1,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeGroup_1);
+  case 2:
+    return root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writePending_2 &&
+           !root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writeRouteShared_2 &&
+           private_mapping_matches(
+               root, bank_id,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeBank_2,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeGroup_2);
+  case 3:
+    return root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writePending_3 &&
+           !root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writeRouteShared_3 &&
+           private_mapping_matches(
+               root, bank_id,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeBank_3,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeGroup_3);
+  case 4:
+    return root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writePending_4 &&
+           !root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writeRouteShared_4 &&
+           private_mapping_matches(
+               root, bank_id,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeBank_4,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeGroup_4);
+  case 5:
+    return root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writePending_5 &&
+           !root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writeRouteShared_5 &&
+           private_mapping_matches(
+               root, bank_id,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeBank_5,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeGroup_5);
+  case 6:
+    return root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writePending_6 &&
+           !root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__writeRouteShared_6 &&
+           private_mapping_matches(
+               root, bank_id,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeBank_6,
+               root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__activeGroup_6);
+  default:
+    return false;
+  }
+}
+
+extern "C" uint32_t verilator_private_bank_pending_writes(void *top,
+                                                          uint32_t bank_id) {
+  if (top == nullptr || bank_id >= kPrivateBankCount) {
+    return 0;
+  }
+
+  auto *root = static_cast<VBBSimHarness *>(top)->rootp;
+  if (root == nullptr) {
+    return 0;
+  }
+
+  uint32_t pending = 0;
+  for (uint32_t channel = 0; channel < kPrivateBankChannelCount; ++channel) {
+    if (private_channel_pending_for_bank(root, channel, bank_id)) {
+      ++pending;
+    }
+  }
+  return pending;
 }
 
 // Top module signals

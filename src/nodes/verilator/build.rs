@@ -30,10 +30,8 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let obj_dir = out_dir.join("obj_dir");
 
-    let vsrc_path = env::var("VSRC_PATH").expect(
-        "VSRC_PATH environment variable is required. Example: VSRC_PATH=arch/build/sims.verilator.BuckyballToyVerilatorConfig",
-    );
-    let build_dir = PathBuf::from(&vsrc_path);
+    let build_dir = resolve_vsrc_path(&manifest_dir);
+    let vsrc_path = build_dir.display().to_string();
 
     let topname = "BBSimHarness";
     let coverage = env_flag("BEBOP_VERILATOR_COVERAGE");
@@ -44,6 +42,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", native_dir.join("memory").display());
     println!("cargo:rerun-if-changed={}", build_dir.display());
     println!("cargo:rerun-if-env-changed=VSRC_PATH");
+    println!("cargo:rerun-if-env-changed=ARCH_CONFIG");
     println!("cargo:rerun-if-env-changed=BEBOP_VERILATOR_COVERAGE");
 
     assert_exists(&build_dir, &format!("missing Verilog source directory: {}", vsrc_path));
@@ -191,6 +190,30 @@ fn main() {
 
     println!("cargo:rustc-link-lib=dylib=dramsim");
     println!("cargo:rustc-link-lib=z");
+}
+
+fn resolve_vsrc_path(manifest_dir: &Path) -> PathBuf {
+    if let Ok(path) = env::var("VSRC_PATH") {
+        return PathBuf::from(path);
+    }
+
+    let arch_config =
+        env::var("ARCH_CONFIG").unwrap_or_else(|_| "sims.verilator.BuckyballToyVerilatorConfig".to_string());
+    for ancestor in manifest_dir.ancestors() {
+        let candidate = ancestor.join("arch").join("build").join(&arch_config);
+        if candidate.exists() {
+            println!(
+                "cargo:warning=VSRC_PATH not set; using inferred Verilator build directory {}",
+                candidate.display()
+            );
+            return candidate;
+        }
+    }
+
+    panic!(
+        "VSRC_PATH environment variable is required, or ARCH_CONFIG must resolve under an ancestor arch/build directory. \
+         Example: VSRC_PATH=arch/build/sims.verilator.BuckyballToyVerilatorConfig"
+    );
 }
 
 fn capped_jobs() -> String {

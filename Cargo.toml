@@ -1,6 +1,7 @@
 [workspace]
 members = [
   ".",
+  "src/nodes/lib/bank-hash",
   "src/nodes/verilator",
   "src/nodes/bemu",
   "src/nodes/p2e",
@@ -35,6 +36,12 @@ harness = false
 required-features = ["verilator"]
 
 [[test]]
+name = "test_bank_hash_difftest"
+path = "tests/test_bank_hash_difftest.rs"
+harness = false
+required-features = ["bemu", "verilator"]
+
+[[test]]
 name = "test_p2e"
 path = "tests/test_p2e.rs"
 harness = false
@@ -51,23 +58,24 @@ build-bitstream = ["bebop-p2e?/build-bitstream"]
 bebop-verilator = { path = "src/nodes/verilator", optional = true }
 bebop-bemu = { path = "src/nodes/bemu", optional = true }
 bebop-p2e = { path = "src/nodes/p2e", optional = true }
+bebop-bank-hash = { path = "src/nodes/lib/bank-hash" }
 clap = { version = "4", features = ["derive"] }
 libc = "0.2"
 log = "0.4"
 env_logger = "0.11"
 nix = { version = "0.29", features = ["fs", "mman", "signal", "process"] }
-serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 ctrlc = "3"
 camino = "1.1"
 snafu = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [dev-dependencies]
 libtest-mimic = "0.8"
 assert_cmd = "2"
 walkdir = "2"
 predicates = "3"
-serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [lints]

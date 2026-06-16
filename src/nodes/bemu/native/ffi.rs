@@ -1,8 +1,10 @@
+use bebop_bank_hash::bank_hash;
 use bebop_dtb::DtbBuilder;
 use bebop_elf::load_elf;
 use bebop_syscall::{get_exit_code, handle_syscall, init_mem_layout, reset_syscall_state};
 use bebop_uart::Uart;
 use once_cell::sync::Lazy;
+use std::collections::BTreeSet;
 use std::os::raw::c_char;
 use std::sync::Mutex;
 
@@ -22,6 +24,7 @@ struct EmuState {
     mmio_banks: [[u8; 1024]; 16],
     mmio_region_table: [crate::inst::instruction::MmioRegion; 32],
     total_lat: u64,
+    npu_instruction_id: u64,
     uart: Uart,
 }
 
@@ -38,6 +41,7 @@ impl EmuState {
             mmio_banks: [[0u8; 1024]; 16],
             mmio_region_table: [crate::inst::instruction::MmioRegion::default(); 32],
             total_lat: 0,
+            npu_instruction_id: 0,
             uart: Uart::new(),
         }
     }
@@ -53,7 +57,62 @@ impl EmuState {
         }
         self.mmio_region_table = [crate::inst::instruction::MmioRegion::default(); 32];
         self.total_lat = 0;
+        self.npu_instruction_id = 0;
     }
+}
+
+fn add_resolved_bank(out: &mut BTreeSet<usize>, bank_map: &BankMap, vbank: u64, group: u64) {
+    if vbank < BANK_NUM as u64 {
+        if let Some(pbank) = bank_map.resolve_group(vbank as u32, group as u32) {
+            out.insert(pbank);
+        }
+    }
+}
+
+fn add_vbank_group0(out: &mut BTreeSet<usize>, bank_map: &BankMap, vbank: u64) {
+    add_resolved_bank(out, bank_map, vbank, 0);
+}
+
+fn add_vbank_groups(out: &mut BTreeSet<usize>, cfgs: &[BankConfig], bank_map: &BankMap, vbank: u64) {
+    if vbank >= cfgs.len() as u64 {
+        return;
+    }
+
+    let groups = cfgs[vbank as usize].cols.max(1).min(BANK_NUM as u64);
+    for group in 0..groups {
+        add_resolved_bank(out, bank_map, vbank, group);
+    }
+}
+
+fn candidate_affected_banks(funct: u32, xs1: u64, cfgs: &[BankConfig], bank_map: &BankMap) -> BTreeSet<usize> {
+    let mut out = BTreeSet::new();
+    let b0 = inst::decode::rs1_b0(xs1);
+    let b2 = inst::decode::rs1_b2(xs1);
+
+    match funct {
+        // mset/mvin write the target virtual bank. mset is included here even
+        // when the bank is zero-filled to the same bytes, because allocation is
+        // still a bank-affecting operation for hash trace consumers.
+        32 | 33 => add_vbank_groups(&mut out, cfgs, bank_map, b0),
+        // Single-bank transforms in the current BEMU implementation write only
+        // the resolved group-0 physical slot.
+        48 | 49 | 50 | 51 | 55 => add_vbank_group0(&mut out, bank_map, b2),
+        52 => {
+            let src_cols = cfgs.get(b0 as usize).map(|cfg| cfg.cols).unwrap_or(0);
+            let dst_cols = cfgs.get(b2 as usize).map(|cfg| cfg.cols).unwrap_or(0);
+            if src_cols == 4 && dst_cols == 4 {
+                add_vbank_groups(&mut out, cfgs, bank_map, b2);
+            } else {
+                add_vbank_group0(&mut out, bank_map, b2);
+            }
+        }
+        // Matrix compute paths write all physical groups bound to the output
+        // accumulator bank.
+        64 | 65 | 66 | 67 => add_vbank_groups(&mut out, cfgs, bank_map, b2),
+        _ => {}
+    }
+
+    out
 }
 
 #[no_mangle]
@@ -73,6 +132,8 @@ pub extern "C" fn buckyball_exec(funct7: u8, xs1: u64, xs2: u64, pc: u64) -> u64
     let lat = inst::decode::cycles_after_issue(funct7 as u32, xs1, xs2);
     state.total_lat += lat;
     crate::trace::set_bemu_clk(state.total_lat);
+    state.npu_instruction_id = state.npu_instruction_id.wrapping_add(1);
+    let instruction_id = state.npu_instruction_id;
 
     crate::trace::itrace(crate::trace::ITraceEvent {
         funct: funct7 as u32,
@@ -92,17 +153,49 @@ pub extern "C" fn buckyball_exec(funct7: u8, xs1: u64, xs2: u64, pc: u64) -> u64
         ..
     } = &mut *state;
 
-    let mut ctx = inst::instruction::ExecContext {
-        memory,
-        banks,
-        cfgs: bank_cfgs,
-        bank_map,
-        mmio_banks,
-        mmio_region_table,
+    let mut affected_banks = candidate_affected_banks(funct7 as u32, xs1, bank_cfgs, bank_map);
+    let before_hashes: Vec<u64> = banks.iter().map(|bank| bank_hash(bank)).collect();
+
+    let result = {
+        let mut ctx = inst::instruction::ExecContext {
+            memory,
+            banks,
+            cfgs: bank_cfgs,
+            bank_map,
+            mmio_banks,
+            mmio_region_table,
+        };
+
+        inst::decode::execute_known(funct7 as u32, xs1, xs2, &mut ctx)
+            .unwrap_or_else(|| panic!("unknown funct7: {}", funct7))
     };
 
-    inst::decode::execute_known(funct7 as u32, xs1, xs2, &mut ctx)
-        .unwrap_or_else(|| panic!("unknown funct7: {}", funct7))
+    affected_banks.extend(candidate_affected_banks(funct7 as u32, xs1, bank_cfgs, bank_map));
+    let after_hashes: Vec<u64> = banks
+        .iter()
+        .enumerate()
+        .map(|(bank_id, bank)| {
+            let hash = bank_hash(bank);
+            if before_hashes[bank_id] != hash {
+                affected_banks.insert(bank_id);
+            }
+            hash
+        })
+        .collect();
+
+    let op_type = format!("funct7_{}", funct7);
+    for bank_id in affected_banks {
+        crate::trace::bemu_bank_hash(
+            instruction_id,
+            bank_id as u32,
+            funct7 as u32,
+            &op_type,
+            after_hashes[bank_id],
+            pc,
+        );
+    }
+
+    result
 }
 
 /// Handle system call from guest program
@@ -274,5 +367,20 @@ pub fn run_spike(
         Ok(())
     } else {
         Err(format!("spike exited with code {}", ret))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bebop_bank_hash::bank_hash;
+
+    #[test]
+    fn bank_hash_changes_when_bemu_bank_byte_changes() {
+        let mut bank = vec![0u8; crate::bank::BANK_SIZE];
+        let before = bank_hash(&bank);
+
+        bank[0] ^= 0x01;
+
+        assert_ne!(before, bank_hash(&bank));
     }
 }

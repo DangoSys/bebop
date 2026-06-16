@@ -96,6 +96,7 @@ name = "bebop"
 version = "0.1.0"
 dependencies = [
  "assert_cmd",
+ "bebop-bank-hash",
  "bebop-bemu",
  "bebop-p2e",
  "bebop-verilator",
@@ -117,9 +118,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bebop-bank-hash"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bebop-bemu"
 version = "0.1.0"
 dependencies = [
+ "bebop-bank-hash",
  "bebop-dtb",
  "bebop-elf",
  "bebop-syscall",
@@ -166,6 +176,7 @@ version = "0.1.0"
 name = "bebop-verilator"
 version = "0.1.0"
 dependencies = [
+ "bebop-bank-hash",
  "bebop-dasm",
  "bebop-uart",
  "cc",
