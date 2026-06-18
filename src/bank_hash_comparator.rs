@@ -5,6 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -188,6 +192,21 @@ pub fn run_stream(cli: BankHashCompareStreamCli) -> Result<(), Whatever> {
 }
 
 pub fn run_stream_with_summary(cli: BankHashCompareStreamCli) -> Result<BankHashCompareSummary, Whatever> {
+    let idle_timeout = Duration::from_millis(cli.idle_timeout_ms);
+    run_stream_until_eof_condition_with_summary(cli, move |last_progress| last_progress.elapsed() >= idle_timeout)
+}
+
+pub fn run_stream_until_stop_with_summary(
+    cli: BankHashCompareStreamCli,
+    stop_flag: Arc<AtomicBool>,
+) -> Result<BankHashCompareSummary, Whatever> {
+    run_stream_until_eof_condition_with_summary(cli, move |_| stop_flag.load(Ordering::Acquire))
+}
+
+fn run_stream_until_eof_condition_with_summary(
+    cli: BankHashCompareStreamCli,
+    mut should_finish_at_eof: impl FnMut(Instant) -> bool,
+) -> Result<BankHashCompareSummary, Whatever> {
     let mut comparator = StreamingComparator::new(create_compare_writer(&cli.output)?, cli.output.clone());
     let idle_timeout = Duration::from_millis(cli.idle_timeout_ms);
     let file = wait_for_stream_file(&cli.input, idle_timeout)?;
@@ -202,7 +221,7 @@ pub fn run_stream_with_summary(cli: BankHashCompareStreamCli) -> Result<BankHash
             .read_line(&mut line)
             .whatever_context(format!("failed to read {}", cli.input.display()))?;
         if bytes == 0 {
-            if last_progress.elapsed() >= idle_timeout {
+            if should_finish_at_eof(last_progress) {
                 break;
             }
             std::thread::sleep(Duration::from_millis(25));
@@ -561,6 +580,47 @@ mod tests {
         }
     }
 
+    fn unique_temp_dir(test_name: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("bebop-bank-hash-{test_name}-{}-{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn canonical_stream_packet(source: &str, seq: u64, bank_id: u32, version: u32, hash: u64) -> String {
+        format!(
+            r#"{{"type":"canonical_bank_hash","source":"{source}","original_instruction_id":{seq},"comparable_seq":{seq},"bank_id":{bank_id},"version":{version},"funct7":33,"op_type":"funct7_33","event_class":"bank_data_write","hash_u64":{hash},"cycle":{cycle},"pc":2147486388,"original_record_ref":"{source}_bank_hash.ndjson:{seq}"}}"#,
+            cycle = seq * 10
+        )
+    }
+
+    fn append_stream_packet(path: &Path, packet: &str) {
+        let mut file = OpenOptions::new().append(true).open(path).unwrap();
+        writeln!(file, "{packet}").unwrap();
+        file.flush().unwrap();
+    }
+
+    fn spawn_stream_until_stop(
+        input: PathBuf,
+        output: PathBuf,
+        stop_flag: Arc<AtomicBool>,
+    ) -> std::thread::JoinHandle<Result<BankHashCompareSummary, String>> {
+        std::thread::spawn(move || {
+            run_stream_until_stop_with_summary(
+                BankHashCompareStreamCli {
+                    input,
+                    output,
+                    idle_timeout_ms: 1_000,
+                },
+                stop_flag,
+            )
+            .map_err(|e| e.to_string())
+        })
+    }
+
     #[test]
     fn compare_reports_pass_mismatch_and_missing() {
         let mut rtl = BTreeMap::new();
@@ -657,5 +717,117 @@ mod tests {
         assert_eq!(values[0]["comparable_seq"], 1);
         assert_eq!(values[1]["result"], "MISSING_BEMU");
         assert_eq!(values[1]["comparable_seq"], 2);
+    }
+
+    #[test]
+    fn stream_until_stop_reads_packets_appended_after_start() {
+        let dir = unique_temp_dir("append-pass");
+        let input = dir.join("stream.ndjson");
+        let output = dir.join("compare.ndjson");
+        std::fs::File::create(&input).unwrap();
+
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let comparator_thread = spawn_stream_until_stop(input.clone(), output.clone(), Arc::clone(&stop_flag));
+
+        append_stream_packet(&input, &canonical_stream_packet("BEMU", 1, 0, 0, 3746813360834562347));
+        std::thread::sleep(Duration::from_millis(75));
+        append_stream_packet(&input, &canonical_stream_packet("RTL", 1, 0, 0, 3746813360834562347));
+
+        stop_flag.store(true, Ordering::Release);
+        let summary = comparator_thread.join().unwrap().unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(
+            summary,
+            BankHashCompareSummary {
+                pass: 1,
+                mismatch: 0,
+                missing_rtl: 0,
+                missing_bemu: 0
+            }
+        );
+    }
+
+    #[test]
+    fn stream_until_stop_outputs_missing_after_stop() {
+        let dir = unique_temp_dir("stop-missing");
+        let input = dir.join("stream.ndjson");
+        let output = dir.join("compare.ndjson");
+        std::fs::File::create(&input).unwrap();
+
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let comparator_thread = spawn_stream_until_stop(input.clone(), output.clone(), Arc::clone(&stop_flag));
+
+        append_stream_packet(&input, &canonical_stream_packet("BEMU", 1, 0, 0, 3746813360834562347));
+
+        stop_flag.store(true, Ordering::Release);
+        let summary = comparator_thread.join().unwrap().unwrap();
+        let lines = std::fs::read_to_string(&output).unwrap();
+        let values: Vec<Value> = lines.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(
+            summary,
+            BankHashCompareSummary {
+                pass: 0,
+                mismatch: 0,
+                missing_rtl: 1,
+                missing_bemu: 0
+            }
+        );
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0]["result"], "MISSING_RTL");
+        assert_eq!(values[0]["comparable_seq"], 1);
+    }
+
+    #[test]
+    fn stream_until_stop_finishes_after_eof_when_stopped() {
+        let input = std::env::temp_dir().join(format!(
+            "bebop-bank-hash-stream-until-stop-input-{}.ndjson",
+            std::process::id()
+        ));
+        let output = std::env::temp_dir().join(format!(
+            "bebop-bank-hash-stream-until-stop-output-{}.ndjson",
+            std::process::id()
+        ));
+        std::fs::write(
+            &input,
+            concat!(
+                r#"{"type":"canonical_bank_hash","source":"RTL","original_instruction_id":4,"comparable_seq":1,"bank_id":0,"version":0,"funct7":33,"op_type":"funct7_33","event_class":"bank_data_write","hash_u64":3746813360834562347,"cycle":10,"pc":2147486388,"original_record_ref":"rtl_bank_hash.ndjson:33"}"#,
+                "\n",
+                r#"{"type":"canonical_bank_hash","source":"BEMU","original_instruction_id":2,"comparable_seq":1,"bank_id":0,"version":0,"funct7":33,"op_type":"funct7_33","event_class":"bank_data_write","hash_u64":3746813360834562347,"cycle":2,"pc":2147486388,"original_record_ref":"bemu_bank_hash.ndjson:2"}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+
+        let stop_flag = Arc::new(AtomicBool::new(true));
+        let summary = run_stream_until_stop_with_summary(
+            BankHashCompareStreamCli {
+                input: input.clone(),
+                output: output.clone(),
+                idle_timeout_ms: 1_000,
+            },
+            stop_flag,
+        )
+        .unwrap();
+
+        let lines = std::fs::read_to_string(&output).unwrap();
+        let values: Vec<Value> = lines.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        std::fs::remove_file(&input).ok();
+        std::fs::remove_file(&output).ok();
+
+        assert_eq!(
+            summary,
+            BankHashCompareSummary {
+                pass: 1,
+                mismatch: 0,
+                missing_rtl: 0,
+                missing_bemu: 0
+            }
+        );
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0]["result"], "PASS");
+        assert_eq!(values[0]["comparable_seq"], 1);
     }
 }

@@ -1,8 +1,15 @@
+#[cfg(all(feature = "bemu", feature = "verilator"))]
+use clap::ValueEnum;
 use clap::{Parser, Subcommand};
 #[cfg(any(feature = "p2e", all(feature = "bemu", feature = "verilator")))]
 use snafu::FromString;
 use snafu::Whatever;
 use std::path::PathBuf;
+#[cfg(all(feature = "bemu", feature = "verilator"))]
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 mod bank_hash_comparator;
 
@@ -45,7 +52,7 @@ pub enum Commands {
         idle_timeout_ms: u64,
     },
     #[cfg(all(feature = "bemu", feature = "verilator"))]
-    /// Run BEMU, run Verilator, then compare canonical bank hash packets.
+    /// Run BEMU and Verilator with canonical bank hash packet comparison.
     BankHashDifftest {
         #[arg(long, value_name = "ELF")]
         elf: PathBuf,
@@ -57,6 +64,8 @@ pub enum Commands {
         wave: bool,
         #[arg(long, default_value_t = 1000)]
         idle_timeout_ms: u64,
+        #[arg(long, value_enum, default_value_t = BankHashCompareMode::Online, help = "Bank hash compare mode")]
+        compare_mode: BankHashCompareMode,
     },
     #[cfg(feature = "verilator")]
     /// Run the verilator flow.
@@ -148,12 +157,14 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
             pk,
             wave,
             idle_timeout_ms,
+            compare_mode,
         } => run_bank_hash_difftest(BankHashDifftestCli {
             elf,
             out_dir,
             pk,
             wave,
             idle_timeout_ms,
+            compare_mode,
         }),
         #[cfg(feature = "verilator")]
         Commands::Verilator {
@@ -245,6 +256,13 @@ fn dispatch(cli: Cli) -> Result<(), Whatever> {
 }
 
 #[cfg(all(feature = "bemu", feature = "verilator"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum BankHashCompareMode {
+    Online,
+    Post,
+}
+
+#[cfg(all(feature = "bemu", feature = "verilator"))]
 #[derive(Debug, Clone)]
 struct BankHashDifftestCli {
     elf: PathBuf,
@@ -252,6 +270,7 @@ struct BankHashDifftestCli {
     pk: bool,
     wave: bool,
     idle_timeout_ms: u64,
+    compare_mode: BankHashCompareMode,
 }
 
 #[cfg(all(feature = "bemu", feature = "verilator"))]
@@ -282,35 +301,79 @@ fn run_bank_hash_difftest(cli: BankHashDifftestCli) -> Result<(), Whatever> {
         eprintln!("BEMU failed before compare: {e}");
     }
 
-    println!("Running Verilator...");
-    let rtl_result = run_verilator(VerilatorCli {
-        elf: cli.elf,
-        log_dir: rtl_log_dir,
-        fst_dir: rtl_fst_dir,
-        wave: cli.wave,
-        itrace: true,
-        mtrace: true,
-        pmctrace: false,
-        ctrace: false,
-        banktrace: true,
-        bank_hash_stream: Some(stream.clone()),
-    });
-    if let Err(e) = &rtl_result {
-        eprintln!("RTL failed before compare: {e}");
-    }
+    let compare_cli = bank_hash_comparator::BankHashCompareStreamCli {
+        input: stream.clone(),
+        output: compare_output.clone(),
+        idle_timeout_ms: cli.idle_timeout_ms,
+    };
 
-    println!("Running Bank Hash comparator...");
-    let compare_result =
-        bank_hash_comparator::run_stream_with_summary(bank_hash_comparator::BankHashCompareStreamCli {
-            input: stream,
-            output: compare_output.clone(),
-            idle_timeout_ms: cli.idle_timeout_ms,
-        });
+    let (rtl_result, compare_result, summary_label) = match cli.compare_mode {
+        BankHashCompareMode::Online => {
+            println!("Running Bank Hash comparator in background...");
+            let stop_flag = Arc::new(AtomicBool::new(false));
+            let comparator_stop_flag = Arc::clone(&stop_flag);
+            let comparator_thread = std::thread::spawn(move || {
+                bank_hash_comparator::run_stream_until_stop_with_summary(compare_cli, comparator_stop_flag)
+                    .map_err(|e| e.to_string())
+            });
+
+            println!("Running Verilator...");
+            let rtl_result = run_verilator(VerilatorCli {
+                elf: cli.elf,
+                log_dir: rtl_log_dir,
+                fst_dir: rtl_fst_dir,
+                wave: cli.wave,
+                itrace: true,
+                mtrace: true,
+                pmctrace: false,
+                ctrace: false,
+                banktrace: true,
+                bank_hash_stream: Some(stream),
+            });
+            if let Err(e) = &rtl_result {
+                eprintln!("RTL failed before compare: {e}");
+            }
+
+            stop_flag.store(true, Ordering::Release);
+            let compare_result = match comparator_thread.join() {
+                Ok(Ok(summary)) => Ok(summary),
+                Ok(Err(e)) => Err(Whatever::without_source(e)),
+                Err(_) => Err(Whatever::without_source(
+                    "Bank Hash comparator thread panicked".to_string(),
+                )),
+            };
+
+            (rtl_result, compare_result, "Bank hash difftest online summary")
+        }
+        BankHashCompareMode::Post => {
+            println!("Running Verilator...");
+            let rtl_result = run_verilator(VerilatorCli {
+                elf: cli.elf,
+                log_dir: rtl_log_dir,
+                fst_dir: rtl_fst_dir,
+                wave: cli.wave,
+                itrace: true,
+                mtrace: true,
+                pmctrace: false,
+                ctrace: false,
+                banktrace: true,
+                bank_hash_stream: Some(stream),
+            });
+            if let Err(e) = &rtl_result {
+                eprintln!("RTL failed before compare: {e}");
+            }
+
+            println!("Running Bank Hash comparator...");
+            let compare_result = bank_hash_comparator::run_stream_with_summary(compare_cli);
+
+            (rtl_result, compare_result, "Bank hash difftest post summary")
+        }
+    };
 
     match &compare_result {
         Ok(summary) => {
             println!(
-                "Bank hash difftest summary: PASS={} MISMATCH={} MISSING_RTL={} MISSING_BEMU={} TOTAL={}",
+                "{summary_label}: PASS={} MISMATCH={} MISSING_RTL={} MISSING_BEMU={} TOTAL={}",
                 summary.pass,
                 summary.mismatch,
                 summary.missing_rtl,
@@ -343,6 +406,42 @@ fn run_bank_hash_difftest(cli: BankHashDifftestCli) -> Result<(), Whatever> {
 
     println!("Bank hash difftest: FAIL");
     Err(Whatever::without_source(failures.join("; ")))
+}
+
+#[cfg(all(test, feature = "bemu", feature = "verilator"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bank_hash_difftest_compare_mode_defaults_to_online() {
+        let cli =
+            Cli::try_parse_from(["bebop", "bank-hash-difftest", "--elf", "test.elf", "--out-dir", "out"]).unwrap();
+
+        let Commands::BankHashDifftest { compare_mode, .. } = cli.command else {
+            panic!("expected bank-hash-difftest command");
+        };
+        assert_eq!(compare_mode, BankHashCompareMode::Online);
+    }
+
+    #[test]
+    fn bank_hash_difftest_compare_mode_accepts_post() {
+        let cli = Cli::try_parse_from([
+            "bebop",
+            "bank-hash-difftest",
+            "--elf",
+            "test.elf",
+            "--out-dir",
+            "out",
+            "--compare-mode",
+            "post",
+        ])
+        .unwrap();
+
+        let Commands::BankHashDifftest { compare_mode, .. } = cli.command else {
+            panic!("expected bank-hash-difftest command");
+        };
+        assert_eq!(compare_mode, BankHashCompareMode::Post);
+    }
 }
 
 fn main() {

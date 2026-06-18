@@ -16,8 +16,10 @@ pub extern "C" fn dpi_itrace(
     domain_id: u32,
     funct: u32,
     pc: u64,
-    rs1: u64,
-    rs2: u64,
+    _rs1_idx: u64,
+    _rs2_idx: u64,
+    rs1_data: u64,
+    rs2_data: u64,
     bank_enable: u8,
 ) {
     trace::itrace(trace::ITraceEvent {
@@ -26,8 +28,8 @@ pub extern "C" fn dpi_itrace(
         domain_id,
         funct,
         pc,
-        rs1,
-        rs2,
+        rs1: rs1_data,
+        rs2: rs2_data,
         bank_enable,
     });
 }
