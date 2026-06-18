@@ -196,6 +196,7 @@ struct BankStabilityMonitor {
     producer_metadata: BTreeMap<u64, ProducerMeta>,
     bank_cfgs: [RtlBankConfig; BANK_NUM],
     bank_map: RtlBankMap,
+    gemmini_dataflow: u8,
     write_request_counts: [u64; BANK_NUM],
     pending_hash_tasks: Vec<PendingHashTask>,
     task_count: u64,
@@ -208,6 +209,7 @@ impl BankStabilityMonitor {
             producer_metadata: BTreeMap::new(),
             bank_cfgs: [RtlBankConfig::default(); BANK_NUM],
             bank_map: RtlBankMap::new(),
+            gemmini_dataflow: 0,
             write_request_counts: [0; BANK_NUM],
             pending_hash_tasks: Vec::new(),
             task_count: 0,
@@ -219,6 +221,7 @@ impl BankStabilityMonitor {
         self.producer_metadata.clear();
         self.bank_cfgs = [RtlBankConfig::default(); BANK_NUM];
         self.bank_map = RtlBankMap::new();
+        self.gemmini_dataflow = 0;
         self.write_request_counts = [0; BANK_NUM];
         self.pending_hash_tasks.clear();
         self.task_count = 0;
@@ -233,8 +236,17 @@ impl BankStabilityMonitor {
         if event.funct == 32 {
             self.apply_mset(event.rs1, event.rs2);
         }
+        if event.funct == 2 {
+            self.apply_gemmini_config(event.rs2);
+        }
 
-        let affected_bank_set = candidate_rtl_affected_banks(event.funct, event.rs1, &self.bank_cfgs, &self.bank_map);
+        let affected_bank_set = candidate_rtl_affected_banks(
+            event.funct,
+            event.rs1,
+            &self.bank_cfgs,
+            &self.bank_map,
+            self.gemmini_dataflow,
+        );
         let event_class = classify_rtl_bank_hash(event.funct, event.pc);
         let comparable_seq = if affected_bank_set.is_empty() {
             None
@@ -286,6 +298,10 @@ impl BankStabilityMonitor {
                 cols: 0,
             };
         }
+    }
+
+    fn apply_gemmini_config(&mut self, xs2: u64) {
+        self.gemmini_dataflow = ((xs2 >> 4) & 1) as u8;
     }
 
     fn record_write_request(&mut self, pbank_id: u32) {
@@ -487,6 +503,7 @@ fn candidate_rtl_affected_banks(
     xs1: u64,
     cfgs: &[RtlBankConfig; BANK_NUM],
     bank_map: &RtlBankMap,
+    gemmini_dataflow: u8,
 ) -> BTreeSet<usize> {
     let mut out = BTreeSet::new();
     let b0 = rs1_b0(xs1);
@@ -501,6 +518,11 @@ fn candidate_rtl_affected_banks(
             if src_cols == 4 && dst_cols == 4 {
                 add_vbank_groups(&mut out, cfgs, bank_map, b2);
             } else {
+                add_vbank_group0(&mut out, bank_map, b2);
+            }
+        }
+        53 => {
+            if gemmini_dataflow == 0 {
                 add_vbank_group0(&mut out, bank_map, b2);
             }
         }
@@ -1030,6 +1052,75 @@ mod tests {
         for bank_id in 4..8 {
             assert_eq!(task_seq_by_bank.get(&bank_id), Some(&Some(2)));
         }
+    }
+
+    #[test]
+    fn rtl_gemmini_preload_tracks_output_bank_in_output_stationary_mode() {
+        get_rtl_canonical_state().lock().unwrap().reset();
+        let mut monitor = BankStabilityMonitor::new();
+        let mset_cols1_alloc = (1 << 5) | (1 << 10);
+        let wr_vbank = 4;
+        let rs1 = wr_vbank << 20;
+
+        monitor.apply_mset(wr_vbank, mset_cols1_alloc);
+        monitor.record_producer(
+            &ITraceEvent {
+                is_issue: 2,
+                rob_id: 1,
+                domain_id: 0,
+                funct: 53,
+                pc: 0x8000_1000,
+                rs1,
+                rs2: 0,
+                bank_enable: 0,
+            },
+            10,
+        );
+        monitor.complete_instruction(1, 53, "funct7_53", 20, 0x8000_1000);
+
+        assert_eq!(monitor.pending_hash_tasks.len(), 1);
+        assert_eq!(monitor.pending_hash_tasks[0].bank_id, 0);
+        assert_eq!(monitor.pending_hash_tasks[0].comparable_seq, Some(1));
+    }
+
+    #[test]
+    fn rtl_gemmini_preload_does_not_track_output_bank_in_weight_stationary_mode() {
+        get_rtl_canonical_state().lock().unwrap().reset();
+        let mut monitor = BankStabilityMonitor::new();
+        let mset_cols1_alloc = (1 << 5) | (1 << 10);
+        let wr_vbank = 4;
+        let rs1 = wr_vbank << 20;
+
+        monitor.apply_mset(wr_vbank, mset_cols1_alloc);
+        monitor.record_producer(
+            &ITraceEvent {
+                is_issue: 2,
+                rob_id: 1,
+                domain_id: 0,
+                funct: 2,
+                pc: 0x8000_0ff0,
+                rs1: 0,
+                rs2: 1 << 4,
+                bank_enable: 0,
+            },
+            9,
+        );
+        monitor.record_producer(
+            &ITraceEvent {
+                is_issue: 2,
+                rob_id: 2,
+                domain_id: 0,
+                funct: 53,
+                pc: 0x8000_1000,
+                rs1,
+                rs2: 0,
+                bank_enable: 0,
+            },
+            10,
+        );
+        monitor.complete_instruction(2, 53, "funct7_53", 20, 0x8000_1000);
+
+        assert!(monitor.pending_hash_tasks.is_empty());
     }
 
     #[test]
