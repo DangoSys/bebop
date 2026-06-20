@@ -4,9 +4,8 @@ use crate::ffi::{
     verilator_private_bank_pending_writes, verilator_read_bank_scoreboard, verilator_read_private_bank, VerilatorTop,
 };
 use bebop_bank_hash::{
-    bank_hash, init_runtime_packet_stream, shutdown_runtime_packet_stream, submit_runtime_bank_hash_packet,
-    BankHashEventClass, BankHashPacket, BankHashPacketId, BankHashSource, BankHashTime, CanonicalBankHashPacket,
-    BANK_NUM, BANK_SIZE,
+    bank_hash, submit_runtime_bank_hash_packet, BankHashEventClass, BankHashPacket, BankHashPacketId, BankHashSource,
+    BankHashTime, CanonicalBankHashPacket, BANK_NUM, BANK_SIZE,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, OpenOptions};
@@ -24,9 +23,9 @@ static ENABLE_CTRACE: OnceLock<Mutex<bool>> = OnceLock::new();
 static ENABLE_BANKTRACE: OnceLock<Mutex<bool>> = OnceLock::new();
 static RTL_CLK: OnceLock<Mutex<u64>> = OnceLock::new();
 static RTL_BANK_HASH_FILE: OnceLock<Mutex<Option<File>>> = OnceLock::new();
-static RTL_CANONICAL_BANK_HASH_FILE: OnceLock<Mutex<Option<File>>> = OnceLock::new();
+static RTL_BTRACE_LOG_FILE: OnceLock<Mutex<Option<File>>> = OnceLock::new();
 static RTL_BANK_STABILITY_MONITOR: OnceLock<Mutex<BankStabilityMonitor>> = OnceLock::new();
-static RTL_CANONICAL_STATE: OnceLock<Mutex<CanonicalState>> = OnceLock::new();
+static RTL_BTRACE_STATE: OnceLock<Mutex<BtraceState>> = OnceLock::new();
 static VERILATOR_TOP: OnceLock<AtomicPtr<VerilatorTop>> = OnceLock::new();
 
 fn get_trace_file() -> &'static Mutex<Option<File>> {
@@ -41,25 +40,25 @@ fn get_rtl_bank_hash_file() -> &'static Mutex<Option<File>> {
     RTL_BANK_HASH_FILE.get_or_init(|| Mutex::new(None))
 }
 
-fn get_rtl_canonical_bank_hash_file() -> &'static Mutex<Option<File>> {
-    RTL_CANONICAL_BANK_HASH_FILE.get_or_init(|| Mutex::new(None))
+fn get_rtl_btrace_log_file() -> &'static Mutex<Option<File>> {
+    RTL_BTRACE_LOG_FILE.get_or_init(|| Mutex::new(None))
 }
 
 fn get_rtl_bank_stability_monitor() -> &'static Mutex<BankStabilityMonitor> {
     RTL_BANK_STABILITY_MONITOR.get_or_init(|| Mutex::new(BankStabilityMonitor::new()))
 }
 
-fn get_rtl_canonical_state() -> &'static Mutex<CanonicalState> {
-    RTL_CANONICAL_STATE.get_or_init(|| Mutex::new(CanonicalState::new()))
+fn get_rtl_btrace_state() -> &'static Mutex<BtraceState> {
+    RTL_BTRACE_STATE.get_or_init(|| Mutex::new(BtraceState::new()))
 }
 
 #[derive(Debug)]
-struct CanonicalState {
+struct BtraceState {
     raw_line: u64,
     next_comparable_seq: u64,
 }
 
-impl CanonicalState {
+impl BtraceState {
     fn new() -> Self {
         Self {
             raw_line: 0,
@@ -251,7 +250,7 @@ impl BankStabilityMonitor {
         let comparable_seq = if affected_bank_set.is_empty() {
             None
         } else {
-            get_rtl_canonical_state()
+            get_rtl_btrace_state()
                 .lock()
                 .unwrap()
                 .allocate_comparable_seq(event_class)
@@ -593,7 +592,7 @@ pub fn init_trace(log_path: &Path, config: TraceConfig) -> io::Result<()> {
     Ok(())
 }
 
-pub fn init_rtl_bank_hash_trace(log_path: &Path, runtime_stream_path: Option<&Path>) -> io::Result<()> {
+pub fn init_rtl_bank_hash_trace(log_path: &Path, btrace_log_path: &Path) -> io::Result<()> {
     let file = OpenOptions::new()
         .create(true)
         .write(true)
@@ -601,23 +600,22 @@ pub fn init_rtl_bank_hash_trace(log_path: &Path, runtime_stream_path: Option<&Pa
         .open(log_path)?;
 
     *get_rtl_bank_hash_file().lock().unwrap() = Some(file);
-    let canonical_path = log_path.with_file_name("rtl_bank_hash.canonical.ndjson");
-    let canonical_file = OpenOptions::new()
+    let btrace_log = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open(canonical_path)?;
-    *get_rtl_canonical_bank_hash_file().lock().unwrap() = Some(canonical_file);
+        .open(btrace_log_path)?;
+    *get_rtl_btrace_log_file().lock().unwrap() = Some(btrace_log);
     get_rtl_bank_stability_monitor().lock().unwrap().reset();
-    get_rtl_canonical_state().lock().unwrap().reset();
-    if let Some(path) = runtime_stream_path {
-        init_runtime_packet_stream(path)?;
-    }
+    get_rtl_btrace_state().lock().unwrap().reset();
     Ok(())
 }
 
 pub fn shutdown_rtl_bank_hash_trace() -> io::Result<()> {
-    shutdown_runtime_packet_stream()
+    if let Some(mut file) = get_rtl_btrace_log_file().lock().unwrap().take() {
+        file.flush()?;
+    }
+    Ok(())
 }
 
 pub fn set_rtl_clk(clk: u64) {
@@ -663,8 +661,8 @@ fn write_bank_hash_stability_event(event: &str, task: &PendingHashTask, snapshot
     write_trace(&json);
 }
 
-fn write_canonical_rtl_bank_hash_packet(line: &str) {
-    if let Some(ref mut file) = *get_rtl_canonical_bank_hash_file().lock().unwrap() {
+fn write_rtl_btrace_log(line: &str) {
+    if let Some(ref mut file) = *get_rtl_btrace_log_file().lock().unwrap() {
         file.write_all(line.as_bytes()).ok();
         file.flush().ok();
     }
@@ -705,7 +703,7 @@ fn write_rtl_bank_hash_packet(
         hash,
         BankHashTime::Cycle(cycle),
     );
-    let raw_line = get_rtl_canonical_state().lock().unwrap().next_raw_line();
+    let raw_line = get_rtl_btrace_state().lock().unwrap().next_raw_line();
     if let Ok(line) = packet.to_ndjson() {
         if let Some(ref mut file) = *get_rtl_bank_hash_file().lock().unwrap() {
             file.write_all(line.as_bytes()).ok();
@@ -714,7 +712,7 @@ fn write_rtl_bank_hash_packet(
     }
 
     let event_class = classify_rtl_bank_hash(funct7, pc);
-    let canonical = CanonicalBankHashPacket::new(
+    let btrace_packet = CanonicalBankHashPacket::new(
         BankHashSource::Rtl,
         instruction_id,
         comparable_seq,
@@ -728,10 +726,10 @@ fn write_rtl_bank_hash_packet(
         format!("rtl_bank_hash.ndjson:{raw_line}"),
         raw_line,
     );
-    if let Ok(line) = canonical.to_ndjson() {
-        write_canonical_rtl_bank_hash_packet(&line);
+    if let Ok(line) = btrace_packet.to_ndjson() {
+        write_rtl_btrace_log(&line);
     }
-    submit_runtime_bank_hash_packet(&canonical);
+    submit_runtime_bank_hash_packet(&btrace_packet);
 }
 
 fn emit_stable_rtl_bank_hash_tasks(stable_tasks: Vec<StableHashTask>) {
@@ -986,7 +984,7 @@ mod tests {
 
     #[test]
     fn comparable_seq_is_unique_per_rtl_bank_data_write_event() {
-        let mut state = CanonicalState::new();
+        let mut state = BtraceState::new();
 
         assert_eq!(
             state.allocate_comparable_seq(BankHashEventClass::BankDataWrite),
@@ -1005,7 +1003,7 @@ mod tests {
 
     #[test]
     fn rtl_comparable_seq_follows_producer_order_when_complete_is_out_of_order() {
-        get_rtl_canonical_state().lock().unwrap().reset();
+        get_rtl_btrace_state().lock().unwrap().reset();
         let mut monitor = BankStabilityMonitor::new();
         let mset_cols4_alloc = (4 << 5) | (1 << 10);
         monitor.apply_mset(0, mset_cols4_alloc);
@@ -1056,7 +1054,7 @@ mod tests {
 
     #[test]
     fn rtl_gemmini_preload_tracks_output_bank_in_output_stationary_mode() {
-        get_rtl_canonical_state().lock().unwrap().reset();
+        get_rtl_btrace_state().lock().unwrap().reset();
         let mut monitor = BankStabilityMonitor::new();
         let mset_cols1_alloc = (1 << 5) | (1 << 10);
         let wr_vbank = 4;
@@ -1085,7 +1083,7 @@ mod tests {
 
     #[test]
     fn rtl_gemmini_preload_does_not_track_output_bank_in_weight_stationary_mode() {
-        get_rtl_canonical_state().lock().unwrap().reset();
+        get_rtl_btrace_state().lock().unwrap().reset();
         let mut monitor = BankStabilityMonitor::new();
         let mset_cols1_alloc = (1 << 5) | (1 << 10);
         let wr_vbank = 4;

@@ -3,6 +3,9 @@ mod sim;
 #[path = "../native/ffi.rs"]
 mod ffi;
 
+#[path = "../native/spike.rs"]
+mod spike;
+
 #[path = "emu/bank/mod.rs"]
 mod bank;
 

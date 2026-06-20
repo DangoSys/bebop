@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
-use std::fs::OpenOptions;
-use std::io::{self, Write};
-use std::path::Path;
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Mutex, OnceLock};
-use std::thread::{self, JoinHandle};
+
+mod comparator;
+
+pub use comparator::{run_online_with_summary as run_online_compare_with_summary, BankHashCompareSummary};
 
 const FNV1A_64_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV1A_64_PRIME: u64 = 0x0000_0100_0000_01b3;
@@ -184,64 +184,26 @@ impl CanonicalBankHashPacket {
     }
 }
 
-struct RuntimePacketStream {
-    sender: Sender<CanonicalBankHashPacket>,
-    handle: Option<JoinHandle<io::Result<()>>>,
+static RUNTIME_PACKET_SINK: OnceLock<Mutex<Option<Sender<CanonicalBankHashPacket>>>> = OnceLock::new();
+
+fn get_runtime_packet_sink() -> &'static Mutex<Option<Sender<CanonicalBankHashPacket>>> {
+    RUNTIME_PACKET_SINK.get_or_init(|| Mutex::new(None))
 }
 
-static RUNTIME_PACKET_STREAM: OnceLock<Mutex<Option<RuntimePacketStream>>> = OnceLock::new();
-
-fn get_runtime_packet_stream() -> &'static Mutex<Option<RuntimePacketStream>> {
-    RUNTIME_PACKET_STREAM.get_or_init(|| Mutex::new(None))
-}
-
-pub fn init_runtime_packet_stream(path: &Path) -> io::Result<()> {
-    shutdown_runtime_packet_stream()?;
-
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    let file = OpenOptions::new().create(true).append(true).open(path)?;
+pub fn init_runtime_packet_channel() -> Receiver<CanonicalBankHashPacket> {
     let (sender, receiver) = mpsc::channel::<CanonicalBankHashPacket>();
-    let handle = thread::spawn(move || {
-        let mut writer = file;
-        for packet in receiver {
-            let mut line = serde_json::to_vec(&packet).map_err(io::Error::other)?;
-            line.push(b'\n');
-            writer.write_all(&line)?;
-            writer.flush()?;
-        }
-        writer.flush()
-    });
-
-    *get_runtime_packet_stream().lock().unwrap() = Some(RuntimePacketStream {
-        sender,
-        handle: Some(handle),
-    });
-    Ok(())
+    *get_runtime_packet_sink().lock().unwrap() = Some(sender);
+    receiver
 }
 
 pub fn submit_runtime_bank_hash_packet(packet: &CanonicalBankHashPacket) {
-    let guard = get_runtime_packet_stream().lock().unwrap();
-    let Some(stream) = guard.as_ref() else {
-        return;
-    };
-    stream.sender.send(packet.clone()).ok();
+    if let Some(sink) = get_runtime_packet_sink().lock().unwrap().as_ref() {
+        sink.send(packet.clone()).ok();
+    }
 }
 
-pub fn shutdown_runtime_packet_stream() -> io::Result<()> {
-    let Some(mut stream) = get_runtime_packet_stream().lock().unwrap().take() else {
-        return Ok(());
-    };
-
-    drop(stream.sender);
-    if let Some(handle) = stream.handle.take() {
-        handle
-            .join()
-            .unwrap_or_else(|_| Err(io::Error::other("bank hash packet stream writer panicked")))?;
-    }
-    Ok(())
+pub fn shutdown_runtime_packet_channel() {
+    get_runtime_packet_sink().lock().unwrap().take();
 }
 
 pub fn fnv1a_64(bytes: &[u8]) -> u64 {

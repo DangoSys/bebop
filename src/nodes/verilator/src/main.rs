@@ -23,7 +23,6 @@ pub struct VerilatorCli {
     pub pmctrace: bool,
     pub ctrace: bool,
     pub banktrace: bool,
-    pub bank_hash_stream: Option<PathBuf>,
 }
 
 pub fn run(cli: VerilatorCli) -> Result<(), Whatever> {
@@ -40,7 +39,6 @@ struct VerilatorConfig {
     stdout: Option<PathBuf>,
     stderr: Option<PathBuf>,
     trace_config: trace::TraceConfig,
-    bank_hash_stream: Option<PathBuf>,
     coverage: bool,
 }
 
@@ -71,7 +69,6 @@ impl VerilatorConfig {
                 ctrace: cli.ctrace,
                 banktrace: cli.banktrace,
             },
-            bank_hash_stream: cli.bank_hash_stream,
             coverage,
         })
     }
@@ -96,19 +93,13 @@ impl VerilatorConfig {
         trace::init_trace(&self.log, self.trace_config.clone())
             .map_err(|e| Whatever::without_source(format!("Failed to init trace: {}", e)))?;
         let rtl_bank_hash_log = self.log.with_file_name("rtl_bank_hash.ndjson");
-        trace::init_rtl_bank_hash_trace(&rtl_bank_hash_log, self.bank_hash_stream.as_deref())
+        let btrace_log = self.log.with_file_name("btrace_log.ndjson");
+        trace::init_rtl_bank_hash_trace(&rtl_bank_hash_log, &btrace_log)
             .map_err(|e| Whatever::without_source(format!("Failed to init RTL bank hash trace: {}", e)))?;
-        let rtl_canonical_bank_hash_log = self.log.with_file_name("rtl_bank_hash.canonical.ndjson");
 
         println!("NDJSON trace: {}", self.log.display());
         println!("RTL bank hash trace: {}", rtl_bank_hash_log.display());
-        println!(
-            "RTL canonical bank hash trace: {}",
-            rtl_canonical_bank_hash_log.display()
-        );
-        if let Some(path) = &self.bank_hash_stream {
-            println!("RTL runtime bank hash packet stream: {}", path.display());
-        }
+        println!("RTL btrace log: {}", btrace_log.display());
         if let Some(ref stdout_path) = self.stdout {
             println!("Stdout log: {}", stdout_path.display());
         }

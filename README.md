@@ -68,45 +68,20 @@ cargo run --features p2e -- p2e \
 ## Bank Hash
 
 ```bash
-# Online difftest: BEMU -> background comparator + Verilator
+# Online difftest: BEMU + Verilator emit packets to an in-process comparator
 cargo run --features "bemu,verilator" -- bank-hash-difftest \
   --elf="<elf-file-path>" \
   --out-dir="<out-dir>"
-
-# Online difftest explicitly
-cargo run --features "bemu,verilator" -- bank-hash-difftest \
-  --elf="<elf-file-path>" \
-  --out-dir="<out-dir>" \
-  --compare-mode online
-
-# Post difftest: BEMU -> Verilator -> comparator
-cargo run --features "bemu,verilator" -- bank-hash-difftest \
-  --elf="<elf-file-path>" \
-  --out-dir="<out-dir>" \
-  --compare-mode post
-
-# Offline compare canonical logs
-cargo run -- bank-hash-compare \
-  --rtl="<out-dir>/rtl/log/rtl_bank_hash.canonical.ndjson" \
-  --bemu="<out-dir>/bemu/bemu_bank_hash.canonical.ndjson" \
-  --output="<out-dir>/bank_hash_compare.offline.ndjson"
-
-# Replay packet stream compare
-cargo run -- bank-hash-compare-stream \
-  --input="<out-dir>/bank_hash_packets.ndjson" \
-  --output="<out-dir>/bank_hash_compare.stream_replay.ndjson" \
-  --idle-timeout-ms 100
 ```
 
 ## Bank Hash Outputs
 
 ```text
-<out-dir>/bank_hash_packets.ndjson                  # BEMU/RTL shared runtime packet stream
+<out-dir>/bemu/btrace_log.ndjson                    # BEMU btrace artifact log
 <out-dir>/bank_hash_compare.ndjson                  # final compare result
 <out-dir>/bemu/bemu_bank_hash.ndjson                # BEMU raw bank hash log
-<out-dir>/bemu/bemu_bank_hash.canonical.ndjson      # BEMU normalized compare log
+<out-dir>/rtl/log/btrace_log.ndjson                 # RTL btrace artifact log
 <out-dir>/rtl/log/rtl_bank_hash.ndjson              # RTL raw bank hash log
-<out-dir>/rtl/log/rtl_bank_hash.canonical.ndjson    # RTL normalized compare log
 ```
 
 ## Tests
@@ -116,7 +91,7 @@ cargo run -- bank-hash-compare-stream \
 cargo test
 
 # Comparator tests
-cargo test -q bank_hash_comparator
+cargo test -q -p bebop-bank-hash comparator
 
 # Verilator crate tests
 cargo test -q -p bebop-verilator
