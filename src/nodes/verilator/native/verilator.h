@@ -24,7 +24,6 @@ void verilator_top_eval(void* top);
 void verilator_top_trace(void* top, void* tfp, int levels);
 bool verilator_read_private_bank(void* top, uint32_t bank_id, uint8_t* out, uint32_t out_len);
 bool verilator_read_bank_scoreboard(void* top, uint32_t bank_id, uint32_t* rd_count, bool* wr_busy);
-uint32_t verilator_private_bank_pending_writes(void* top, uint32_t bank_id);
 
 // Top module signals
 void verilator_top_set_clock(void* top, uint8_t val);

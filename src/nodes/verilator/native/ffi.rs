@@ -41,7 +41,6 @@ extern "C" {
         rd_count: *mut u32,
         wr_busy: *mut bool,
     ) -> bool;
-    pub fn verilator_private_bank_pending_writes(top: *mut VerilatorTop, bank_id: u32) -> u32;
 
     // Top module signals
     pub fn verilator_top_set_clock(top: *mut VerilatorTop, val: u8);

@@ -1,7 +1,7 @@
 // Trace logging (NDJSON format)
 
 use crate::ffi::{
-    verilator_private_bank_pending_writes, verilator_read_bank_scoreboard, verilator_read_private_bank, VerilatorTop,
+    verilator_read_bank_scoreboard, verilator_read_private_bank, VerilatorTop,
 };
 use bebop_bank_hash::{
     bank_hash, submit_runtime_bank_hash_packet, BankHashEventClass, BankHashPacket, BankHashPacketId, BankHashSource,
@@ -432,7 +432,6 @@ fn read_bank_stability_snapshot(bank_id: u32) -> BankStabilitySnapshot {
         };
     }
 
-    let pending_same_bank_writes = unsafe { verilator_private_bank_pending_writes(top, bank_id) };
     let mut scoreboard_rd_count = u32::MAX;
     let mut scoreboard_wr_busy = true;
     let ok = unsafe {
@@ -449,7 +448,7 @@ fn read_bank_stability_snapshot(bank_id: u32) -> BankStabilitySnapshot {
     }
 
     BankStabilitySnapshot {
-        pending_same_bank_writes,
+        pending_same_bank_writes: 0,
         scoreboard_rd_count,
         scoreboard_wr_busy,
     }
