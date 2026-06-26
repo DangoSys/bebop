@@ -20,40 +20,45 @@
 //===----------------------------------------------------------------------===//
 
 use snafu::{OptionExt, ResultExt, Whatever};
-use std::path::PathBuf;
+use std::path::Path;
 
-use crate::spike::{run_spike_config, SpikeRunConfig};
-use crate::trace::{init_trace, shutdown_trace, TraceConfig};
+use crate::{spike::SpikeInstance, trace::TraceConfig};
 
-#[derive(Debug, Clone)]
-pub struct BemuCli {
-    pub elf: PathBuf,
-    pub log_dir: Option<PathBuf>,
-    pub pk: bool,
-    pub itrace: bool,
-    pub mtrace: bool,
-    pub banktrace: bool,
+pub struct BemuInstance {
+    spike: SpikeInstance,
 }
 
-pub fn run(cli: BemuCli) -> Result<(), Whatever> {
-    let elf_file_str = cli.elf.to_str().whatever_context("invalid elf path")?;
-    let log_dir = cli.log_dir.as_ref().whatever_context(
-        "--log-dir is required: bemu enables Spike debug mode and must write disasm.log; \
-         pass --log-dir=<dir> (e.g. --log-dir=/tmp/bemu_log)",
-    )?;
-    std::fs::create_dir_all(log_dir).ok();
-    let disasm_log_file = log_dir.join("disasm.log");
-    let disasm_log_file_str: &str = disasm_log_file.to_str().whatever_context("invalid log_dir path")?;
-
-    //===------------ Initialize BEMU trace logging ----------------------------===//
-    let trace_config = TraceConfig::new(cli.itrace, cli.mtrace, cli.banktrace);
-    init_trace(&log_dir, trace_config).whatever_context("failed to init bemu trace")?;
-
-    //===------------ Run BEMU simulation -------------------------------------===//
-    let spike_config = SpikeRunConfig::new(elf_file_str, disasm_log_file_str, cli.pk);
-    let result = run_spike_config(spike_config).whatever_context("spike execution failed");
-    if let Err(e) = shutdown_trace() {
-        eprintln!("Warning: failed to flush BEMU trace: {e}");
+impl BemuInstance {
+    pub fn new(log_dir: &Path, trace_config: TraceConfig) -> Result<Self, Whatever> {
+        Ok(Self {
+            spike: SpikeInstance::new(log_dir, trace_config).whatever_context("failed to create spike instance")?,
+        })
     }
-    result
+
+    pub fn load_elf(&mut self, elf: &Path) -> Result<(), Whatever> {
+        let elf = elf.to_str().whatever_context("invalid elf path")?;
+        self.spike.load_elf(elf).whatever_context("failed to load bemu elf")
+    }
+
+    pub fn init_hart(&mut self, pk: bool) -> Result<(), Whatever> {
+        self.spike
+            .init_hart(pk)
+            .whatever_context("failed to initialize bemu hart")
+    }
+
+    pub fn step(&mut self) -> Result<(), Whatever> {
+        self.spike.step().whatever_context("bemu step failed")
+    }
+
+    pub fn finished(&self) -> bool {
+        self.spike.finished()
+    }
+
+    pub fn exit_code(&self) -> Option<i32> {
+        self.spike.exit_code()
+    }
+
+    pub fn total_latency(&self) -> u64 {
+        self.spike.total_latency()
+    }
 }

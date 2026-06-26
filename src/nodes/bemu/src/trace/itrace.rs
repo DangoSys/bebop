@@ -1,4 +1,4 @@
-use super::trace::{bemu_clk, write_itrace};
+use super::trace::with_current_trace;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::Path;
@@ -26,11 +26,16 @@ pub(super) fn init(log_dir: &Path, enabled: bool) -> io::Result<Option<File>> {
 }
 
 pub fn itrace(event: ITraceEvent) {
-    let clk = bemu_clk();
-    let json = format!(
-        r#"{{"type":"itrace","clk":{},"event":"complete","funct":"0x{:02x}","pc":"0x{:016x}","rs1":"0x{:016x}","rs2":"0x{:016x}"}}"#,
-        clk, event.funct, event.pc, event.rs1, event.rs2
-    );
+    with_current_trace(|trace| {
+        let json = format!(
+            r#"{{"type":"itrace","clk":{},"event":"complete","funct":"0x{:02x}","pc":"0x{:016x}","rs1":"0x{:016x}","rs2":"0x{:016x}"}}"#,
+            trace.bemu_clk(),
+            event.funct,
+            event.pc,
+            event.rs1,
+            event.rs2
+        );
 
-    write_itrace(&json);
+        trace.write_itrace(&json);
+    });
 }

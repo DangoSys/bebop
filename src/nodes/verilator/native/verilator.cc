@@ -13,10 +13,6 @@
 #include <unordered_map>
 #include <vector>
 
-#if VM_COVERAGE
-#include "verilated_cov.h"
-#endif
-
 // Context management
 extern "C" void *verilator_context_new() { return new VerilatedContext; }
 
@@ -40,15 +36,6 @@ extern "C" void verilator_context_command_args(void *ctx, int argc,
 
 extern "C" void verilator_context_trace_ever_on(void *ctx, bool on) {
   static_cast<VerilatedContext *>(ctx)->traceEverOn(on);
-}
-
-extern "C" void verilator_context_coverage_write(void *ctx) {
-#if VM_COVERAGE
-  auto *context = static_cast<VerilatedContext *>(ctx);
-  if (context->coveragep()) {
-    context->coveragep()->write();
-  }
-#endif
 }
 
 // Top module

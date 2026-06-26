@@ -3,13 +3,6 @@
 // from RTL when software writes to SCU registers. This module provides helpers
 // to query the SCU state from Rust.
 
-use std::io;
-use std::path::Path;
-
-pub fn init_uart(_stdout_path: Option<&Path>) -> io::Result<()> {
-    Ok(())
-}
-
 /// Check if simulation should exit (called from RTL via scu_sim_exit DPI-C)
 pub fn should_exit() -> bool {
     // SAFETY: FFI call to C++ Verilator runtime; function is extern "C" and always safe to call.

@@ -14,4 +14,5 @@ mod inst;
 
 mod trace;
 
-pub use sim::{run, BemuCli};
+pub use sim::BemuInstance;
+pub use trace::TraceConfig;

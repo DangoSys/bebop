@@ -75,9 +75,38 @@ pub struct TlsInfo {
     pub align: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct LoadInfo {
     pub entry: u64,
     pub image_end: u64,
     pub tls: Option<TlsInfo>,
+    pub program_headers: ProgramHeaderInfo,
+    pub analysis: ElfAnalysis,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ProgramHeaderInfo {
+    pub addr: u64,
+    pub entry_size: u64,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ElfLoadSegment {
+    pub vaddr: u64,
+    pub memsz: u64,
+    pub filesz: u64,
+    pub flags: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ElfAnalysis {
+    pub original_entry: u64,
+    pub entry: u64,
+    pub min_vaddr: u64,
+    pub max_vaddr: u64,
+    pub image_end: u64,
+    pub is_pie: bool,
+    pub needs_relocation: bool,
+    pub load_segments: Vec<ElfLoadSegment>,
 }

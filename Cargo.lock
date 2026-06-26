@@ -98,12 +98,16 @@ dependencies = [
  "assert_cmd",
  "bebop-bank-hash",
  "bebop-bemu",
+ "bebop-dasm",
+ "bebop-fd-redirect",
  "bebop-p2e",
+ "bebop-uart",
  "bebop-verilator",
  "camino",
  "chrono",
  "clap",
  "ctrlc",
+ "duct",
  "env_logger",
  "libc",
  "libtest-mimic",
@@ -153,13 +157,19 @@ name = "bebop-elf"
 version = "0.1.0"
 
 [[package]]
+name = "bebop-fd-redirect"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "bebop-p2e"
 version = "0.1.0"
 dependencies = [
+ "bebop-uart",
  "duct",
- "env_logger",
  "log",
- "snafu",
 ]
 
 [[package]]
@@ -179,6 +189,7 @@ version = "0.1.0"
 dependencies = [
  "bebop-bank-hash",
  "bebop-dasm",
+ "bebop-fd-redirect",
  "bebop-uart",
  "cc",
  "ctrlc",

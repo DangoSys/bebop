@@ -1,7 +1,9 @@
 mod runworkload;
 
-// Re-export simulation entry point
-pub use runworkload::{run, RunConfig, SimulationResult};
+pub use runworkload::{
+    configure_vvac_environment, generate_main_tcl, init_ctb, source_environment, start_vdbg_background,
+    wait_for_completion, wait_for_flash, SimulationResult,
+};
 
 // Runner steps - use path attribute to map module names to directories with numeric prefixes
 #[path = "0_flashbitstream/mod.rs"]

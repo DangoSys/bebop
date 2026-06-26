@@ -26,9 +26,6 @@ extern "C" {
     pub fn verilator_context_command_args(ctx: *mut VerilatorContext, argc: c_int, argv: *const *const c_char);
     pub fn verilator_context_trace_ever_on(ctx: *mut VerilatorContext, on: bool);
 
-    // Coverage
-    pub fn verilator_context_coverage_write(ctx: *mut VerilatorContext);
-
     // Top module
     pub fn verilator_top_new(ctx: *mut VerilatorContext) -> *mut VerilatorTop;
     pub fn verilator_top_free(top: *mut VerilatorTop);

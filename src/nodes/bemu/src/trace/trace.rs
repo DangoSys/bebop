@@ -1,17 +1,18 @@
-use super::{banktrace, btrace, itrace, mtrace};
+use super::{btrace, itrace, mtrace};
+use std::cell::Cell;
 use std::fs::File;
 use std::io;
 use std::io::Write;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
 
-static TRACE: OnceLock<Mutex<TraceState>> = OnceLock::new();
+thread_local! {
+    static CURRENT_TRACE: Cell<*mut TraceState> = const { Cell::new(std::ptr::null_mut()) };
+}
 
 #[derive(Default)]
-pub(super) struct TraceState {
+pub struct TraceState {
     pub(super) itrace_file: Option<File>,
     pub(super) mtrace_file: Option<File>,
-    pub(super) banktrace_file: Option<File>,
     pub(super) clk: u64,
     pub(super) btrace: btrace::BtraceState,
 }
@@ -20,50 +21,45 @@ pub(super) struct TraceState {
 pub struct TraceConfig {
     pub itrace: bool,
     pub mtrace: bool,
-    pub banktrace: bool,
     pub btrace: bool,
 }
 
 impl TraceConfig {
-    pub fn new(itrace: bool, mtrace: bool, banktrace: bool) -> Self {
+    pub fn new(itrace: bool, mtrace: bool) -> Self {
         Self {
             itrace,
             mtrace,
-            banktrace,
             btrace: true,
         }
     }
 }
 
-pub(super) fn trace_state() -> &'static Mutex<TraceState> {
-    TRACE.get_or_init(|| Mutex::new(TraceState::default()))
-}
+impl TraceState {
+    pub fn new(log_dir: &Path, config: TraceConfig) -> io::Result<Self> {
+        std::fs::create_dir_all(log_dir)?;
+        Ok(Self {
+            itrace_file: itrace::init(log_dir, config.itrace)?,
+            mtrace_file: mtrace::init(log_dir, config.mtrace)?,
+            btrace: btrace::init(log_dir, config.btrace)?,
+            clk: 0,
+        })
+    }
 
-pub fn init_trace(log_dir: &Path, config: TraceConfig) -> io::Result<()> {
-    std::fs::create_dir_all(log_dir)?;
-    let itrace_file = itrace::init(log_dir, config.itrace)?;
-    let mtrace_file = mtrace::init(log_dir, config.mtrace)?;
-    let banktrace_file = banktrace::init(log_dir, config.banktrace)?;
-    let btrace = btrace::init(log_dir, config.btrace)?;
+    pub fn set_bemu_clk(&mut self, clk: u64) {
+        self.clk = clk;
+    }
 
-    let mut state = trace_state().lock().unwrap();
-    state.itrace_file = itrace_file;
-    state.mtrace_file = mtrace_file;
-    state.banktrace_file = banktrace_file;
-    state.btrace = btrace;
-    Ok(())
-}
+    pub fn bemu_clk(&self) -> u64 {
+        self.clk
+    }
 
-pub fn shutdown_trace() -> io::Result<()> {
-    btrace::shutdown()
-}
+    pub(super) fn write_itrace(&mut self, json: &str) {
+        write_ndjson(&mut self.itrace_file, json);
+    }
 
-pub fn set_bemu_clk(clk: u64) {
-    trace_state().lock().unwrap().clk = clk;
-}
-
-pub fn bemu_clk() -> u64 {
-    trace_state().lock().unwrap().clk
+    pub(super) fn write_mtrace(&mut self, json: &str) {
+        write_ndjson(&mut self.mtrace_file, json);
+    }
 }
 
 fn write_ndjson(file: &mut Option<File>, json: &str) {
@@ -73,16 +69,32 @@ fn write_ndjson(file: &mut Option<File>, json: &str) {
     }
 }
 
-pub(super) fn write_itrace(json: &str) {
-    write_ndjson(&mut trace_state().lock().unwrap().itrace_file, json);
+pub unsafe fn with_trace_ptr<R>(trace: *mut TraceState, f: impl FnOnce() -> R) -> R {
+    struct TraceGuard {
+        previous: *mut TraceState,
+    }
+
+    impl Drop for TraceGuard {
+        fn drop(&mut self) {
+            CURRENT_TRACE.with(|current| current.set(self.previous));
+        }
+    }
+
+    CURRENT_TRACE.with(|current| {
+        let _guard = TraceGuard {
+            previous: current.replace(trace),
+        };
+        f()
+    })
 }
 
-pub(super) fn write_mtrace(json: &str) {
-    write_ndjson(&mut trace_state().lock().unwrap().mtrace_file, json);
-}
-
-pub(super) fn write_banktrace(json: &str) {
-    write_ndjson(&mut trace_state().lock().unwrap().banktrace_file, json);
+pub(super) fn with_current_trace(f: impl FnOnce(&mut TraceState)) {
+    CURRENT_TRACE.with(|current| {
+        let trace = current.get();
+        if !trace.is_null() {
+            f(unsafe { &mut *trace });
+        }
+    });
 }
 
 pub(super) fn bytes_to_hex(bytes: &[u8]) -> String {

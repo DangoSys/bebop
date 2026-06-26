@@ -1,4 +1,4 @@
-use crate::constants::{GUEST_MEM_BASE, LOW_ALIAS_BASE};
+use crate::constants::GUEST_MEM_BASE;
 
 pub fn align_up(value: u64, align: u64) -> u64 {
     (value + align - 1) & !(align - 1)
@@ -13,11 +13,6 @@ pub fn guest_range(addr: u64, len: usize, mem_len: usize) -> Option<usize> {
     let high_end = GUEST_MEM_BASE.checked_add(mem_len as u64)?;
     if addr >= GUEST_MEM_BASE && end <= high_end {
         return Some((addr - GUEST_MEM_BASE) as usize);
-    }
-
-    let low_end = LOW_ALIAS_BASE.checked_add(mem_len as u64)?;
-    if addr >= LOW_ALIAS_BASE && end <= low_end {
-        return Some((addr - LOW_ALIAS_BASE) as usize);
     }
 
     None

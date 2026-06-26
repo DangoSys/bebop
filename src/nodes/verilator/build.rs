@@ -34,7 +34,6 @@ fn main() {
     let vsrc_path = build_dir.display().to_string();
 
     let topname = "BBSimHarness";
-    let coverage = env_flag("BEBOP_VERILATOR_COVERAGE");
     let jobs = capped_jobs();
 
     println!("cargo:rerun-if-changed=build.rs");
@@ -43,7 +42,6 @@ fn main() {
     println!("cargo:rerun-if-changed={}", build_dir.display());
     println!("cargo:rerun-if-env-changed=VSRC_PATH");
     println!("cargo:rerun-if-env-changed=ARCH_CONFIG");
-    println!("cargo:rerun-if-env-changed=BEBOP_VERILATOR_COVERAGE");
 
     assert_exists(&build_dir, &format!("missing Verilog source directory: {}", vsrc_path));
 
@@ -54,9 +52,9 @@ fn main() {
         fs::remove_dir_all(&obj_dir).expect("remove stale obj_dir");
     }
     fs::create_dir_all(&obj_dir).expect("create obj_dir");
-    run_verilator(&build_dir, &obj_dir, topname, &jobs, coverage, &vsrcs, &csrcs);
+    run_verilator(&build_dir, &obj_dir, &topname, &jobs, &vsrcs, &csrcs);
 
-    let verilator_root = get_verilator_root(&obj_dir, topname);
+    let verilator_root = get_verilator_root(&obj_dir, &topname);
     let generated_cpps = collect_files(&obj_dir, &["cpp"]);
 
     let mut build = cc::Build::new();
@@ -69,7 +67,6 @@ fn main() {
     build.flag_if_supported("-fcf-protection=none");
     build.flag_if_supported("-pthread");
 
-    build.define("VM_COVERAGE", if coverage { "1" } else { "0" });
     build.define("VM_SC", "0");
     build.define("VM_TRACE", "1");
     build.define("VM_TRACE_FST", "1");
@@ -148,7 +145,7 @@ fn main() {
     for file in &generated_cpps {
         build.file(file);
     }
-    for support in verilator_support_sources(&verilator_root, coverage) {
+    for support in verilator_support_sources(&verilator_root) {
         build.file(support);
     }
 
@@ -225,13 +222,6 @@ fn capped_jobs() -> String {
     jobs.min(16).to_string()
 }
 
-fn env_flag(name: &str) -> bool {
-    match env::var(name) {
-        Ok(value) => value.eq_ignore_ascii_case("true"),
-        Err(_) => false,
-    }
-}
-
 fn assert_exists(path: &Path, message: &str) {
     assert!(path.exists(), "{message}: {}", path.display());
 }
@@ -280,30 +270,18 @@ fn get_verilator_root(obj_dir: &Path, topname: &str) -> PathBuf {
     PathBuf::from(line.trim_start_matches("VERILATOR_ROOT = ").trim())
 }
 
-fn verilator_support_sources(verilator_root: &Path, coverage: bool) -> Vec<PathBuf> {
+fn verilator_support_sources(verilator_root: &Path) -> Vec<PathBuf> {
     let include = verilator_root.join("include");
-    let mut files = vec![
+    vec![
         include.join("verilated.cpp"),
         include.join("verilated_dpi.cpp"),
         include.join("verilated_vpi.cpp"),
         include.join("verilated_fst_c.cpp"),
         include.join("verilated_threads.cpp"),
-    ];
-    if coverage {
-        files.push(include.join("verilated_cov.cpp"));
-    }
-    files
+    ]
 }
 
-fn run_verilator(
-    build_dir: &Path,
-    obj_dir: &Path,
-    topname: &str,
-    jobs: &str,
-    coverage: bool,
-    vsrcs: &[PathBuf],
-    csrcs: &[PathBuf],
-) {
+fn run_verilator(build_dir: &Path, obj_dir: &Path, topname: &str, jobs: &str, vsrcs: &[PathBuf], csrcs: &[PathBuf]) {
     let mut cmd = Command::new("verilator");
     cmd.stdout(Stdio::inherit());
     cmd.stderr(Stdio::inherit());
@@ -343,10 +321,6 @@ fn run_verilator(
         .arg(topname)
         .arg("--Mdir")
         .arg(obj_dir);
-
-    if coverage {
-        cmd.arg("--coverage-line");
-    }
 
     for src in vsrcs {
         cmd.arg(src);

@@ -13,104 +13,44 @@ nix develop
 ## Build
 
 ```bash
-# BEMU
+# BEMU is an in-tree emulator backend. It does not need a separate
+# simulator artifact build step.
 cargo build --features bemu
 
-# Verilator
-cargo build --features verilator \
-  --config="env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'"
+# Verilator: build an RTL-bound runner executable.
+cargo run --features verilator -- build verilator \
+  --rtl-dir="<verilog-file-directory-path>" \
+  --out-dir="<verilator-artifact-dir>"
 
-# BEMU + Verilator
-cargo build --features "bemu,verilator" \
-  --config="env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'"
-
-# P2E
-cargo build --features p2e \
-  --config="env.VSRC_PATH='<verilog-file-directory-path>'"
+# P2E: prepare a VVAC runtime case.
+cargo run --features p2e -- build p2e \
+  --rtl-dir="<verilog-file-directory-path>" \
+  --out-dir="<p2e-case-dir>"
 ```
 
 ## Run
 
 ```bash
 # BEMU
-cargo run --features bemu -- bemu \
+cargo run --features bemu -- run bemu \
   --elf="<elf-file-path>" \
   --log-dir="<log-dir>"
 
 # BEMU with proxy kernel
-cargo run --features bemu -- bemu \
+cargo run --features bemu -- run bemu \
   --elf="<elf-file-path>" \
   --log-dir="<log-dir>" \
   --pk
 
 # Verilator
-cargo run --features verilator \
-  --config="env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'" \
-  -- verilator \
+cargo run --features verilator -- run verilator \
   --elf="<elf-file-path>" \
   --log-dir="<log-dir>" \
   --fst-dir="<fst-dir>"
 
-# P2E build bitstream
-cargo run --features p2e -- p2e \
-  --buildbitstream \
-  --build-dir="<design-build-dir>" \
-  --output-dir="<bitstream-output-dir>"
-
 # P2E run workload
-cargo run --features p2e -- p2e \
-  --runworkload \
+cargo run --features p2e -- run p2e \
   --image="<image-file-path>" \
   --bitstream="<bitstream-file-path>" \
-  --log-dir="<log-dir>"
-```
-
-## Bank Hash
-
-```bash
-# Online difftest: BEMU + Verilator emit packets to an in-process comparator
-cargo run --features "bemu,verilator" -- bank-hash-difftest \
-  --elf="<elf-file-path>" \
-  --out-dir="<out-dir>"
-```
-
-## Bank Hash Outputs
-
-```text
-<out-dir>/bemu/btrace_log.ndjson                    # BEMU btrace artifact log
-<out-dir>/bank_hash_compare.ndjson                  # final compare result
-<out-dir>/bemu/bemu_bank_hash.ndjson                # BEMU raw bank hash log
-<out-dir>/rtl/log/btrace_log.ndjson                 # RTL btrace artifact log
-<out-dir>/rtl/log/rtl_bank_hash.ndjson              # RTL raw bank hash log
-```
-
-## Tests
-
-```bash
-# Unit tests
-cargo test
-
-# Comparator tests
-cargo test -q -p bebop-bank-hash comparator
-
-# Verilator crate tests
-cargo test -q -p bebop-verilator
-
-# BEMU tests
-cargo nextest run --test test_bemu --features bemu
-
-# Verilator tests
-cargo nextest run --test test_verilator --features verilator \
-  --config-file .config/nextest.toml \
-  --config "env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'"
-
-# Bank Hash difftest tests
-cargo nextest run --test test_bank_hash_difftest --features "bemu,verilator" \
-  --config-file .config/nextest.toml \
-  --config "env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'"
-
-# P2E tests
-cargo nextest run --test test_p2e --features p2e -- \
-  --p2e-bitstream "<bitstream-file-path>" \
-  --p2e-build-dir "<design-build-dir>"
+  --log-dir="<p2e-case-dir>"
 ```

@@ -48,6 +48,8 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", native_dir.join("rocc.cc").display());
     println!("cargo:rerun-if-changed={}", native_dir.join("spike.cc").display());
+    println!("cargo:rerun-if-changed={}", native_dir.join("btif.cc").display());
+    println!("cargo:rerun-if-changed={}", native_dir.join("btif.h").display());
 
     // Build and install spike
     build_spike(&spike_dir, &spike_build_dir, &spike_install_dir);
@@ -56,6 +58,7 @@ fn main() {
         .cpp(true)
         .file(native_dir.join("spike.cc"))
         .file(native_dir.join("rocc.cc"))
+        .file(native_dir.join("btif.cc"))
         .include(spike_install_dir.join("include/riscv"))
         .include(spike_install_dir.join("include/fesvr"))
         .flag("-std=c++17")

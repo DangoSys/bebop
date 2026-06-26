@@ -1,4 +1,4 @@
-use super::trace::{bemu_clk, bytes_to_hex, write_mtrace};
+use super::trace::{bytes_to_hex, with_current_trace};
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::Path;
@@ -28,13 +28,20 @@ pub(super) fn init(log_dir: &Path, enabled: bool) -> io::Result<Option<File>> {
 }
 
 pub fn mtrace(event: MTraceEvent) {
-    let clk = bemu_clk();
-    let data_hex = bytes_to_hex(&event.data);
-    let event_name = if event.is_write { "write" } else { "read" };
-    let json = format!(
-        r#"{{"type":"mtrace","clk":{},"event":"{}","addr":"0x{:016x}","data":"0x{}","vbank_id":{},"pbank_id":{},"group_id":{}}}"#,
-        clk, event_name, event.addr, data_hex, event.vbank_id, event.pbank_id, event.group_id
-    );
+    with_current_trace(|trace| {
+        let data_hex = bytes_to_hex(&event.data);
+        let event_name = if event.is_write { "write" } else { "read" };
+        let json = format!(
+            r#"{{"type":"mtrace","clk":{},"event":"{}","addr":"0x{:016x}","data":"0x{}","vbank_id":{},"pbank_id":{},"group_id":{}}}"#,
+            trace.bemu_clk(),
+            event_name,
+            event.addr,
+            data_hex,
+            event.vbank_id,
+            event.pbank_id,
+            event.group_id
+        );
 
-    write_mtrace(&json);
+        trace.write_mtrace(&json);
+    });
 }

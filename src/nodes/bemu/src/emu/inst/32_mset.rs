@@ -37,14 +37,6 @@ impl Instruction for Mset {
                     .unwrap_or_else(|| panic!("mset: no free physical bank"));
                 ctx.bank_map.bind_group(p, v, group as u32);
                 ctx.banks[p].fill(0);
-                crate::trace::banktrace(crate::trace::BankTraceEvent {
-                    event: "bind".to_string(),
-                    vbank_id: v,
-                    pbank_id: p as u32,
-                    group_id: group as u32,
-                    data: None,
-                    addr: None,
-                });
             }
             ctx.cfgs[i] = BankConfig {
                 allocated: true,
@@ -56,14 +48,6 @@ impl Instruction for Mset {
                 allocated: false,
                 cols: 0,
             };
-            crate::trace::banktrace(crate::trace::BankTraceEvent {
-                event: "free".to_string(),
-                vbank_id: v,
-                pbank_id: 0,
-                group_id: 0,
-                data: None,
-                addr: None,
-            });
         }
         0
     }

@@ -1,10 +1,5 @@
 use crate::ffi::{self, CtbManager};
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -15,299 +10,13 @@ pub struct SimulationResult {
     pub uart_log: String,
 }
 
-pub struct RunConfig<'a> {
-    pub fpga_location: &'a str,
-    pub case_home: &'a Path,
-    pub rtcfg_path: &'a Path,
-    pub image: &'a Path,
-    pub bitstream: &'a Path,
-    pub log_dir: &'a Path,
-    pub multi_fpga: bool,
-    pub wave: bool,
-    pub wave_start: u64,
-}
-
-/// Run P2E simulation - main entry point
-///
-/// This is the main entry point for P2E simulation, similar to Verilator's run_batch().
-pub fn run(cfg: RunConfig<'_>) -> Result<SimulationResult, String> {
-    log::info!("P2E Simulation Starting");
-    log::info!("  FPGA: {}", cfg.fpga_location);
-    log::info!("  Case Home: {}", cfg.case_home.display());
-    log::info!("  Image: {}", cfg.image.display());
-    log::info!("  Bitstream: {}", cfg.bitstream.display());
-    log::info!("  Multi FPGA: {}", cfg.multi_fpga);
-    log::info!("  Waveform: {}", cfg.wave);
-    log::info!("  Waveform Start Cycle: {}", cfg.wave_start);
-
-    // Validate paths
-    if !cfg.case_home.exists() {
-        return Err(format!("case_home not found: {}", cfg.case_home.display()));
-    }
-    if !cfg.rtcfg_path.exists() {
-        return Err(format!("rtcfg_path not found: {}", cfg.rtcfg_path.display()));
-    }
-    if !cfg.image.exists() {
-        return Err(format!("image not found: {}", cfg.image.display()));
-    }
-    if !cfg.bitstream.exists() {
-        return Err(format!("bitstream not found: {}", cfg.bitstream.display()));
-    }
-
-    // Source sourceme.sh to set up VVAC environment
-    source_environment()?;
-
-    // Configure VVAC environment
-    configure_vvac_environment();
-    ffi::reset_runtime_state();
-
-    // Set log directory for per-hart UART logs
-    ffi::set_log_dir(cfg.log_dir.to_string_lossy().to_string());
-    let console = ConsoleServer::start(cfg.log_dir)?;
-    ffi::set_console_tx(console.tx_sender());
-
-    // IMPORTANT: Change to case_home directory before running vdbg
-    log::info!("Changing to case_home directory: {}", cfg.case_home.display());
-    std::env::set_current_dir(cfg.case_home).map_err(|e| format!("Failed to change to case_home directory: {}", e))?;
-    log::info!("Current directory: {:?}", std::env::current_dir());
-
-    // Generate main.tcl dynamically
-    log::info!("Generating main.tcl...");
-    let main_tcl = generate_main_tcl(
-        cfg.fpga_location,
-        cfg.image,
-        cfg.bitstream,
-        cfg.multi_fpga,
-        cfg.wave,
-        cfg.wave_start,
-    )?;
-    let main_tcl_path = cfg.case_home.join("main.tcl");
-    std::fs::write(&main_tcl_path, main_tcl).map_err(|e| format!("Failed to write main.tcl: {}", e))?;
-
-    // Clean up old flag files before starting
-    let flash_done_flag = cfg.case_home.join("flash_done.flag");
-    let host_init_flag = cfg.case_home.join("host_init_done.flag");
-    let sim_exit_flag = cfg.case_home.join("sim_exit.flag");
-    let _ = std::fs::remove_file(&flash_done_flag);
-    let _ = std::fs::remove_file(&host_init_flag);
-    let _ = std::fs::remove_file(&sim_exit_flag);
-    log::info!("Cleaned up old flag files");
-
-    // Start vdbg with main.tcl in background
-    log::info!("Starting vdbg with main.tcl in background...");
-    start_vdbg_background(&main_tcl_path)?;
-
-    // Wait for flash to complete
-    log::info!("Waiting for bitstream flash to complete...");
-
-    while !flash_done_flag.exists() {
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    log::info!("Flash complete, initializing CTB...");
-
-    // Initialize CTB (connects to running vdbg).
-    // IMPORTANT: keep `_ctb` alive until wait_for_completion returns;
-    // dropping it triggers quit() and tears down the host-side CTB connection
-    // before the workload can run.
-    let _ctb = init_ctb(cfg.case_home, cfg.rtcfg_path)?;
-
-    // Signal TCL that host init is done
-    std::fs::write(&host_init_flag, "").map_err(|e| format!("Failed to write host_init_done.flag: {}", e))?;
-    log::info!("CTB initialized, signaling TCL to continue...");
-
-    // Wait for simulation to complete
-    log::info!("Waiting for simulation to complete...");
-    let result = wait_for_completion()?;
-
-    log::info!("Simulation completed");
-    log::info!("  Exit code: {}", result.exit_code);
-    log::info!("  Elapsed: {:?}", result.elapsed);
-    log::info!("  Cycles: {}", result.cycles);
-
-    // _ctb dropped here -> quit() called after the workload finishes.
-    Ok(result)
-}
-
-struct ConsoleServer {
-    socket_path: std::path::PathBuf,
-    path_file: std::path::PathBuf,
-    stop: Arc<AtomicBool>,
-    tx_sender: mpsc::Sender<ffi::UartTx>,
-    handles: Vec<std::thread::JoinHandle<()>>,
-}
-
-type ConsoleClients = Arc<Mutex<HashMap<u32, Vec<UnixStream>>>>;
-
-impl ConsoleServer {
-    fn start(log_dir: &Path) -> Result<Self, String> {
-        std::fs::create_dir_all(log_dir)
-            .map_err(|e| format!("failed to create log directory {}: {e}", log_dir.display()))?;
-
-        let path_file = log_dir.join("console.sock.path");
-        let socket_path = std::env::temp_dir().join(format!("bebop-console-{}.sock", std::process::id()));
-        if socket_path.exists() {
-            std::fs::remove_file(&socket_path)
-                .map_err(|e| format!("failed to remove stale console socket {}: {e}", socket_path.display()))?;
-        }
-
-        let listener = UnixListener::bind(&socket_path)
-            .map_err(|e| format!("failed to bind console socket {}: {e}", socket_path.display()))?;
-        listener
-            .set_nonblocking(true)
-            .map_err(|e| format!("failed to set console socket nonblocking: {e}"))?;
-        std::fs::write(&path_file, format!("{}\n", socket_path.display()))
-            .map_err(|e| format!("failed to write console socket path file {}: {e}", path_file.display()))?;
-
-        let stop = Arc::new(AtomicBool::new(false));
-        let clients: ConsoleClients = Arc::new(Mutex::new(HashMap::new()));
-        let (tx_sender, tx_receiver) = mpsc::channel::<ffi::UartTx>();
-
-        let accept_stop = stop.clone();
-        let accept_clients = clients.clone();
-        let accept_handle = std::thread::Builder::new()
-            .name("p2e-console-accept".to_string())
-            .spawn(move || {
-                while !accept_stop.load(Ordering::Relaxed) {
-                    match listener.accept() {
-                        Ok((stream, _addr)) => {
-                            if let Err(e) = Self::spawn_client(stream, accept_clients.clone(), accept_stop.clone()) {
-                                log::error!("failed to start console client: {e}");
-                            }
-                        }
-                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            std::thread::sleep(Duration::from_millis(50));
-                        }
-                        Err(e) => {
-                            log::error!("console accept failed: {e}");
-                            std::thread::sleep(Duration::from_millis(200));
-                        }
-                    }
-                }
-            })
-            .map_err(|e| format!("failed to spawn console accept thread: {e}"))?;
-
-        let tx_stop = stop.clone();
-        let tx_clients = clients.clone();
-        let tx_handle = std::thread::Builder::new()
-            .name("p2e-console-tx".to_string())
-            .spawn(move || {
-                while !tx_stop.load(Ordering::Relaxed) {
-                    match tx_receiver.recv_timeout(Duration::from_millis(100)) {
-                        Ok(msg) => Self::broadcast(&tx_clients, msg),
-                        Err(mpsc::RecvTimeoutError::Timeout) => {}
-                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                    }
-                }
-            })
-            .map_err(|e| format!("failed to spawn console tx thread: {e}"))?;
-
-        log::info!("Console socket: {}", socket_path.display());
-        Ok(Self {
-            socket_path,
-            path_file,
-            stop,
-            tx_sender,
-            handles: vec![accept_handle, tx_handle],
-        })
-    }
-
-    fn tx_sender(&self) -> mpsc::Sender<ffi::UartTx> {
-        self.tx_sender.clone()
-    }
-
-    fn spawn_client(stream: UnixStream, clients: ConsoleClients, stop: Arc<AtomicBool>) -> Result<(), String> {
-        let mut reader = BufReader::new(
-            stream
-                .try_clone()
-                .map_err(|e| format!("failed to clone console stream for reader: {e}"))?,
-        );
-        let mut header = String::new();
-        let n = reader
-            .read_line(&mut header)
-            .map_err(|e| format!("failed to read console handshake: {e}"))?;
-        if n == 0 {
-            return Err("console client closed before handshake".to_string());
-        }
-
-        let hart_id = parse_console_handshake(&header)?;
-        let write_stream = stream
-            .try_clone()
-            .map_err(|e| format!("failed to clone console stream for writer: {e}"))?;
-        clients.lock().unwrap().entry(hart_id).or_default().push(write_stream);
-        log::info!("console client connected for hart {hart_id}");
-
-        std::thread::Builder::new()
-            .name(format!("p2e-console-rx-hart-{hart_id}"))
-            .spawn(move || {
-                let mut input = reader;
-                let mut buf = [0_u8; 256];
-
-                while !stop.load(Ordering::Relaxed) {
-                    match input.read(&mut buf) {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            log::info!("console rx hart {hart_id}: {n} bytes");
-                            for byte in &buf[..n] {
-                                ffi::push_uart_rx(hart_id, *byte);
-                            }
-                        }
-                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                        Err(_) => break,
-                    }
-                }
-            })
-            .map_err(|e| format!("failed to spawn console rx thread: {e}"))?;
-
-        Ok(())
-    }
-
-    fn broadcast(clients: &ConsoleClients, msg: ffi::UartTx) {
-        let mut guard = clients.lock().unwrap();
-        let Some(streams) = guard.get_mut(&msg.hart_id) else {
-            return;
-        };
-
-        streams.retain_mut(|stream| stream.write_all(&[msg.byte]).and_then(|_| stream.flush()).is_ok());
-    }
-}
-
-impl Drop for ConsoleServer {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        for handle in self.handles.drain(..) {
-            let _ = handle.join();
-        }
-        let _ = std::fs::remove_file(&self.socket_path);
-        let _ = std::fs::remove_file(&self.path_file);
-    }
-}
-
-fn parse_console_handshake(line: &str) -> Result<u32, String> {
-    let line = line.trim_end_matches(['\r', '\n']);
-    let (cmd, value) = line
-        .split_once(' ')
-        .ok_or_else(|| "console handshake must be `hart <id>`".to_string())?;
-    if cmd != "hart" {
-        return Err(format!("console handshake command must be `hart`, got `{cmd}`"));
-    }
-    value
-        .parse::<u32>()
-        .map_err(|e| format!("invalid console hart id `{value}`: {e}"))
-}
-
-/// Initialize CTB (connects to running vdbg)
-fn init_ctb(case_home: &Path, rtcfg_path: &Path) -> Result<CtbManager, String> {
-    // Create and initialize CTB
+pub fn init_ctb(case_home: &Path, rtcfg_path: &Path) -> Result<CtbManager, String> {
     log::info!("Creating CTB manager...");
     let ctb = CtbManager::new()?;
 
     log::info!("Initializing CTB...");
 
-    // IMPORTANT: The first parameter should be the FPGA config name from rtcfg (e.g., "P0"),
-    // NOT the physical FPGA location (e.g., "0.A")
     let fpga_config = "P0"; // Read from rtcfg file: "P0: vc_default"
-
-    // IMPORTANT: case_home must have a trailing slash
     let case_home_str = format!("{}/", case_home.display());
 
     log::info!("  fpga_config: {}", fpga_config);
@@ -326,13 +35,11 @@ fn init_ctb(case_home: &Path, rtcfg_path: &Path) -> Result<CtbManager, String> {
     Ok(ctb)
 }
 
-/// Wait for simulation to complete
-fn wait_for_completion() -> Result<SimulationResult, String> {
+pub fn wait_for_completion() -> Result<SimulationResult, String> {
     let started = Instant::now();
     let poll_interval = Duration::from_millis(100);
 
     loop {
-        // Check if simulation should exit
         if ffi::check_exit() {
             let exit_code = ffi::exit_code();
             let uart_log = ffi::uart_log();
@@ -346,13 +53,11 @@ fn wait_for_completion() -> Result<SimulationResult, String> {
             });
         }
 
-        // Sleep to avoid busy-waiting
         std::thread::sleep(poll_interval);
     }
 }
 
-/// Generate main.tcl dynamically based on simulation parameters
-fn generate_main_tcl(
+pub fn generate_main_tcl(
     fpga_location: &str,
     image: &Path,
     bitstream: &Path,
@@ -421,8 +126,7 @@ exit
     Ok(tcl)
 }
 
-/// Start vdbg in background with the given TCL script
-fn start_vdbg_background(tcl_path: &Path) -> Result<(), String> {
+pub fn start_vdbg_background(tcl_path: &Path) -> Result<(), String> {
     use std::process::Command;
 
     let sourceme = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
@@ -434,7 +138,6 @@ fn start_vdbg_background(tcl_path: &Path) -> Result<(), String> {
 
     log::info!("Starting vdbg in background: {}", command);
 
-    // CRITICAL: Clear LD_PRELOAD to avoid glibc version conflicts
     Command::new("bash")
         .arg("-c")
         .arg(&command)
@@ -445,8 +148,7 @@ fn start_vdbg_background(tcl_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Source sourceme.sh to set up VVAC environment variables
-fn source_environment() -> Result<(), String> {
+pub fn source_environment() -> Result<(), String> {
     use duct::cmd;
 
     let sourceme = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
@@ -456,12 +158,10 @@ fn source_environment() -> Result<(), String> {
 
     log::info!("Sourcing environment from: {}", sourceme.display());
 
-    // Run bash to source the script and print all environment variables
     let output: String = cmd!("bash", "-c", format!("source {} && env", sourceme.display()))
         .read()
         .map_err(|e| format!("Failed to source sourceme.sh: {}", e))?;
 
-    // Parse the output and set environment variables
     for line in output.lines() {
         if let Some((key, value)) = line.split_once('=') {
             std::env::set_var(key, value);
@@ -469,8 +169,6 @@ fn source_environment() -> Result<(), String> {
     }
 
     log::info!("Environment variables loaded from sourceme.sh");
-
-    // Debug: print key environment variables
     log::info!("HPEC_HOME: {:?}", std::env::var("HPEC_HOME"));
     log::info!("VVAC_HOME: {:?}", std::env::var("VVAC_HOME"));
     log::info!("LD_LIBRARY_PATH: {:?}", std::env::var("LD_LIBRARY_PATH"));
@@ -478,20 +176,20 @@ fn source_environment() -> Result<(), String> {
     Ok(())
 }
 
-/// Configure VVAC environment variables
-///
-/// Sets up the environment for VVAC CTB to run in onboard mode (FPGA).
-/// This matches the reference example's environment setup.
-fn configure_vvac_environment() {
+pub fn configure_vvac_environment() {
     std::env::set_var("VMRI_LOG_LEVEL", "0");
     std::env::set_var("VVAC_LOG_LEVEL", "0");
     std::env::set_var("RBMGR_LOG_LEVEL", "0");
     std::env::set_var("RBMGR_DUMP_DATA", "1");
     std::env::set_var("RTL_DBG_SIZE", "128");
-    // Onboard mode
     std::env::set_var("VMRI_WORK_MODE", "3");
-    // Onboard mode
     std::env::set_var("VVAC_WORK_MODE", "0");
 
     log::info!("Running P2E in onboard mode");
+}
+
+pub fn wait_for_flash(flash_done_flag: &Path) {
+    while !flash_done_flag.exists() {
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }

@@ -1,30 +1,53 @@
+//===----- spike.cc -------- new spike mainloop maintained by bemu --------------------===//
+//
+// Copyright 2026 The Aerospace Corporation
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+//===----------------------------------------------------------------------===//
+//
+// Maintains the main stages of Spike execution:
+//  1. Initialize Stage 1: Initialize a new Spike instance
+//  2. Load the elf file into the memory. (This is done by bemu, not Spike.)
+//  3. Initialize Stage 2: Initialize hart state after Rust has loaded the workload into BEMU memory.
+//  4. Execute step by step.
+//  5. Finish the execution.
+//
+//===----------------------------------------------------------------------===//
+
+#include "btif.h"
 #include "processor.h"
 #include "mmu.h"
-#include "cfg.h"
 #include "extension.h"
-#include "simif.h"
 #include "trap.h"
-#include <vector>
-#include <string>
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <csignal>
 #include <execinfo.h>
 #include <unistd.h>
-
-#define SIM_EXIT_ADDR 0x60000000UL
-#define DRAM_BASE 0x80000000UL
-#define UART_BASE 0x60020000UL
-#define UART_SIZE 0x100UL
-#define LOW_ALIAS_BASE 0x10000UL
+#include <mutex>
 
 extern "C" {
-    uint64_t handle_syscall_ffi(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-    bool should_exit();
-    int get_exit_code_ffi();
-    uint64_t uart_mmio_load(uint8_t* uart_ptr, uint64_t addr, size_t size);
-    bool uart_mmio_store(uint8_t* uart_ptr, uint64_t addr, size_t size, uint64_t value);
+    uint64_t handle_syscall_ffi(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+    bool should_exit_ffi(void*);
+    int get_exit_code_ffi(void*);
+}
+
+static thread_local void* current_emu_state = nullptr;
+
+extern "C" void* current_bemu_state() {
+    return current_emu_state;
 }
 
 static void crash_handler(int sig) {
@@ -36,586 +59,408 @@ static void crash_handler(int sig) {
     _Exit(128 + sig);
 }
 
+void init_crash_handler() {
+    std::signal(SIGABRT, crash_handler);
+    std::signal(SIGSEGV, crash_handler);
+    std::signal(SIGILL, crash_handler);
+}
+
 // Forward declare the buckyball extension factory
 // This is defined in rocc.cc via REGISTER_EXTENSION macro
 extern std::function<extension_t*()> buckyball_extension_factory;
 
 // Manually register buckyball extension to avoid dlopen() issues
 static void ensure_buckyball_registered() {
-    static bool registered = false;
-    if (!registered) {
+    static std::once_flag once;
+    std::call_once(once, []() {
         register_extension("buckyball", buckyball_extension_factory);
-        registered = true;
-    }
+    });
 }
-
-// Simple simif implementation without HTIF
-class simple_simif_t : public simif_t {
-public:
-    simple_simif_t(uint8_t* mem_ptr, size_t mem_size, uint8_t* uart_ptr, const char* isa_str)
-        : mem_ptr(mem_ptr), mem_size(mem_size), uart_ptr(uart_ptr) {
-        isa_storage = isa_str;
-        if (isa_storage.find("xbuckyball") == std::string::npos) {
-            isa_storage += "_xbuckyball";
-        }
-        // Enable Zicclsm extension to allow misaligned load/store accesses
-        // (real Linux kernels handle misaligned traps in software; bemu has no such handler,
-        // so we let Spike's MMU permit them directly, matching the FPGA Linux environment.)
-        if (isa_storage.find("zicclsm") == std::string::npos) {
-            isa_storage += "_zicclsm";
-        }
-        // Enable Zicntr (cycle/time/instret) and Zihpm (hardware perf counters) extensions
-        // so guest code can execute `rdcycle`/`rdtime`/`rdinstret` instructions.
-        // Without these, `csrr a5, cycle` (used by LeNet's read_cycles()) traps as illegal.
-        if (isa_storage.find("zicntr") == std::string::npos) {
-            isa_storage += "_zicntr";
-        }
-        if (isa_storage.find("zihpm") == std::string::npos) {
-            isa_storage += "_zihpm";
-        }
-        cfg.isa = isa_storage.c_str();
-        cfg.priv = "MSU";  // Support Machine, Supervisor, and User modes
-        cfg.mem_layout.push_back(mem_cfg_t(DRAM_BASE, mem_size));
-        cfg.hartids.push_back(0);
-    }
-
-    char* addr_to_mem(reg_t addr) override {
-        if (addr >= DRAM_BASE && addr < DRAM_BASE + mem_size) {
-            return reinterpret_cast<char*>(mem_ptr + (addr - DRAM_BASE));
-        }
-        // Alias low virtual addresses for relocated EXEC binaries.
-        if (addr >= LOW_ALIAS_BASE && addr < LOW_ALIAS_BASE + mem_size) {
-            return reinterpret_cast<char*>(mem_ptr + (addr - LOW_ALIAS_BASE));
-        }
-        return nullptr;
-    }
-
-    bool mmio_load(reg_t addr, size_t len, uint8_t* bytes) override {
-        // Handle UART
-        if (addr >= UART_BASE && addr < UART_BASE + UART_SIZE) {
-            uint64_t value = uart_mmio_load(uart_ptr, addr, len);
-            memcpy(bytes, &value, len);
-            return true;
-        }
-        return false;
-    }
-
-    bool mmio_store(reg_t addr, size_t len, const uint8_t* bytes) override {
-        // Handle exit address
-        if (addr == SIM_EXIT_ADDR) {
-            uint64_t value = 0;
-            memcpy(&value, bytes, len);
-            exit_code = static_cast<int>(value & 0xffffffff);
-            exit_requested = true;
-            return true;
-        }
-
-        // Handle UART
-        if (addr >= UART_BASE && addr < UART_BASE + UART_SIZE) {
-            uint64_t value = 0;
-            memcpy(&value, bytes, len);
-            return uart_mmio_store(uart_ptr, addr, len, value);
-        }
-
-        return false;
-    }
-
-    void proc_reset(unsigned) override {}
-
-    const cfg_t &get_cfg() const override {
-        return cfg;
-    }
-
-    const std::map<size_t, processor_t*>& get_harts() const override {
-        static std::map<size_t, processor_t*> empty_map;
-        return empty_map;
-    }
-
-    const char* get_symbol(uint64_t) override {
-        return nullptr;
-    }
-
-    bool exit_requested = false;
-    int exit_code = 0;
-
-private:
-    uint8_t* mem_ptr;
-    size_t mem_size;
-    uint8_t* uart_ptr;
-    std::string isa_storage;
-    cfg_t cfg;
-};
 
 extern "C" {
 
-int spike_run_raw(
+struct spike_context_t {
+    BTIF* btif = nullptr;
+    processor_t* proc = nullptr;
+    FILE* log_file = nullptr;
+    state_t* state = nullptr;
+    void* emu_state = nullptr;
+    uint8_t* mem_ptr = nullptr;
+    size_t mem_size = 0;
+    uint64_t step_count = 0;
+    reg_t prev_pc = 0;
+    bool finished = false;
+    int exit_code = 0;
+};
+
+static void destroy_context(spike_context_t* ctx) {
+    if (ctx == nullptr) {
+        return;
+    }
+    if (ctx->log_file) {
+        fclose(ctx->log_file);
+    }
+    delete ctx->proc;
+    delete ctx->btif;
+    delete ctx;
+}
+
+//===----------------------------------------------------------------------===//
+// Initialize Stage 1: Initialize a new Spike instance
+//===----------------------------------------------------------------------===//
+static bool init_log(spike_context_t* ctx, const char* log_path) {
+    ctx->log_file = fopen(log_path, "w");
+    if (ctx->log_file != nullptr) {
+        return true;
+    }
+
+    fprintf(stderr, "[ERROR] failed to open Spike log file: %s\n", log_path);
+    fflush(stderr);
+    return false;
+}
+
+static bool check_buckyball_mounted(spike_context_t* ctx) {
+    if (ctx->proc->get_extension("buckyball") != nullptr) {
+        return true;
+    }
+
+    fprintf(stderr, "[ERROR] buckyball extension not mounted\n");
+    fflush(stderr);
+    return false;
+}
+
+static void init_csrs(spike_context_t* ctx) {
+    // Enable the floating-point unit for guest code. RISC-V gates floating-point
+    // register/instruction use through mstatus.FS; leaving FS=Off makes ordinary
+    // floating-point instructions trap even when the ISA string includes F/D.
+    // Marking FS Dirty is the simplest functional-model setup for BEMU.
+    constexpr reg_t MSTATUS_FS_MASK = 0x6000;
+    constexpr reg_t MSTATUS_FS_DIRTY = 0x6000;
+    reg_t mstatus = ctx->state->csrmap[CSR_MSTATUS]->read();
+    mstatus = (mstatus & ~MSTATUS_FS_MASK) | MSTATUS_FS_DIRTY;
+    ctx->state->csrmap[CSR_MSTATUS]->write(mstatus);
+
+    // Allow S-mode/U-mode software to read the architectural counters used by
+    // common runtimes and benchmarks: cycle, time, and instret. Without these
+    // mcounteren/scounteren bits, instructions like rdcycle or rdtime trap
+    // instead of returning counter values.
+    constexpr reg_t COUNTEREN_MASK = 0x7;
+    ctx->state->csrmap[CSR_MCOUNTEREN]->write(COUNTEREN_MASK);
+    ctx->state->csrmap[CSR_SCOUNTEREN]->write(COUNTEREN_MASK);
+}
+
+void* spike_create_raw(
     const char* isa,
-    size_t,
+    size_t procs,
     uint8_t* mem_ptr,
     size_t mem_size,
-    uint64_t entry,
-    uint64_t dtb_addr,
     const char* log_path,
-    const uint64_t* tp_value_ptr,
     uint8_t* uart_ptr,
-    bool pk
+    void* emu_state
 ) {
-    std::signal(SIGABRT, crash_handler);
-    std::signal(SIGSEGV, crash_handler);
-    std::signal(SIGILL, crash_handler);
-
-    // Ensure buckyball extension is registered before creating processor
+    init_crash_handler();
     ensure_buckyball_registered();
 
-    // Create simif with Rust-provided memory and UART
-    simple_simif_t simif(mem_ptr, mem_size, uart_ptr, isa);
-
-    // Create processor
-    FILE* log_file = nullptr;
-    if (log_path && strlen(log_path) > 0) {
-        log_file = fopen(log_path, "w");
-        if (log_file == nullptr) {
-            fprintf(stderr, "[ERROR] Failed to open log file: %s\n", log_path);
-            fflush(stderr);
-            return 1;
-        }
-    } else {
-        fprintf(stderr, "[ERROR] log_path is required: bemu enables Spike debug mode and must write disasm.log\n");
-        fprintf(stderr, "[ERROR] Pass --log-dir=<dir> when invoking bemu (e.g. --log-dir=/tmp/bemu_log)\n");
+    if (procs != 1) {
+        fprintf(stderr, "[ERROR] only one Spike hart is supported for now, got %zu\n", procs);
         fflush(stderr);
-        return 1;
+        return nullptr;
     }
 
-    const char* final_isa = simif.get_cfg().isa;
-    processor_t proc(final_isa, "MSU", &simif.get_cfg(), &simif, 0, false, log_file, std::cerr);
+    auto* ctx = new spike_context_t();
+    ctx->mem_ptr = mem_ptr;
+    ctx->mem_size = mem_size;
+    ctx->emu_state = emu_state;
+    current_emu_state = ctx->emu_state;
 
-    // Reset processor to ensure clean state
-    proc.reset();
-
-    extension_t* mounted_ext = proc.get_extension("buckyball");
-    if (mounted_ext == nullptr) {
-        fprintf(stderr, "[ERROR] buckyball extension not mounted\n");
-        fflush(stderr);
-        return 1;
+    if (!init_log(ctx, log_path)) {
+        destroy_context(ctx);
+        return nullptr;
     }
 
-    // Enable debug mode to force trap exceptions
-    proc.set_debug(true);
+    ctx->btif = new BTIF(mem_ptr, mem_size, uart_ptr, isa);
+    const char* final_isa = ctx->btif->get_cfg().isa;
+    ctx->proc = new processor_t(final_isa, "MSU", &ctx->btif->get_cfg(), ctx->btif, 0, false, ctx->log_file, std::cerr);
+    ctx->proc->reset();
 
-    // Skip find_extension() as it tries to dlopen() and hangs
-    // We've already registered the extension via ensure_buckyball_registered()
+    if (!check_buckyball_mounted(ctx)) {
+        destroy_context(ctx);
+        return nullptr;
+    }
 
-    // Set up initial state
-    state_t* state = proc.get_state();
+    ctx->proc->set_debug(true);
+    ctx->state = ctx->proc->get_state();
 
-    const uint64_t TRAP_HANDLER_ADDR = 0x80000000 + mem_size - 0x2000;  // Trap handler
-    const uint64_t SYSCALL_MAGIC_ADDR_INIT = 0x80000000 + mem_size - 0x1000; // Magic address for syscall detection
+    // Initialize the CSRs for the guest code.
+    init_csrs(ctx);
+
+    return ctx;
+}
+
+//===----------------------------------------------------------------------===//
+// Initialize Stage 2: Initialize hart
+// 
+// We can't init these before elf loading: trap_handler_addr, initial_sp, 
+// initial_a0, initial_a1, initial_a2, tp_value_ptr, entry comes from the 
+// ELF file, which is loaded by bemu.
+//===----------------------------------------------------------------------===//
+bool spike_init_hart_raw(
+    void* raw_ctx,
+    uint64_t entry,
+    uint64_t trap_handler_addr,
+    uint64_t initial_sp,
+    uint64_t initial_a0,
+    uint64_t initial_a1,
+    uint64_t initial_a2,
+    const uint64_t* tp_value_ptr,
+    bool pk
+) {
+    auto* ctx = reinterpret_cast<spike_context_t*>(raw_ctx);
+    if (ctx == nullptr) {
+        return false;
+    }
+    current_emu_state = ctx->emu_state;
 
     if (pk) {
-        // Linux mode: start in S-mode with syscall trap handler
-        // IMPORTANT: Implement a real trap handler in memory
-        // The trap handler will save the syscall number and arguments, then jump to a special address
-        // We'll detect this special address and handle the syscall
-
-        // Write a simple trap handler that jumps to our magic address
-        // We'll use RISC-V assembly instructions encoded as uint32_t
-        if (TRAP_HANDLER_ADDR >= DRAM_BASE && TRAP_HANDLER_ADDR + 64 <= DRAM_BASE + mem_size) {
-            uint32_t* handler = reinterpret_cast<uint32_t*>(mem_ptr + (TRAP_HANDLER_ADDR - DRAM_BASE));
-
-            // Trap handler code (RISC-V assembly):
-            // We want to jump to SYSCALL_MAGIC_ADDR_INIT
-            // Use: lui t0, %hi(addr); jalr zero, t0, %lo(addr)
-
-            // Calculate hi and lo parts for lui/jalr
-            // For a 64-bit address, we need to use multiple instructions
-            // Let's use a simpler approach: just use a relative jump
-
-            // Calculate offset from trap handler to magic address
-            int64_t offset = SYSCALL_MAGIC_ADDR_INIT - TRAP_HANDLER_ADDR;
-
-            // Use jal (jump and link) instruction: jal x0, offset
-            // jal encoding: imm[20|10:1|11|19:12] | rd | opcode
-            // opcode for jal = 0x6f
-            // rd = 0 (x0, discard return address)
-
-            // Split offset into immediate fields
-            uint32_t imm20 = (offset >> 20) & 0x1;
-            uint32_t imm10_1 = (offset >> 1) & 0x3ff;
-            uint32_t imm11 = (offset >> 11) & 0x1;
-            uint32_t imm19_12 = (offset >> 12) & 0xff;
-
-            uint32_t jal_insn = 0x6f | // opcode
-                               (0 << 7) | // rd = x0
-                               (imm19_12 << 12) |
-                               (imm11 << 20) |
-                               (imm10_1 << 21) |
-                               (imm20 << 31);
-
-            handler[0] = jal_insn;
-
-        }
-
-        // Set mtvec to point to our trap handler
-        // IMPORTANT: Supervisor mode ecalls trap to Machine mode, so we need to set mtvec, not stvec!
-        state->csrmap[CSR_MTVEC]->write(TRAP_HANDLER_ADDR);
-
-        // Start in Supervisor mode
-        state->prv = PRV_S;
-
-        // Enable floating point
-        constexpr reg_t MSTATUS_FS_MASK = 0x6000;
-        constexpr reg_t MSTATUS_FS_DIRTY = 0x6000;
-        reg_t mstatus = state->csrmap[CSR_MSTATUS]->read();
-        mstatus = (mstatus & ~MSTATUS_FS_MASK) | MSTATUS_FS_DIRTY;
-        state->csrmap[CSR_MSTATUS]->write(mstatus);
-
-        // Enable performance counters (cycle, time, instret) for S/U modes.
-        // Real Linux kernels set these CSRs so user programs can read cycle counters.
-        // Without this, `rdcycle` / `csrr a5, cycle` triggers illegal instruction trap.
-        // mcounteren: M-mode allows S-mode to access counters
-        // scounteren: S-mode allows U-mode to access counters
-        // Bits: 0=cycle, 1=time, 2=instret, 3-31=hpmcounter3-31
-        constexpr reg_t COUNTEREN_CY = 0x1;  // cycle
-        constexpr reg_t COUNTEREN_TM = 0x2;  // time
-        constexpr reg_t COUNTEREN_IR = 0x4;  // instret
-        constexpr reg_t COUNTEREN_MASK = COUNTEREN_CY | COUNTEREN_TM | COUNTEREN_IR;
-        state->csrmap[CSR_MCOUNTEREN]->write(COUNTEREN_MASK);
-        state->csrmap[CSR_SCOUNTEREN]->write(COUNTEREN_MASK);
-
-        state->pc = entry;
-        state->XPR.write(10, 0);        // a0 = hartid (0)
-        state->XPR.write(11, dtb_addr); // a1 = dtb address
-
-    // Initialize Linux process stack (argc/argv/envp/auxv).
-    uint64_t stack_top = (DRAM_BASE + mem_size - 0x400000) & ~0xFULL;
-    const char prog_name[] = "tutorial-linux";
-    constexpr uint64_t AT_NULL = 0;
-    constexpr uint64_t AT_PHDR = 3;
-    constexpr uint64_t AT_PHENT = 4;
-    constexpr uint64_t AT_PHNUM = 5;
-    constexpr uint64_t AT_PAGESZ = 6;
-    constexpr uint64_t AT_BASE = 7;
-    constexpr uint64_t AT_HWCAP = 16;
-    constexpr uint64_t AT_ENTRY = 9;
-    constexpr uint64_t AT_UID = 11;
-    constexpr uint64_t AT_EUID = 12;
-    constexpr uint64_t AT_GID = 13;
-    constexpr uint64_t AT_EGID = 14;
-    constexpr uint64_t AT_HWCAP2 = 26;
-    constexpr uint64_t AT_SECURE = 23;
-    constexpr uint64_t AT_RANDOM = 25;
-    constexpr uint64_t AT_EXECFN = 31;
-    const uint64_t word_size = sizeof(uint64_t);
-    const uint64_t string_len = sizeof(prog_name);
-    const uint64_t random_len = 16;
-
-    uint64_t string_addr = (stack_top - string_len) & ~0xFULL;
-    uint64_t random_addr = (string_addr - random_len) & ~0xFULL;
-    uint64_t at_phdr = 0;
-    uint64_t at_phent = 56;
-    uint64_t at_phnum = 0;
-
-    // Read ELF header fields from guest memory for accurate auxv.
-    if (mem_size >= 64) {
-        uint64_t e_phoff = 0;
-        uint16_t e_phentsize = 56;
-        uint16_t e_phnum16 = 0;
-        memcpy(&e_phoff, mem_ptr + 32, sizeof(uint64_t));
-        memcpy(&e_phentsize, mem_ptr + 54, sizeof(uint16_t));
-        memcpy(&e_phnum16, mem_ptr + 56, sizeof(uint16_t));
-        if (e_phoff < mem_size) {
-            at_phdr = DRAM_BASE + e_phoff;
-        }
-        if (e_phentsize != 0) {
-            at_phent = e_phentsize;
-        }
-        at_phnum = e_phnum16;
+        ctx->state->csrmap[CSR_MTVEC]->write(trap_handler_addr);
+        ctx->state->prv = PRV_S;
     }
 
-    uint64_t string_offset = string_addr - DRAM_BASE;
-    uint64_t random_offset = random_addr - DRAM_BASE;
-    if (string_offset + string_len > mem_size ||
-        random_offset + random_len > mem_size) {
-        fprintf(stderr, "[ERROR] Stack layout exceeds guest memory\n");
-        fflush(stderr);
-        return 1;
+    ctx->state->pc = entry;
+    if (initial_sp != 0) {
+        ctx->state->XPR.write(2, initial_sp);
     }
-
-    std::vector<uint64_t> stack_entries;
-    stack_entries.reserve(40);
-    stack_entries.push_back(1);          // argc
-    stack_entries.push_back(string_addr); // argv[0]
-    stack_entries.push_back(0);          // argv terminator
-    const uint64_t envp_offset_words = stack_entries.size();
-    stack_entries.push_back(0);          // envp terminator
-    stack_entries.push_back(AT_PHDR);
-    stack_entries.push_back(at_phdr);
-    stack_entries.push_back(AT_PHENT);
-    stack_entries.push_back(at_phent);
-    stack_entries.push_back(AT_PHNUM);
-    stack_entries.push_back(at_phnum);
-    stack_entries.push_back(AT_PAGESZ);
-    stack_entries.push_back(4096);
-    stack_entries.push_back(AT_BASE);
-    stack_entries.push_back(0);
-    stack_entries.push_back(AT_HWCAP);
-    stack_entries.push_back(0);
-    stack_entries.push_back(AT_ENTRY);
-    stack_entries.push_back(entry);
-    stack_entries.push_back(AT_UID);
-    stack_entries.push_back(0);
-    stack_entries.push_back(AT_EUID);
-    stack_entries.push_back(0);
-    stack_entries.push_back(AT_GID);
-    stack_entries.push_back(0);
-    stack_entries.push_back(AT_EGID);
-    stack_entries.push_back(0);
-    stack_entries.push_back(AT_SECURE);
-    stack_entries.push_back(0);
-    stack_entries.push_back(AT_RANDOM);
-    stack_entries.push_back(random_addr);
-    stack_entries.push_back(AT_HWCAP2);
-    stack_entries.push_back(0);
-    stack_entries.push_back(AT_EXECFN);
-    stack_entries.push_back(string_addr);
-    stack_entries.push_back(AT_NULL);
-    stack_entries.push_back(0);
-
-    const uint64_t stack_words = stack_entries.size();
-    uint64_t sp = (random_addr - stack_words * word_size) & ~0xFULL;
-    uint64_t sp_offset = sp - DRAM_BASE;
-    if (sp < DRAM_BASE || stack_top > DRAM_BASE + mem_size) {
-        fprintf(stderr, "[ERROR] Invalid stack range: sp=0x%lx top=0x%lx\n", sp, stack_top);
-        fflush(stderr);
-        return 1;
-    }
-    if (sp_offset + stack_words * word_size > mem_size) {
-        fprintf(stderr, "[ERROR] Stack entries exceed guest memory\n");
-        fflush(stderr);
-        return 1;
-    }
-
-    memcpy(mem_ptr + string_offset, prog_name, string_len);
-    for (uint64_t i = 0; i < random_len; ++i) {
-        mem_ptr[random_offset + i] = static_cast<uint8_t>(0xA5u ^ static_cast<uint8_t>(i));
-    }
-    uint64_t* stack_words_ptr = reinterpret_cast<uint64_t*>(mem_ptr + sp_offset);
-    for (size_t i = 0; i < stack_entries.size(); ++i) {
-        stack_words_ptr[i] = stack_entries[i];
-    }
-
-    state->XPR.write(2, sp); // sp = x2
-    state->XPR.write(10, 1); // a0 = argc
-    state->XPR.write(11, sp + word_size); // a1 = argv
-    state->XPR.write(12, sp + envp_offset_words * word_size); // a2 = envp
-
-    // Initialize tp (thread pointer) for TLS support if provided
+    ctx->state->XPR.write(10, initial_a0);
+    ctx->state->XPR.write(11, initial_a1);
+    ctx->state->XPR.write(12, initial_a2);
     if (tp_value_ptr != nullptr) {
-        uint64_t tp = *tp_value_ptr;
-        state->XPR.write(4, tp); // tp = x4
+        ctx->state->XPR.write(4, *tp_value_ptr);
     }
-    } else {
-        // Baremetal mode: enable FP, set PC, pass hartid/dtb. No stack setup.
-        constexpr reg_t MSTATUS_FS_MASK = 0x6000;
-        constexpr reg_t MSTATUS_FS_DIRTY = 0x6000;
-        reg_t mstatus = state->csrmap[CSR_MSTATUS]->read();
-        mstatus = (mstatus & ~MSTATUS_FS_MASK) | MSTATUS_FS_DIRTY;
-        state->csrmap[CSR_MSTATUS]->write(mstatus);
-
-        // Enable performance counters (cycle, time, instret) for S/U modes
-        constexpr reg_t COUNTEREN_MASK = 0x7;  // cycle | time | instret
-        state->csrmap[CSR_MCOUNTEREN]->write(COUNTEREN_MASK);
-        state->csrmap[CSR_SCOUNTEREN]->write(COUNTEREN_MASK);
-
-        state->pc = entry;
-        state->XPR.write(10, 0);        // a0 = hartid (0)
-        state->XPR.write(11, dtb_addr); // a1 = dtb address
-    }
-
-    // Run until sim_exit or syscall exit
-    uint64_t step_count = 0;
-    reg_t prev_pc = state->pc;
-
-    const uint64_t SYSCALL_MAGIC_ADDR = 0x80000000 + mem_size - 0x1000;
-    uint64_t pctrace_interval = 0;
-    if (const char* pctrace_env = std::getenv("BEMU_PCTRACE")) {
-        pctrace_interval = std::strtoull(pctrace_env, nullptr, 0);
-        if (pctrace_interval <= 1) {
-            pctrace_interval = 1000000;
-        }
-    }
-
-    while (!simif.exit_requested && !should_exit()) {
-        try {
-            // Check if we're at the magic trap target
-            if (state->pc == SYSCALL_MAGIC_ADDR) {
-                reg_t mcause = state->csrmap[CSR_MCAUSE]->read();
-                bool is_ecall =
-                    mcause == CAUSE_USER_ECALL ||
-                    mcause == CAUSE_SUPERVISOR_ECALL ||
-                    mcause == CAUSE_MACHINE_ECALL;
-                if (!is_ecall) {
-                    reg_t mepc = state->csrmap[CSR_MEPC]->read();
-                    fprintf(stderr,
-                            "[ERROR] Non-ecall trap reached syscall handler: mcause=%ld mepc=0x%lx tval=0x%lx pc=0x%lx\n",
-                            mcause, mepc, state->csrmap[CSR_MTVAL]->read(), state->pc);
-                    fflush(stderr);
-                    return 1;
-                }
-
-                // System call detected from ecall
-                uint64_t syscall_num = state->XPR[17]; // a7
-                uint64_t a0 = state->XPR[10];
-                uint64_t a1 = state->XPR[11];
-                uint64_t a2 = state->XPR[12];
-                uint64_t a3 = state->XPR[13];
-                uint64_t a4 = state->XPR[14];
-                uint64_t a5 = state->XPR[15];
-
-                // Call Rust syscall handler
-                uint64_t result = handle_syscall_ffi(syscall_num, a0, a1, a2, a3, a4, a5);
-
-                // Set return value
-                state->XPR.write(10, result); // a0
-
-                // Return to the instruction after ecall
-                // IMPORTANT: Supervisor mode ecall traps to Machine mode, so use mepc not sepc
-                reg_t epc = state->csrmap[CSR_MEPC]->read();
-                state->pc = epc + 4;
-
-                // Also need to restore privilege mode back to Supervisor
-                state->prv = PRV_S;
-
-                prev_pc = state->pc;
-                continue;  // Skip the normal step
-            }
-
-            uint16_t insn16 = 0;
-            bool has_insn16 = false;
-            if (state->pc >= DRAM_BASE && state->pc + 2 <= DRAM_BASE + mem_size) {
-                uint64_t off = state->pc - DRAM_BASE;
-                memcpy(&insn16, mem_ptr + off, sizeof(insn16));
-                has_insn16 = true;
-            } else if (state->pc >= LOW_ALIAS_BASE && state->pc + 2 <= LOW_ALIAS_BASE + mem_size) {
-                uint64_t off = state->pc - LOW_ALIAS_BASE;
-                memcpy(&insn16, mem_ptr + off, sizeof(insn16));
-                has_insn16 = true;
-            }
-            if (has_insn16 && (insn16 & 0xF07F) == 0x9002) {
-                uint32_t rs1 = (insn16 >> 7) & 0x1F;
-                reg_t target = state->XPR[rs1] & ~((reg_t)1);
-                bool valid_high = target >= DRAM_BASE && target < DRAM_BASE + mem_size;
-                bool valid_low_alias = target >= LOW_ALIAS_BASE && target < LOW_ALIAS_BASE + mem_size;
-                if (!valid_high && !valid_low_alias) {
-                    state->pc += 2;
-                    prev_pc = state->pc;
-                    continue;
-                }
-            }
-
-            proc.step(1);
-            step_count++;
-            if (pctrace_interval != 0 && step_count % pctrace_interval == 0) {
-                fprintf(stderr,
-                        "[PCTRACE] step=%lu pc=0x%lx sp=0x%lx ra=0x%lx a0=0x%lx a1=0x%lx\n",
-                        step_count, state->pc, state->XPR[2], state->XPR[1], state->XPR[10], state->XPR[11]);
-                fflush(stderr);
-            }
-
-            // Detect PC jump to 0
-            if (state->pc == 0 && prev_pc != 0) {
-                fprintf(stderr, "[ERROR] PC jumped to 0! Previous PC = 0x%lx, step = %lu\n", prev_pc, step_count);
-                fprintf(stderr, "[ERROR] Register dump:\n");
-                fprintf(stderr, "  ra (x1)  = 0x%lx\n", state->XPR[1]);
-                fprintf(stderr, "  sp (x2)  = 0x%lx\n", state->XPR[2]);
-                fprintf(stderr, "  gp (x3)  = 0x%lx\n", state->XPR[3]);
-                fprintf(stderr, "  tp (x4)  = 0x%lx\n", state->XPR[4]);
-                fprintf(stderr, "  t0 (x5)  = 0x%lx\n", state->XPR[5]);
-                fprintf(stderr, "  t1 (x6)  = 0x%lx\n", state->XPR[6]);
-                fprintf(stderr, "  t2 (x7)  = 0x%lx\n", state->XPR[7]);
-                fprintf(stderr, "  s1 (x9)  = 0x%lx\n", state->XPR[9]);
-                fprintf(stderr, "  a0 (x10) = 0x%lx\n", state->XPR[10]);
-                fprintf(stderr, "  a1 (x11) = 0x%lx\n", state->XPR[11]);
-                fprintf(stderr, "  a7 (x17) = 0x%lx\n", state->XPR[17]);
-                fprintf(stderr, "  t4 (x29) = 0x%lx\n", state->XPR[29]);
-
-                // Read instruction at previous PC
-                if (prev_pc >= DRAM_BASE && prev_pc < DRAM_BASE + mem_size) {
-                    uint64_t offset = prev_pc - DRAM_BASE;
-                    uint32_t insn = *(uint32_t*)(mem_ptr + offset);
-                    fprintf(stderr, "  Instruction at 0x%lx: 0x%08x\n", prev_pc, insn);
-                }
-                fflush(stderr);
-                // Exit immediately to avoid infinite loop
-                break;
-            }
-
-            prev_pc = state->pc;
-        } catch (trap_t& t) {
-            // Handle traps (exceptions)
-
-            if (t.cause() == CAUSE_USER_ECALL ||
-                t.cause() == CAUSE_SUPERVISOR_ECALL ||
-                t.cause() == CAUSE_MACHINE_ECALL) {
-                // System call - get arguments from registers
-                uint64_t syscall_num = state->XPR[17]; // a7
-                uint64_t a0 = state->XPR[10];
-                uint64_t a1 = state->XPR[11];
-                uint64_t a2 = state->XPR[12];
-                uint64_t a3 = state->XPR[13];
-                uint64_t a4 = state->XPR[14];
-                uint64_t a5 = state->XPR[15];
-
-                // Call Rust syscall handler
-                uint64_t result = handle_syscall_ffi(syscall_num, a0, a1, a2, a3, a4, a5);
-
-                // Set return value
-                state->XPR.write(10, result); // a0
-
-                // IMPORTANT: For ecalls, we need to return to the instruction AFTER the ecall
-                // The PC in mepc/sepc points to the ecall instruction itself
-                // We need to read mepc, add 4, and set PC to that value
-                reg_t epc;
-                if (t.cause() == CAUSE_MACHINE_ECALL) {
-                    epc = state->csrmap[CSR_MEPC]->read();
-                } else if (t.cause() == CAUSE_SUPERVISOR_ECALL) {
-                    epc = state->csrmap[CSR_SEPC]->read();
-                } else {
-                    epc = state->pc;  // User ecall - PC should already be set correctly
-                }
-
-                // Return to the instruction after ecall
-                state->pc = epc + 4;
-
-            } else if (t.cause() == CAUSE_BREAKPOINT) {
-                // Breakpoint (ebreak) - this might be our trap handler
-                // Skip the ebreak instruction
-                state->pc += 4;
-            } else if (t.cause() == CAUSE_MISALIGNED_LOAD || t.cause() == CAUSE_MISALIGNED_STORE) {
-                // Misaligned load/store: Spike's MMU will handle this in software.
-                // The trap handler has already been invoked by Spike internally,
-                // and the PC has been updated. We just need to continue execution.
-                // Do nothing - let Spike's internal misaligned handler take care of it.
-            } else {
-                reg_t mcause = state->csrmap[CSR_MCAUSE]->read();
-                reg_t mepc = state->csrmap[CSR_MEPC]->read();
-                reg_t tval = state->csrmap[CSR_MTVAL]->read();
-                fprintf(stderr,
-                        "[ERROR] Unhandled trap: cause=%ld mcause=%ld mepc=0x%lx tval=0x%lx pc=0x%lx\n",
-                        t.cause(), mcause, mepc, tval, state->pc);
-                fflush(stderr);
-                return 1;
-            }
-        }
-    }
-
-    if (log_file) {
-        fclose(log_file);
-    }
-
-    if (simif.exit_requested) {
-        return simif.exit_code;
-    }
-    return should_exit() ? get_exit_code_ffi() : 0;
+    ctx->prev_pc = ctx->state->pc;
+    ctx->finished = false;
+    ctx->exit_code = 0;
+    ctx->step_count = 0;
+    ctx->btif->exit_requested = false;
+    ctx->btif->exit_code = 0;
+    return true;
 }
+
+//===----------------------------------------------------------------------===//
+// Execute Stage: Execute step by step
+//
+//===----------------------------------------------------------------------===//
+static spike_context_t* enter_context(void* raw_ctx) {
+    auto* ctx = reinterpret_cast<spike_context_t*>(raw_ctx);
+    if (ctx != nullptr) {
+        current_emu_state = ctx->emu_state;
+    }
+    return ctx;
+}
+
+static bool finish_if_requested(spike_context_t* ctx) {
+    if (ctx->finished || ctx->btif->exit_requested || should_exit_ffi(ctx->emu_state)) {
+        ctx->finished = true;
+        ctx->exit_code = ctx->btif->exit_requested ? ctx->btif->exit_code : get_exit_code_ffi(ctx->emu_state);
+        return true;
+    }
+    return false;
+}
+
+static bool is_ecall_cause(reg_t cause) {
+    return cause == CAUSE_USER_ECALL ||
+           cause == CAUSE_SUPERVISOR_ECALL ||
+           cause == CAUSE_MACHINE_ECALL;
+}
+
+static uint64_t handle_guest_syscall(spike_context_t* ctx) {
+    return handle_syscall_ffi(
+        ctx->emu_state,
+        ctx->state->XPR[17],
+        ctx->state->XPR[10],
+        ctx->state->XPR[11],
+        ctx->state->XPR[12],
+        ctx->state->XPR[13],
+        ctx->state->XPR[14],
+        ctx->state->XPR[15]);
+}
+
+static int handle_syscall_magic_pc(spike_context_t* ctx) {
+    const uint64_t SYSCALL_MAGIC_ADDR = DRAM_BASE + ctx->mem_size - 0x1000;
+    if (ctx->state->pc != SYSCALL_MAGIC_ADDR) {
+        return 0;
+    }
+
+    reg_t mcause = ctx->state->csrmap[CSR_MCAUSE]->read();
+    if (!is_ecall_cause(mcause)) {
+        fprintf(stderr,
+                "[ERROR] Non-ecall trap reached syscall handler: mcause=%ld mepc=0x%lx tval=0x%lx pc=0x%lx\n",
+                mcause, ctx->state->csrmap[CSR_MEPC]->read(), ctx->state->csrmap[CSR_MTVAL]->read(), ctx->state->pc);
+        fflush(stderr);
+        ctx->finished = true;
+        ctx->exit_code = 1;
+        return -1;
+    }
+
+    ctx->state->XPR.write(10, handle_guest_syscall(ctx));
+    ctx->state->pc = ctx->state->csrmap[CSR_MEPC]->read() + 4;
+    ctx->state->prv = PRV_S;
+    ctx->prev_pc = ctx->state->pc;
+    return 1;
+}
+
+static bool skip_invalid_compressed_jump(spike_context_t* ctx) {
+    uint16_t insn16 = 0;
+    if (ctx->state->pc < DRAM_BASE || ctx->state->pc + 2 > DRAM_BASE + ctx->mem_size) {
+        return false;
+    }
+
+    uint64_t off = ctx->state->pc - DRAM_BASE;
+    memcpy(&insn16, ctx->mem_ptr + off, sizeof(insn16));
+    if ((insn16 & 0xF07F) != 0x9002) {
+        return false;
+    }
+
+    uint32_t rs1 = (insn16 >> 7) & 0x1F;
+    reg_t target = ctx->state->XPR[rs1] & ~((reg_t)1);
+    bool valid_high = target >= DRAM_BASE && target < DRAM_BASE + ctx->mem_size;
+    if (valid_high) {
+        return false;
+    }
+
+    ctx->state->pc += 2;
+    ctx->prev_pc = ctx->state->pc;
+    return true;
+}
+
+static reg_t trap_epc(spike_context_t* ctx, trap_t& trap) {
+    if (trap.cause() == CAUSE_MACHINE_ECALL) {
+        return ctx->state->csrmap[CSR_MEPC]->read();
+    }
+    if (trap.cause() == CAUSE_SUPERVISOR_ECALL) {
+        return ctx->state->csrmap[CSR_SEPC]->read();
+    }
+    return ctx->state->pc;
+}
+
+static int fail_unhandled_trap(spike_context_t* ctx, trap_t& trap) {
+    fprintf(stderr,
+            "[ERROR] Unhandled trap: cause=%ld mcause=%ld mepc=0x%lx tval=0x%lx pc=0x%lx\n",
+            trap.cause(), ctx->state->csrmap[CSR_MCAUSE]->read(), ctx->state->csrmap[CSR_MEPC]->read(),
+            ctx->state->csrmap[CSR_MTVAL]->read(), ctx->state->pc);
+    fflush(stderr);
+    ctx->finished = true;
+    ctx->exit_code = 1;
+    return -1;
+}
+
+static int handle_trap(spike_context_t* ctx, trap_t& trap) {
+    if (is_ecall_cause(trap.cause())) {
+        ctx->state->XPR.write(10, handle_guest_syscall(ctx));
+        ctx->state->pc = trap_epc(ctx, trap) + 4;
+        return 0;
+    }
+
+    if (trap.cause() == CAUSE_BREAKPOINT) {
+        ctx->state->pc += 4;
+        return 0;
+    }
+
+    if (trap.cause() == CAUSE_MISALIGNED_LOAD || trap.cause() == CAUSE_MISALIGNED_STORE) {
+        return 0;
+    }
+
+    return fail_unhandled_trap(ctx, trap);
+}
+
+static int step_one_instruction(spike_context_t* ctx) {
+    try {
+        ctx->proc->step(1);
+        ctx->step_count++;
+        return 0;
+    } catch (trap_t& trap) {
+        return handle_trap(ctx, trap);
+    }
+}
+
+static bool pc_jumped_to_zero(spike_context_t* ctx) {
+    if (ctx->state->pc != 0 || ctx->prev_pc == 0) {
+        return false;
+    }
+
+    fprintf(stderr, "[ERROR] PC jumped to 0! Previous PC = 0x%lx, step = %lu\n", ctx->prev_pc, ctx->step_count);
+    fflush(stderr);
+    ctx->finished = true;
+    ctx->exit_code = 1;
+    return true;
+}
+
+int spike_step_raw(void* raw_ctx) {
+    auto* ctx = enter_context(raw_ctx);
+    if (ctx == nullptr) {
+        return -1;
+    }
+
+    if (finish_if_requested(ctx)) {
+        return 1;
+    }
+
+    int syscall_magic = handle_syscall_magic_pc(ctx);
+    if (syscall_magic < 0) {
+        return -1;
+    }
+    if (syscall_magic > 0) {
+        return 0;
+    }
+
+    if (skip_invalid_compressed_jump(ctx)) {
+        return 0;
+    }
+
+    int step_result = step_one_instruction(ctx);
+    if (step_result < 0) {
+        return -1;
+    }
+
+    if (pc_jumped_to_zero(ctx)) {
+        return -1;
+    }
+
+    ctx->prev_pc = ctx->state->pc;
+
+    if (finish_if_requested(ctx)) {
+        return 1;
+    }
+    return 0;
+}
+
+//===----------------------------------------------------------------------===//
+// Finish Stage: Finish the execution
+//===----------------------------------------------------------------------===//
+bool spike_finished_raw(void* raw_ctx) {
+    auto* ctx = reinterpret_cast<spike_context_t*>(raw_ctx);
+    if (ctx == nullptr) {
+        return true;
+    }
+    return ctx->finished || ctx->btif->exit_requested || should_exit_ffi(ctx->emu_state);
+}
+
+int spike_exit_code_raw(void* raw_ctx) {
+    auto* ctx = reinterpret_cast<spike_context_t*>(raw_ctx);
+    if (ctx == nullptr) {
+        return 1;
+    }
+    if (ctx->btif->exit_requested) {
+        return ctx->btif->exit_code;
+    }
+    if (should_exit_ffi(ctx->emu_state)) {
+        return get_exit_code_ffi(ctx->emu_state);
+    }
+    return ctx->exit_code;
+}
+
+void spike_destroy_raw(void* raw_ctx) {
+    auto* ctx = reinterpret_cast<spike_context_t*>(raw_ctx);
+    destroy_context(ctx);
+}
+
 }

@@ -1,8 +1,6 @@
 // Trace logging (NDJSON format)
 
-use crate::ffi::{
-    verilator_read_bank_scoreboard, verilator_read_private_bank, VerilatorTop,
-};
+use crate::ffi::{verilator_read_bank_scoreboard, verilator_read_private_bank, VerilatorTop};
 use bebop_bank_hash::{
     bank_hash, submit_runtime_bank_hash_packet, BankHashEventClass, BankHashPacket, BankHashPacketId, BankHashSource,
     BankHashTime, CanonicalBankHashPacket, BANK_NUM, BANK_SIZE,
@@ -575,7 +573,9 @@ pub struct BankTraceEvent {
     pub data_hi: Option<u64>,
 }
 
-pub fn init_trace(log_path: &Path, config: TraceConfig) -> io::Result<()> {
+pub fn init_trace(log_dir: &Path, config: TraceConfig) -> io::Result<()> {
+    std::fs::create_dir_all(log_dir)?;
+    let log_path = log_dir.join("bdb.ndjson");
     let file = OpenOptions::new()
         .create(true)
         .write(true)
@@ -588,10 +588,16 @@ pub fn init_trace(log_path: &Path, config: TraceConfig) -> io::Result<()> {
     *ENABLE_PMCTRACE.get_or_init(|| Mutex::new(false)).lock().unwrap() = config.pmctrace;
     *ENABLE_CTRACE.get_or_init(|| Mutex::new(false)).lock().unwrap() = config.ctrace;
     *ENABLE_BANKTRACE.get_or_init(|| Mutex::new(false)).lock().unwrap() = config.banktrace;
+    if config.banktrace {
+        init_rtl_bank_hash_trace(
+            &log_dir.join("rtl_bank_hash.ndjson"),
+            &log_dir.join("btrace_log.ndjson"),
+        )?;
+    }
     Ok(())
 }
 
-pub fn init_rtl_bank_hash_trace(log_path: &Path, btrace_log_path: &Path) -> io::Result<()> {
+fn init_rtl_bank_hash_trace(log_path: &Path, btrace_log_path: &Path) -> io::Result<()> {
     let file = OpenOptions::new()
         .create(true)
         .write(true)
@@ -607,13 +613,6 @@ pub fn init_rtl_bank_hash_trace(log_path: &Path, btrace_log_path: &Path) -> io::
     *get_rtl_btrace_log_file().lock().unwrap() = Some(btrace_log);
     get_rtl_bank_stability_monitor().lock().unwrap().reset();
     get_rtl_btrace_state().lock().unwrap().reset();
-    Ok(())
-}
-
-pub fn shutdown_rtl_bank_hash_trace() -> io::Result<()> {
-    if let Some(mut file) = get_rtl_btrace_log_file().lock().unwrap().take() {
-        file.flush()?;
-    }
     Ok(())
 }
 

@@ -15,7 +15,6 @@ void verilator_context_time_inc(void* ctx, uint64_t add);
 uint64_t verilator_context_time(void* ctx);
 void verilator_context_command_args(void* ctx, int argc, const char** argv);
 void verilator_context_trace_ever_on(void* ctx, bool on);
-void verilator_context_coverage_write(void* ctx);
 
 // Top module
 void* verilator_top_new(void* ctx);

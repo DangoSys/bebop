@@ -1,4 +1,4 @@
-use super::trace::{bemu_clk, trace_state};
+use super::trace::with_current_trace;
 use bebop_bank_hash::{
     submit_runtime_bank_hash_packet, BankHashEventClass, BankHashPacket, BankHashPacketId, BankHashSource,
     BankHashTime, CanonicalBankHashPacket,
@@ -78,30 +78,15 @@ pub(super) fn init(log_dir: &Path, enabled: bool) -> io::Result<BtraceState> {
     })
 }
 
-pub(super) fn shutdown() -> io::Result<()> {
-    let mut state = trace_state().lock().unwrap();
-    if let Some(file) = state.btrace.bank_hash_file.as_mut() {
-        file.flush()?;
-    }
-    if let Some(file) = state.btrace.btrace_log.as_mut() {
-        file.flush()?;
-    }
-    state.btrace.bank_hash_file = None;
-    state.btrace.btrace_log = None;
-    Ok(())
-}
-
-fn write_bank_hash_trace(line: &str) {
-    let mut state = trace_state().lock().unwrap();
-    if let Some(file) = state.btrace.bank_hash_file.as_mut() {
+fn write_bank_hash_trace(state: &mut BtraceState, line: &str) {
+    if let Some(file) = state.bank_hash_file.as_mut() {
         file.write_all(line.as_bytes()).ok();
         file.flush().ok();
     }
 }
 
-fn write_btrace_log(line: &str) {
-    let mut state = trace_state().lock().unwrap();
-    if let Some(file) = state.btrace.btrace_log.as_mut() {
+fn write_btrace_log(state: &mut BtraceState, line: &str) {
+    if let Some(file) = state.btrace_log.as_mut() {
         file.write_all(line.as_bytes()).ok();
         file.flush().ok();
     }
@@ -121,43 +106,41 @@ fn classify_bemu_bank_hash(funct7: u32) -> BankHashEventClass {
 }
 
 pub fn bemu_bank_hash(instruction_id: u64, bank_id: u32, funct7: u32, op_type: &str, hash: u64, pc: u64) {
-    let packet = BankHashPacket::new(
-        BankHashSource::Bemu,
-        BankHashPacketId::InstructionId(instruction_id),
-        bank_id,
-        op_type,
-        hash,
-        BankHashTime::Cycle(bemu_clk()),
-    );
-    let raw_line = trace_state().lock().unwrap().btrace.next_raw_line();
-    if let Ok(line) = packet.to_ndjson() {
-        write_bank_hash_trace(&line);
-    }
+    with_current_trace(|trace| {
+        let packet = BankHashPacket::new(
+            BankHashSource::Bemu,
+            BankHashPacketId::InstructionId(instruction_id),
+            bank_id,
+            op_type,
+            hash,
+            BankHashTime::Cycle(trace.bemu_clk()),
+        );
+        let raw_line = trace.btrace.next_raw_line();
+        if let Ok(line) = packet.to_ndjson() {
+            write_bank_hash_trace(&mut trace.btrace, &line);
+        }
 
-    let event_class = classify_bemu_bank_hash(funct7);
-    let comparable_seq = trace_state()
-        .lock()
-        .unwrap()
-        .btrace
-        .comparable_seq(instruction_id, event_class);
-    let btrace_packet = CanonicalBankHashPacket::new(
-        BankHashSource::Bemu,
-        instruction_id,
-        comparable_seq,
-        bank_id,
-        funct7,
-        op_type,
-        event_class,
-        hash,
-        BankHashTime::Cycle(bemu_clk()),
-        Some(pc),
-        format!("bemu_bank_hash.ndjson:{raw_line}"),
-        raw_line,
-    );
-    if let Ok(line) = btrace_packet.to_ndjson() {
-        write_btrace_log(&line);
-    }
-    submit_runtime_bank_hash_packet(&btrace_packet);
+        let event_class = classify_bemu_bank_hash(funct7);
+        let comparable_seq = trace.btrace.comparable_seq(instruction_id, event_class);
+        let btrace_packet = CanonicalBankHashPacket::new(
+            BankHashSource::Bemu,
+            instruction_id,
+            comparable_seq,
+            bank_id,
+            funct7,
+            op_type,
+            event_class,
+            hash,
+            BankHashTime::Cycle(trace.bemu_clk()),
+            Some(pc),
+            format!("bemu_bank_hash.ndjson:{raw_line}"),
+            raw_line,
+        );
+        if let Ok(line) = btrace_packet.to_ndjson() {
+            write_btrace_log(&mut trace.btrace, &line);
+        }
+        submit_runtime_bank_hash_packet(&btrace_packet);
+    });
 }
 
 #[cfg(test)]
