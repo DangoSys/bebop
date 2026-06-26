@@ -30,6 +30,11 @@ impl SyscallState {
         self.open_files.insert(fd, file);
         fd
     }
+
+    pub fn init_mem_layout(&mut self, brk_start: u64, mmap_base: u64) {
+        self.brk_addr = brk_start;
+        self.mmap_base = mmap_base;
+    }
 }
 
 pub fn get_exit_code() -> Option<i32> {
@@ -43,6 +48,5 @@ pub fn reset_syscall_state() {
 
 pub fn init_mem_layout(brk_start: u64, mmap_base: u64) {
     let mut state = SYSCALL_STATE.lock().unwrap();
-    state.brk_addr = brk_start;
-    state.mmap_base = mmap_base;
+    state.init_mem_layout(brk_start, mmap_base);
 }

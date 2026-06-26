@@ -34,7 +34,6 @@ pub const SYS_RSEQ: u64 = 293;
 
 // Memory constants
 pub const GUEST_MEM_BASE: u64 = 0x80000000;
-pub const LOW_ALIAS_BASE: u64 = 0x10000;
 pub const PAGE_SIZE: u64 = 4096;
 pub const MMAP_TOP_RESERVED: u64 = 8 * 1024 * 1024;
 

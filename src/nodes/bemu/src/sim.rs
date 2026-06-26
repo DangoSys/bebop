@@ -12,47 +12,53 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-//===-----------------------------------------------------------------===//-----===//
+//===----------------------------------------------------------------------===//
 //
 // BEMU (Buckyball Emulator) wraps Spike ISA simulator with custom RoCC
 // instructions for Buckyball accelerator emulation.
 //
-//===-----------------------------------------------------------------===//-----===//
+//===----------------------------------------------------------------------===//
 
 use snafu::{OptionExt, ResultExt, Whatever};
-use std::path::PathBuf;
+use std::path::Path;
 
-use crate::ffi::run_spike;
+use crate::{spike::SpikeInstance, trace::TraceConfig};
 
-// Default configuration
-const DEFAULT_ISA: &str = "rv64gc";
-const DEFAULT_PROCS: usize = 1;
-const DEFAULT_MEM_MB: usize = 2048;
-
-#[derive(Debug, Clone)]
-pub struct BemuCli {
-    pub elf: PathBuf,
-    pub log_dir: Option<PathBuf>,
-    pub pk: bool,
+pub struct BemuInstance {
+    spike: SpikeInstance,
 }
 
-pub fn run(cli: BemuCli) -> Result<(), Whatever> {
-    let elf_path = cli.elf.to_str().whatever_context("invalid elf path")?;
-    let log_dir = cli.log_dir.as_ref().whatever_context(
-        "--log-dir is required: bemu enables Spike debug mode and must write disasm.log; \
-         pass --log-dir=<dir> (e.g. --log-dir=/tmp/bemu_log)",
-    )?;
-    std::fs::create_dir_all(log_dir).ok();
-    let log_file_path = log_dir.join("disasm.log");
-    let log_path = log_file_path.to_str().whatever_context("invalid log_dir path")?;
+impl BemuInstance {
+    pub fn new(log_dir: &Path, trace_config: TraceConfig) -> Result<Self, Whatever> {
+        Ok(Self {
+            spike: SpikeInstance::new(log_dir, trace_config).whatever_context("failed to create spike instance")?,
+        })
+    }
 
-    run_spike(
-        DEFAULT_ISA,
-        DEFAULT_PROCS,
-        DEFAULT_MEM_MB,
-        elf_path,
-        Some(log_path),
-        cli.pk,
-    )
-    .whatever_context("spike execution failed")
+    pub fn load_elf(&mut self, elf: &Path) -> Result<(), Whatever> {
+        let elf = elf.to_str().whatever_context("invalid elf path")?;
+        self.spike.load_elf(elf).whatever_context("failed to load bemu elf")
+    }
+
+    pub fn init_hart(&mut self, pk: bool) -> Result<(), Whatever> {
+        self.spike
+            .init_hart(pk)
+            .whatever_context("failed to initialize bemu hart")
+    }
+
+    pub fn step(&mut self) -> Result<(), Whatever> {
+        self.spike.step().whatever_context("bemu step failed")
+    }
+
+    pub fn finished(&self) -> bool {
+        self.spike.finished()
+    }
+
+    pub fn exit_code(&self) -> Option<i32> {
+        self.spike.exit_code()
+    }
+
+    pub fn total_latency(&self) -> u64 {
+        self.spike.total_latency()
+    }
 }

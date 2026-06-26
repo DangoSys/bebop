@@ -1,0 +1,63 @@
+use crate::{BuildCommand, BuildTarget};
+use duct::cmd;
+use snafu::{FromString, ResultExt, Whatever};
+
+pub fn build(command: BuildCommand) -> Result<(), Whatever> {
+    match command.target {
+        BuildTarget::Verilator {
+            rtl_dir,
+            out_dir,
+            diff,
+            fast,
+        } => {
+            if !rtl_dir.is_dir() {
+                let message = format!("RTL directory does not exist: {}", rtl_dir.display());
+                return Err(Whatever::without_source(message));
+            }
+            if diff || fast {
+                return Err(Whatever::without_source(
+                    "Verilator diff/fast build is not supported yet".to_string(),
+                ));
+            }
+            let rtl_dir = rtl_dir
+                .canonicalize()
+                .whatever_context("failed to canonicalize RTL directory")?;
+            std::fs::create_dir_all(&out_dir).whatever_context("failed to create output directory")?;
+
+            let features = "verilator";
+            println!("Building {features}: {} -> {}", rtl_dir.display(), out_dir.display());
+            cmd!("cargo", "build", "--bin", "bebop", "--features", features)
+                .env("VSRC_PATH", &rtl_dir)
+                .run()
+                .whatever_context("failed to build bebop")?;
+
+            // copy the built executable to the output directory
+            let dest = out_dir.join("bebop-verilator");
+            std::fs::copy("target/debug/bebop", &dest).whatever_context("failed to copy built executable")?;
+            println!("Built executable: {}", dest.display());
+            Ok(())
+        }
+        BuildTarget::P2e { rtl_dir, out_dir } => {
+            if !rtl_dir.is_dir() {
+                let message = format!("RTL directory does not exist: {}", rtl_dir.display());
+                return Err(Whatever::without_source(message));
+            }
+            let rtl_dir = rtl_dir
+                .canonicalize()
+                .whatever_context("failed to canonicalize RTL directory")?;
+            std::fs::create_dir_all(&out_dir).whatever_context("failed to create output directory")?;
+            println!("Building p2e: {} -> {}", rtl_dir.display(), out_dir.display());
+            cmd!("cargo", "build", "--bin", "bebop", "--features", "p2e")
+                .env("VSRC_PATH", &rtl_dir)
+                .env("OUT_PATH", &out_dir)
+                .run()
+                .whatever_context("failed to build p2e")?;
+
+            // copy the built executable to the output directory
+            let dest = out_dir.join("bebop-p2e");
+            std::fs::copy("target/debug/bebop", &dest).whatever_context("failed to copy built executable")?;
+            println!("Built executable: {}", dest.display());
+            Ok(())
+        }
+    }
+}

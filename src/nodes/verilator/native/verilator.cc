@@ -1,7 +1,6 @@
-// Minimal C++ wrapper for Verilator - exposes only essential APIs to Rust FFI
-
 #include "verilator.h"
 #include "VBBSimHarness.h"
+#include "VBBSimHarness___024root.h"
 #include "verilated.h"
 #include "verilated_fst_c.h"
 
@@ -9,13 +8,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
+#include <cstring>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
-
-#if VM_COVERAGE
-#include "verilated_cov.h"
-#endif
 
 // Context management
 extern "C" void *verilator_context_new() { return new VerilatedContext; }
@@ -42,15 +38,6 @@ extern "C" void verilator_context_trace_ever_on(void *ctx, bool on) {
   static_cast<VerilatedContext *>(ctx)->traceEverOn(on);
 }
 
-extern "C" void verilator_context_coverage_write(void *ctx) {
-#if VM_COVERAGE
-  auto *context = static_cast<VerilatedContext *>(ctx);
-  if (context->coveragep()) {
-    context->coveragep()->write();
-  }
-#endif
-}
-
 // Top module
 extern "C" void *verilator_top_new(void *ctx) {
   return new VBBSimHarness{static_cast<VerilatedContext *>(ctx)};
@@ -68,6 +55,151 @@ extern "C" void verilator_top_trace(void *top, void *tfp, int levels) {
   static_cast<VBBSimHarness *>(top)->trace(static_cast<VerilatedFstC *>(tfp),
                                            levels);
 }
+
+namespace {
+
+constexpr uint32_t kPrivateBankCount = 32;
+// The generated private SRAM arrays in this RTL config are 128 rows of 128 bits.
+// Callers may pass the larger unified BEMU bank buffer; bytes past the RTL array are zero-filled.
+constexpr uint32_t kPrivateBankRows = 128;
+constexpr uint32_t kPrivateBankWordsPerRow = 4;
+constexpr uint32_t kPrivateBankBytes = kPrivateBankRows * kPrivateBankWordsPerRow * sizeof(uint32_t);
+
+template <typename BankMemory>
+void copy_private_bank(BankMemory &memory, uint8_t *out) {
+  for (uint32_t row = 0; row < kPrivateBankRows; ++row) {
+    for (uint32_t word = 0; word < kPrivateBankWordsPerRow; ++word) {
+      const uint32_t value = memory[row][word];
+      const uint32_t offset = (row * kPrivateBankWordsPerRow + word) * sizeof(uint32_t);
+      out[offset + 0] = static_cast<uint8_t>(value & 0xffu);
+      out[offset + 1] = static_cast<uint8_t>((value >> 8) & 0xffu);
+      out[offset + 2] = static_cast<uint8_t>((value >> 16) & 0xffu);
+      out[offset + 3] = static_cast<uint8_t>((value >> 24) & 0xffu);
+    }
+  }
+}
+
+} // namespace
+
+#define COPY_PRIVATE_BANK_CASE(ID)                                                                  \
+  case ID:                                                                                          \
+    copy_private_bank(                                                                              \
+        root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__memDomain__DOT__backend__DOT__privateBackend__DOT__banks_##ID##__DOT__mem_ext__DOT__Memory, \
+        out);                                                                                       \
+    return true
+
+extern "C" bool verilator_read_private_bank(void *top, uint32_t bank_id, uint8_t *out,
+                                             uint32_t out_len) {
+  if (top == nullptr || out == nullptr || bank_id >= kPrivateBankCount ||
+      out_len < kPrivateBankBytes) {
+    return false;
+  }
+
+  auto *root = static_cast<VBBSimHarness *>(top)->rootp;
+  if (root == nullptr) {
+    return false;
+  }
+
+  std::memset(out, 0, out_len);
+  switch (bank_id) {
+    COPY_PRIVATE_BANK_CASE(0);
+    COPY_PRIVATE_BANK_CASE(1);
+    COPY_PRIVATE_BANK_CASE(2);
+    COPY_PRIVATE_BANK_CASE(3);
+    COPY_PRIVATE_BANK_CASE(4);
+    COPY_PRIVATE_BANK_CASE(5);
+    COPY_PRIVATE_BANK_CASE(6);
+    COPY_PRIVATE_BANK_CASE(7);
+    COPY_PRIVATE_BANK_CASE(8);
+    COPY_PRIVATE_BANK_CASE(9);
+    COPY_PRIVATE_BANK_CASE(10);
+    COPY_PRIVATE_BANK_CASE(11);
+    COPY_PRIVATE_BANK_CASE(12);
+    COPY_PRIVATE_BANK_CASE(13);
+    COPY_PRIVATE_BANK_CASE(14);
+    COPY_PRIVATE_BANK_CASE(15);
+    COPY_PRIVATE_BANK_CASE(16);
+    COPY_PRIVATE_BANK_CASE(17);
+    COPY_PRIVATE_BANK_CASE(18);
+    COPY_PRIVATE_BANK_CASE(19);
+    COPY_PRIVATE_BANK_CASE(20);
+    COPY_PRIVATE_BANK_CASE(21);
+    COPY_PRIVATE_BANK_CASE(22);
+    COPY_PRIVATE_BANK_CASE(23);
+    COPY_PRIVATE_BANK_CASE(24);
+    COPY_PRIVATE_BANK_CASE(25);
+    COPY_PRIVATE_BANK_CASE(26);
+    COPY_PRIVATE_BANK_CASE(27);
+    COPY_PRIVATE_BANK_CASE(28);
+    COPY_PRIVATE_BANK_CASE(29);
+    COPY_PRIVATE_BANK_CASE(30);
+    COPY_PRIVATE_BANK_CASE(31);
+  default:
+    return false;
+  }
+}
+
+#undef COPY_PRIVATE_BANK_CASE
+
+#define READ_SCOREBOARD_CASE(ID)                                                                    \
+  case ID:                                                                                          \
+    *rd_count = 0;                                                                                  \
+    *wr_busy =                                                                                      \
+        root->BBSimHarness__DOT__chiptop0__DOT__system__DOT__tile_prci_domain__DOT__element_reset_domain_bbtile__DOT__accelerators_0__DOT__frontend__DOT__scheduler__DOT__rob__DOT__scoreboard__DOT__bankWrBusy_##ID; \
+    return true
+
+extern "C" bool verilator_read_bank_scoreboard(void *top, uint32_t bank_id,
+                                               uint32_t *rd_count,
+                                               bool *wr_busy) {
+  if (top == nullptr || rd_count == nullptr || wr_busy == nullptr ||
+      bank_id >= kPrivateBankCount) {
+    return false;
+  }
+
+  auto *root = static_cast<VBBSimHarness *>(top)->rootp;
+  if (root == nullptr) {
+    return false;
+  }
+
+  switch (bank_id) {
+    READ_SCOREBOARD_CASE(0);
+    READ_SCOREBOARD_CASE(1);
+    READ_SCOREBOARD_CASE(2);
+    READ_SCOREBOARD_CASE(3);
+    READ_SCOREBOARD_CASE(4);
+    READ_SCOREBOARD_CASE(5);
+    READ_SCOREBOARD_CASE(6);
+    READ_SCOREBOARD_CASE(7);
+    READ_SCOREBOARD_CASE(8);
+    READ_SCOREBOARD_CASE(9);
+    READ_SCOREBOARD_CASE(10);
+    READ_SCOREBOARD_CASE(11);
+    READ_SCOREBOARD_CASE(12);
+    READ_SCOREBOARD_CASE(13);
+    READ_SCOREBOARD_CASE(14);
+    READ_SCOREBOARD_CASE(15);
+    READ_SCOREBOARD_CASE(16);
+    READ_SCOREBOARD_CASE(17);
+    READ_SCOREBOARD_CASE(18);
+    READ_SCOREBOARD_CASE(19);
+    READ_SCOREBOARD_CASE(20);
+    READ_SCOREBOARD_CASE(21);
+    READ_SCOREBOARD_CASE(22);
+    READ_SCOREBOARD_CASE(23);
+    READ_SCOREBOARD_CASE(24);
+    READ_SCOREBOARD_CASE(25);
+    READ_SCOREBOARD_CASE(26);
+    READ_SCOREBOARD_CASE(27);
+    READ_SCOREBOARD_CASE(28);
+    READ_SCOREBOARD_CASE(29);
+    READ_SCOREBOARD_CASE(30);
+    READ_SCOREBOARD_CASE(31);
+  default:
+    return false;
+  }
+}
+
+#undef READ_SCOREBOARD_CASE
 
 // Top module signals
 extern "C" void verilator_top_set_clock(void *top, uint8_t val) {
@@ -164,6 +296,11 @@ extern "C" void scu_sim_exit(uint32_t hart_id, uint32_t code) {
 extern "C" bool verilator_scu_has_exit() {
   std::lock_guard<std::mutex> lock(g_scu_mutex);
   return g_has_exit;
+}
+
+extern "C" int32_t verilator_scu_exit_code() {
+  std::lock_guard<std::mutex> lock(g_scu_mutex);
+  return g_exit_code;
 }
 
 extern "C" void verilator_scu_push_uart_rx(uint32_t hart_id, uint32_t byte) {

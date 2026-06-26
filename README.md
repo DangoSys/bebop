@@ -1,94 +1,56 @@
-# bebop-next
-An agile simulation framework for NPUs.
+# bebop
 
-Currently support: emulator (bemu), verilator, FPGA (P2E)
+Agile simulation framework for NPUs.
 
-### Quick start
+## Setup
 
-
-```
+```bash
 git clone https://github.com/DangoSys/bebop.git
 cd bebop
-nix build
-```
-
-
-
-### Build
-
-<!-- CARGO_TARGET_DIR=target-xxx  -->
-```
-cd bebop
 nix develop
+```
 
-# build verilator
-cargo build --features verilator \
-    --config="env.VSRC_PATH='<verilog-file-directory-path>'" \
-    --config="env.OUT_PATH='<generate-file-directory-path>'"
+## Build
 
-# build bemu
+```bash
+# BEMU is an in-tree emulator backend. It does not need a separate
+# simulator artifact build step.
 cargo build --features bemu
 
-# build p2e
-cargo build --features p2e \
-    --config="env.VSRC_PATH='<verilog-file-directory-path>'"
+# Verilator: build an RTL-bound runner executable.
+cargo run --features verilator -- build verilator \
+  --rtl-dir="<verilog-file-directory-path>" \
+  --out-dir="<verilator-artifact-dir>"
+
+# P2E: prepare a VVAC runtime case.
+cargo run --features p2e -- build p2e \
+  --rtl-dir="<verilog-file-directory-path>" \
+  --out-dir="<p2e-case-dir>"
 ```
 
+## Run
 
-### Run
+```bash
+# BEMU
+cargo run --features bemu -- run bemu \
+  --elf="<elf-file-path>" \
+  --log-dir="<log-dir>"
 
+# BEMU with proxy kernel
+cargo run --features bemu -- run bemu \
+  --elf="<elf-file-path>" \
+  --log-dir="<log-dir>" \
+  --pk
+
+# Verilator
+cargo run --features verilator -- run verilator \
+  --elf="<elf-file-path>" \
+  --log-dir="<log-dir>" \
+  --fst-dir="<fst-dir>"
+
+# P2E run workload
+cargo run --features p2e -- run p2e \
+  --image="<image-file-path>" \
+  --bitstream="<bitstream-file-path>" \
+  --log-dir="<p2e-case-dir>"
 ```
-cd bebop
-nix develop
-
-# run verilator
-cargo run --features verilator \
-    --config="env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'" \
-    -- verilator \
-    --elf="<elf-file-path>" \
-    --log-dir="<log-file-directory-path>" \
-    --fst-dir="<fst-file-directory-path>" 
-
-
-# run bemu (baremetal mode, starts in M-mode)
-cargo run --features bemu -- bemu \
-    --elf="<elf-file-path>" \
-    --log-dir="<log-file-directory-path>"
-
-# run bemu (Linux mode with proxy kernel, starts in S-mode)
-cargo run --features bemu -- bemu \
-    --elf="<elf-file-path>" \
-    --log-dir="<log-file-directory-path>" \
-    --pk
-
-# run p2e
-cargo run --features p2e -- p2e \
-    --buildbitstream \
-    --build-dir="<design-build-directory-path>" \
-    --output-dir="<bitstream-file-directory-path>"
-
-cargo run --features p2e  -- p2e \
-    --runworkload \
-    --image="<image-file-path>" \
-    --bitstream="<bitstream-file-path>"
-    --log-dir="<log-file-directory-path>"
-```
-
-# Batch Test
-
-```
-# run bemu tests with buckyball 
-cargo nextest run --test test_bemu --features bemu
-
-# run verilator tests with buckyball 
-cargo nextest run --test test_verilator --features verilator \
-  --config-file .config/nextest.toml \
-  --config "env.ARCH_CONFIG='sims.verilator.BuckyballToyVerilatorConfig'"
-
-# run p2e tests with buckyball
-cargo nextest run --test test_p2e --features p2e \
-  -- \
-  --p2e-bitstream "<bitstream-file-path>" \
-  --p2e-build-dir "<design-build-directory-path>"
-```
-    

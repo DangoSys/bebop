@@ -1,3 +1,4 @@
+use bebop_uart::UartTx;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
@@ -57,12 +58,6 @@ struct RuntimeState {
 }
 
 static STATE: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
-
-#[derive(Debug, Clone, Copy)]
-pub struct UartTx {
-    pub hart_id: u32,
-    pub byte: u8,
-}
 
 fn state() -> &'static Mutex<RuntimeState> {
     STATE.get_or_init(|| Mutex::new(RuntimeState::default()))

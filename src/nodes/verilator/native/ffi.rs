@@ -26,14 +26,18 @@ extern "C" {
     pub fn verilator_context_command_args(ctx: *mut VerilatorContext, argc: c_int, argv: *const *const c_char);
     pub fn verilator_context_trace_ever_on(ctx: *mut VerilatorContext, on: bool);
 
-    // Coverage
-    pub fn verilator_context_coverage_write(ctx: *mut VerilatorContext);
-
     // Top module
     pub fn verilator_top_new(ctx: *mut VerilatorContext) -> *mut VerilatorTop;
     pub fn verilator_top_free(top: *mut VerilatorTop);
     pub fn verilator_top_eval(top: *mut VerilatorTop);
     pub fn verilator_top_trace(top: *mut VerilatorTop, tfp: *mut VerilatorTrace, levels: c_int);
+    pub fn verilator_read_private_bank(top: *mut VerilatorTop, bank_id: u32, out: *mut u8, out_len: u32) -> bool;
+    pub fn verilator_read_bank_scoreboard(
+        top: *mut VerilatorTop,
+        bank_id: u32,
+        rd_count: *mut u32,
+        wr_busy: *mut bool,
+    ) -> bool;
 
     // Top module signals
     pub fn verilator_top_set_clock(top: *mut VerilatorTop, val: u8);
@@ -41,6 +45,7 @@ extern "C" {
 
     // SCU state query (DPI-C functions are called from RTL automatically)
     pub fn verilator_scu_has_exit() -> bool;
+    pub fn verilator_scu_exit_code() -> i32;
     pub fn verilator_scu_push_uart_rx(hart_id: u32, byte: u32);
     pub fn verilator_scu_drain_uart_tx(buf: *mut u32, len: u32) -> u32;
 

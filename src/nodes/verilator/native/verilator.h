@@ -15,13 +15,14 @@ void verilator_context_time_inc(void* ctx, uint64_t add);
 uint64_t verilator_context_time(void* ctx);
 void verilator_context_command_args(void* ctx, int argc, const char** argv);
 void verilator_context_trace_ever_on(void* ctx, bool on);
-void verilator_context_coverage_write(void* ctx);
 
 // Top module
 void* verilator_top_new(void* ctx);
 void verilator_top_free(void* top);
 void verilator_top_eval(void* top);
 void verilator_top_trace(void* top, void* tfp, int levels);
+bool verilator_read_private_bank(void* top, uint32_t bank_id, uint8_t* out, uint32_t out_len);
+bool verilator_read_bank_scoreboard(void* top, uint32_t bank_id, uint32_t* rd_count, bool* wr_busy);
 
 // Top module signals
 void verilator_top_set_clock(void* top, uint8_t val);
@@ -29,7 +30,7 @@ void verilator_top_set_reset(void* top, uint8_t val);
 
 // SCU state query (DPI-C functions are called from RTL automatically)
 bool verilator_scu_has_exit();
-
+int32_t verilator_scu_exit_code();
 // FST trace
 void* verilator_trace_new();
 void verilator_trace_free(void* tfp);

@@ -5,12 +5,14 @@
 # Architecture:
 #   test_bemu      → lightweight emulator tests  → parallel, 300s timeout
 #   test_verilator → heavyweight RTL simulation  → serial,   1800s timeout
+#   test_bank_hash_difftest → BEMU/RTL hash diff → serial,   2400s timeout
 #   test_p2e       → fpga workload tests         → serial,   1800s timeout
 #
 # Filter strategy:
 #   Use binary() filters to match by test binary name, not test name.
 #   binary(test_verilator) matches ALL tests in the test_verilator binary.
 #   binary(test_bemu)      matches ALL tests in the test_bemu binary.
+#   binary(test_bank_hash_difftest) matches ALL tests in the bank hash difftest binary.
 #   binary(test_p2e)       matches ALL tests in the test_p2e binary.
 #
 # Timeout strategy:
@@ -35,6 +37,9 @@ junit = { path = "target/nextest/junit-bebop-default.xml", report-name = "bebop-
 [test-groups.p2e-serial]
 max-threads = 1
 
+[test-groups.verilator-serial]
+max-threads = 1
+
 # =============================================================================
 # Default profile overrides
 # =============================================================================
@@ -49,6 +54,12 @@ slow-timeout = { period = "360s", terminate-after = 5 }
 [[profile.default.overrides]]
 filter = "binary(test_bemu)"
 slow-timeout = { period = "60s", terminate-after = 5 }
+
+# Bank Hash Difftest: serial execution, 480s * 5 = 2400s (40min) hard timeout
+[[profile.default.overrides]]
+filter = "binary(test_bank_hash_difftest)"
+test-group = "verilator-serial"
+slow-timeout = { period = "480s", terminate-after = 5 }
 
 # P2E: serial execution, 360s * 5 = 1800s (30min) hard timeout
 [[profile.default.overrides]]
@@ -80,6 +91,12 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 retries = 1
 
 [[profile.ci.overrides]]
+filter = "binary(test_bank_hash_difftest)"
+test-group = "verilator-serial"
+slow-timeout = { period = "480s", terminate-after = 5 }
+retries = 1
+
+[[profile.ci.overrides]]
 filter = "binary(test_p2e)"
 test-group = "p2e-serial"
 slow-timeout = { period = "360s", terminate-after = 5 }
@@ -106,6 +123,11 @@ slow-timeout = { period = "360s", terminate-after = 5 }
 [[profile.dev.overrides]]
 filter = "binary(test_bemu)"
 slow-timeout = { period = "30s", terminate-after = 3 }
+
+[[profile.dev.overrides]]
+filter = "binary(test_bank_hash_difftest)"
+test-group = "verilator-serial"
+slow-timeout = { period = "480s", terminate-after = 5 }
 
 [[profile.dev.overrides]]
 filter = "binary(test_p2e)"

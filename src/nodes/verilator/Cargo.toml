@@ -12,6 +12,8 @@ snafu = "0.8"
 libc = "0.2"
 bebop-uart = { path = "../lib/uart" }
 bebop-dasm = { path = "../lib/dasm" }
+bebop-bank-hash = { path = "../lib/bank-hash" }
+bebop-fd-redirect = { path = "../lib/fd-redirect" }
 ctrlc = "3.4"
 
 [build-dependencies]

@@ -13,9 +13,8 @@ default = []
 build-bitstream = []
 
 [dependencies]
+bebop-uart = { path = "../lib/uart" }
 log = "0.4"
-env_logger = "0.11"
-snafu = "0.8"
 duct = "0.13"
 
 [build-dependencies]

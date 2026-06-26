@@ -65,7 +65,8 @@ read_net -add {io_init_calib_complete}
 #===--------------------------------------------------------===#
 
 # Add trace for waveform capture
-trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0 -depth 5
+# trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0 -depth 5
+trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.accelerators_0 -depth 3
 # trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile -depth 5
 
 # Add BootROM trace for debugging ROM initialization issues

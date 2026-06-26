@@ -23,6 +23,7 @@ mod write;
 mod writev;
 
 use crate::constants::*;
+use crate::state::SyscallState;
 
 pub use brk::handle_brk;
 pub use clock_gettime::handle_clock_gettime;
@@ -61,6 +62,24 @@ pub fn handle_syscall(
     a5: u64,
     memory: &mut [u8],
 ) -> (u64, bool) {
+    let mut state = crate::state::SYSCALL_STATE.lock().unwrap();
+    handle_syscall_with_state(&mut state, syscall_num, a0, a1, a2, a3, a4, a5, memory)
+}
+
+/// Returns `(result, should_exit)`.
+// RISC-V syscall ABI fixes the argument list at a0..a5; folding into a struct burdens every caller.
+#[allow(clippy::too_many_arguments)]
+pub fn handle_syscall_with_state(
+    state: &mut SyscallState,
+    syscall_num: u64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+    a4: u64,
+    a5: u64,
+    memory: &mut [u8],
+) -> (u64, bool) {
     let trace = std::env::var("BEMU_STRACE").is_ok();
 
     // For openat, decode the path string for better trace output
@@ -82,21 +101,19 @@ pub fn handle_syscall(
         String::new()
     };
 
-    let mut state = crate::state::SYSCALL_STATE.lock().unwrap();
-
     let result = match syscall_num {
-        SYS_WRITE => handle_write(&mut state, a0, a1, a2 as usize, memory),
-        SYS_READ => handle_read(&mut state, a0, a1, a2 as usize, memory),
-        SYS_OPENAT => handle_openat(&mut state, a0 as i32, a1, a2 as i32, a3, memory),
+        SYS_WRITE => handle_write(state, a0, a1, a2 as usize, memory),
+        SYS_READ => handle_read(state, a0, a1, a2 as usize, memory),
+        SYS_OPENAT => handle_openat(state, a0 as i32, a1, a2 as i32, a3, memory),
         SYS_READLINKAT => handle_readlinkat(a0 as i64, a1, a2, a3 as usize, memory),
-        SYS_CLOSE => handle_close(&mut state, a0),
-        SYS_LSEEK => handle_lseek(&mut state, a0, a1 as i64, a2 as i32),
-        SYS_EXIT | SYS_EXIT_GROUP => handle_exit(&mut state, a0 as i32),
-        SYS_BRK => handle_brk(&mut state, a0, memory),
-        SYS_MMAP => handle_mmap(&mut state, a0, a1, a2, a3, a4 as i64, a5, memory),
+        SYS_CLOSE => handle_close(state, a0),
+        SYS_LSEEK => handle_lseek(state, a0, a1 as i64, a2 as i32),
+        SYS_EXIT | SYS_EXIT_GROUP => handle_exit(state, a0 as i32),
+        SYS_BRK => handle_brk(state, a0, memory),
+        SYS_MMAP => handle_mmap(state, a0, a1, a2, a3, a4 as i64, a5, memory),
         SYS_MUNMAP => (0, false),
         SYS_MPROTECT => handle_mprotect(a0, a1, a2, memory),
-        SYS_FSTAT => handle_fstat(&state, a0 as i64, a1, memory),
+        SYS_FSTAT => handle_fstat(state, a0 as i64, a1, memory),
         SYS_SET_TID_ADDRESS => (1, false),
         SYS_GETCWD => handle_getcwd(a0, a1 as usize, memory),
         SYS_FCNTL => handle_fcntl(a0 as i64, a1 as i32),
@@ -109,10 +126,10 @@ pub fn handle_syscall(
         SYS_GETRANDOM => handle_getrandom(a0, a1 as usize, a2, memory),
         SYS_RT_SIGACTION => handle_rt_sigaction(a0, a1, a2, a3, memory),
         SYS_RT_SIGPROCMASK => handle_rt_sigprocmask(a0, a1, a2, a3, memory),
-        SYS_TGKILL => handle_tgkill(&mut state, a0 as i64, a1 as i64, a2 as i64),
+        SYS_TGKILL => handle_tgkill(state, a0 as i64, a1 as i64, a2 as i64),
         SYS_RSEQ => ((ERR_NOSYS as u64), false),
         SYS_CLOCK_GETTIME => handle_clock_gettime(a0 as i32, a1, memory),
-        SYS_WRITEV => handle_writev(&mut state, a0, a1, a2 as usize, memory),
+        SYS_WRITEV => handle_writev(state, a0, a1, a2 as usize, memory),
         SYS_PREAD | SYS_PWRITE => (0, false),
         _ => ((ERR_NOSYS as u64), false),
     };
