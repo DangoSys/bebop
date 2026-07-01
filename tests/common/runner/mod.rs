@@ -2,8 +2,6 @@ mod backend;
 mod exec;
 mod regression;
 
-#[cfg(all(feature = "bemu", feature = "verilator"))]
-pub use backend::BankHashDifftestBackend;
 #[cfg(feature = "bemu")]
 pub use backend::BemuBackend;
 #[cfg(feature = "p2e")]
