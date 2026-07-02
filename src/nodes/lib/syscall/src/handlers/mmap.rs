@@ -20,9 +20,18 @@ pub fn handle_mmap(
     if length == 0 {
         return ((ERR_INVAL as u64), false);
     }
-    let mem_end = GUEST_MEM_BASE + memory.len() as u64;
+    let mem_low = if state.mem_low == 0 {
+        GUEST_MEM_BASE
+    } else {
+        state.mem_low
+    };
+    let mem_end = if state.mem_high == 0 {
+        GUEST_MEM_BASE + memory.len() as u64
+    } else {
+        state.mem_high
+    };
     if state.brk_addr == 0 {
-        state.brk_addr = align_up(GUEST_MEM_BASE + 0x20_0000, PAGE_SIZE);
+        state.brk_addr = align_up(mem_low + 0x20_0000, PAGE_SIZE);
     }
     if state.mmap_base == 0 {
         state.mmap_base = align_down(mem_end - MMAP_TOP_RESERVED, PAGE_SIZE);
@@ -35,7 +44,7 @@ pub fn handle_mmap(
     } else {
         length_aligned
     };
-    if commit_len > (mem_end - GUEST_MEM_BASE) {
+    if commit_len > (mem_end - mem_low) {
         return ((ERR_NOMEM as u64), false);
     }
     if addr != 0 {
@@ -44,7 +53,7 @@ pub fn handle_mmap(
             Some(v) => v,
             None => return ((ERR_NOMEM as u64), false),
         };
-        if map_start < GUEST_MEM_BASE || map_end > mem_end {
+        if map_start < mem_low || map_end > mem_end {
             return ((ERR_NOMEM as u64), false);
         }
         return (map_start, false);
@@ -54,7 +63,7 @@ pub fn handle_mmap(
         Some(v) => align_down(v, PAGE_SIZE),
         None => return ((ERR_NOMEM as u64), false),
     };
-    if next_base <= state.brk_addr || next_base < GUEST_MEM_BASE {
+    if next_base <= state.brk_addr || next_base < mem_low {
         return ((ERR_NOMEM as u64), false);
     }
     state.mmap_base = next_base;

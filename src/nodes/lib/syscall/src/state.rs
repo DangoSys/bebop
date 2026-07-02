@@ -11,6 +11,8 @@ pub struct SyscallState {
     pub exit_code: Option<i32>,
     pub brk_addr: u64,
     pub mmap_base: u64,
+    pub mem_low: u64,
+    pub mem_high: u64,
 }
 
 impl SyscallState {
@@ -21,6 +23,8 @@ impl SyscallState {
             exit_code: None,
             brk_addr: 0,
             mmap_base: 0,
+            mem_low: crate::constants::GUEST_MEM_BASE,
+            mem_high: 0,
         }
     }
 
@@ -34,6 +38,11 @@ impl SyscallState {
     pub fn init_mem_layout(&mut self, brk_start: u64, mmap_base: u64) {
         self.brk_addr = brk_start;
         self.mmap_base = mmap_base;
+    }
+
+    pub fn set_mem_bounds(&mut self, mem_low: u64, mem_high: u64) {
+        self.mem_low = mem_low;
+        self.mem_high = mem_high;
     }
 }
 

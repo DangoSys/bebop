@@ -34,6 +34,10 @@ impl Default for BtraceState {
 }
 
 impl BtraceState {
+    pub(super) fn enabled(&self) -> bool {
+        self.bank_hash_file.is_some() || self.btrace_log.is_some()
+    }
+
     fn next_raw_line(&mut self) -> u64 {
         self.raw_line = self.raw_line.wrapping_add(1);
         self.raw_line

@@ -24,6 +24,7 @@ mod writev;
 
 use crate::constants::*;
 use crate::state::SyscallState;
+use crate::utils::guest_cstr;
 
 pub use brk::handle_brk;
 pub use clock_gettime::handle_clock_gettime;
@@ -83,20 +84,10 @@ pub fn handle_syscall_with_state(
     let trace = std::env::var("BEMU_STRACE").is_ok();
 
     // For openat, decode the path string for better trace output
-    let openat_path = if trace && syscall_num == SYS_OPENAT && a1 >= 0x80000000 {
-        let offset = (a1 - 0x80000000) as usize;
-        let mut bytes = Vec::new();
-        for i in 0..256 {
-            if offset + i >= memory.len() {
-                break;
-            }
-            let b = memory[offset + i];
-            if b == 0 {
-                break;
-            }
-            bytes.push(b);
-        }
-        String::from_utf8_lossy(&bytes).to_string()
+    let openat_path = if trace && syscall_num == SYS_OPENAT {
+        guest_cstr(a1, 256, memory)
+            .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+            .unwrap_or_default()
     } else {
         String::new()
     };

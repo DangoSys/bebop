@@ -29,7 +29,7 @@ impl TraceConfig {
         Self {
             itrace,
             mtrace,
-            btrace: true,
+            btrace: false,
         }
     }
 }
@@ -51,6 +51,10 @@ impl TraceState {
 
     pub fn bemu_clk(&self) -> u64 {
         self.clk
+    }
+
+    pub fn btrace_enabled(&self) -> bool {
+        self.btrace.enabled()
     }
 
     pub(super) fn write_itrace(&mut self, json: &str) {

@@ -89,6 +89,7 @@ struct spike_context_t {
     size_t mem_size = 0;
     uint64_t step_count = 0;
     reg_t prev_pc = 0;
+    bool pk_mode = false;
     bool finished = false;
     int exit_code = 0;
 };
@@ -208,6 +209,7 @@ bool spike_init_hart_raw(
     void* raw_ctx,
     uint64_t entry,
     uint64_t trap_handler_addr,
+    uint64_t satp,
     uint64_t initial_sp,
     uint64_t initial_a0,
     uint64_t initial_a1,
@@ -220,10 +222,14 @@ bool spike_init_hart_raw(
         return false;
     }
     current_emu_state = ctx->emu_state;
+    ctx->pk_mode = pk;
 
     if (pk) {
+        ctx->proc->set_max_vaddr_bits(39);
         ctx->state->csrmap[CSR_MTVEC]->write(trap_handler_addr);
-        ctx->state->prv = PRV_S;
+        ctx->state->csrmap[CSR_SATP]->write(satp);
+        ctx->proc->get_mmu()->flush_tlb();
+        ctx->proc->set_privilege(PRV_U, false);
     }
 
     ctx->state->pc = entry;
@@ -293,8 +299,9 @@ static int handle_syscall_magic_pc(spike_context_t* ctx) {
     reg_t mcause = ctx->state->csrmap[CSR_MCAUSE]->read();
     if (!is_ecall_cause(mcause)) {
         fprintf(stderr,
-                "[ERROR] Non-ecall trap reached syscall handler: mcause=%ld mepc=0x%lx tval=0x%lx pc=0x%lx\n",
-                mcause, ctx->state->csrmap[CSR_MEPC]->read(), ctx->state->csrmap[CSR_MTVAL]->read(), ctx->state->pc);
+                "[ERROR] Non-ecall trap reached syscall handler: mcause=%ld mepc=0x%lx tval=0x%lx pc=0x%lx tp=0x%lx a0=0x%lx a5=0x%lx\n",
+                mcause, ctx->state->csrmap[CSR_MEPC]->read(), ctx->state->csrmap[CSR_MTVAL]->read(), ctx->state->pc,
+                ctx->state->XPR[4], ctx->state->XPR[10], ctx->state->XPR[15]);
         fflush(stderr);
         ctx->finished = true;
         ctx->exit_code = 1;
@@ -303,7 +310,11 @@ static int handle_syscall_magic_pc(spike_context_t* ctx) {
 
     ctx->state->XPR.write(10, handle_guest_syscall(ctx));
     ctx->state->pc = ctx->state->csrmap[CSR_MEPC]->read() + 4;
-    ctx->state->prv = PRV_S;
+    if (ctx->pk_mode) {
+        ctx->proc->set_privilege(PRV_U, false);
+    } else {
+        ctx->state->prv = PRV_S;
+    }
     ctx->prev_pc = ctx->state->pc;
     return 1;
 }
@@ -357,6 +368,9 @@ static int handle_trap(spike_context_t* ctx, trap_t& trap) {
     if (is_ecall_cause(trap.cause())) {
         ctx->state->XPR.write(10, handle_guest_syscall(ctx));
         ctx->state->pc = trap_epc(ctx, trap) + 4;
+        if (ctx->pk_mode) {
+            ctx->proc->set_privilege(PRV_U, false);
+        }
         return 0;
     }
 

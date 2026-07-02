@@ -1,7 +1,7 @@
 use bebop_bank_hash::bank_hash;
 use bebop_dtb::DtbBuilder;
 use bebop_elf::{load_elf, LoadInfo, TlsInfo};
-use bebop_syscall::{handle_syscall_with_state, SyscallState};
+use bebop_syscall::{add_guest_mapping, handle_syscall_with_state, set_guest_mappings, SyscallState};
 use bebop_uart::Uart;
 use std::os::raw::{c_char, c_void};
 use std::path::Path;
@@ -14,6 +14,12 @@ const DRAM_BASE: u64 = 0x80000000;
 // UART base address (matches test workloads)
 const UART_BASE: u64 = 0x60020000;
 const PAGE_SIZE: u64 = 4096;
+const USER_TOP: u64 = 0x40_0000_0000;
+const USER_STACK_SIZE: u64 = 8 * 1024 * 1024;
+const PK_PT_RESERVE: u64 = 2 * 1024 * 1024;
+const PK_HIGH_RESERVE: u64 = 64 * 1024 * 1024;
+const SYS_BRK: u64 = 214;
+const SYS_MMAP: u64 = 222;
 
 struct EmuState {
     memory: Vec<u8>,
@@ -26,6 +32,7 @@ struct EmuState {
     npu_instruction_id: u64,
     uart: Uart,
     syscall: SyscallState,
+    pk_vm: Option<PkVm>,
     trace: TraceState,
 }
 
@@ -46,6 +53,7 @@ impl EmuState {
             npu_instruction_id: 0,
             uart: Uart::new(),
             syscall: SyscallState::new(),
+            pk_vm: None,
             trace: TraceState::new(log_dir, trace_config).map_err(|e| e.to_string())?,
         })
     }
@@ -62,6 +70,147 @@ impl EmuState {
         self.mmio_region_table = [crate::inst::instruction::MmioRegion::default(); 32];
         self.total_lat = 0;
         self.npu_instruction_id = 0;
+    }
+}
+
+#[derive(Clone, Copy)]
+struct GuestMap {
+    virt: u64,
+    phys: u64,
+    len: u64,
+}
+
+struct PkVm {
+    root: u64,
+    next_pt: u64,
+    pt_end: u64,
+    next_page: u64,
+    page_end: u64,
+    maps: Vec<GuestMap>,
+}
+
+impl PkVm {
+    fn new(memory: &mut [u8], root: u64, pt_end: u64, next_page: u64, page_end: u64) -> Result<Self, String> {
+        let mut vm = Self {
+            root,
+            next_pt: root,
+            pt_end,
+            next_page,
+            page_end,
+            maps: Vec::new(),
+        };
+        vm.alloc_table(memory)?;
+        Ok(vm)
+    }
+
+    fn satp(&self) -> u64 {
+        (8u64 << 60) | ((self.root >> 12) & 0x0000_0fff_ffff_ffff)
+    }
+
+    fn map_range(&mut self, memory: &mut [u8], virt: u64, phys: u64, len: u64, flags: u64) -> Result<(), String> {
+        if len == 0 {
+            return Ok(());
+        }
+        let virt_start = align_down(virt, PAGE_SIZE);
+        let phys_start = align_down(phys, PAGE_SIZE);
+        let virt_end = align_up(virt + len, PAGE_SIZE);
+        let mut vaddr = virt_start;
+        let mut paddr = phys_start;
+        while vaddr < virt_end {
+            self.map_page(memory, vaddr, paddr, flags)?;
+            vaddr += PAGE_SIZE;
+            paddr += PAGE_SIZE;
+        }
+        self.maps.push(GuestMap {
+            virt: virt_start,
+            phys: phys_start,
+            len: virt_end - virt_start,
+        });
+        add_guest_mapping(virt_start, phys_start, virt_end - virt_start);
+        Ok(())
+    }
+
+    fn alloc_user_pages(&mut self, memory: &mut [u8], virt: u64, len: u64, flags: u64) -> Result<u64, String> {
+        let phys = self.next_page;
+        let size = align_up(len, PAGE_SIZE);
+        self.next_page = self
+            .next_page
+            .checked_add(size)
+            .ok_or_else(|| "pk physical page allocator overflow".to_string())?;
+        if self.next_page > self.page_end {
+            return Err("pk user page reserve exhausted".to_string());
+        }
+        let off = guest_offset(memory, phys)?;
+        let end = off + size as usize;
+        if end > memory.len() {
+            return Err(format!(
+                "pk physical page allocator exceeds memory: addr=0x{phys:x} size={size}"
+            ));
+        }
+        memory[off..end].fill(0);
+        self.map_range(memory, virt, phys, size, flags)?;
+        Ok(phys)
+    }
+
+    fn write_user(&self, memory: &mut [u8], virt: u64, bytes: &[u8]) -> Result<(), String> {
+        let phys = self
+            .virt_to_phys(virt, bytes.len() as u64)
+            .ok_or_else(|| format!("user write to unmapped VA: addr=0x{virt:x} size={}", bytes.len()))?;
+        write_guest(memory, phys, bytes)
+    }
+
+    fn virt_to_phys(&self, virt: u64, len: u64) -> Option<u64> {
+        let end = virt.checked_add(len)?;
+        for map in self.maps.iter().rev() {
+            let map_end = map.virt.checked_add(map.len)?;
+            if virt >= map.virt && end <= map_end {
+                return map.phys.checked_add(virt - map.virt);
+            }
+        }
+        None
+    }
+
+    fn map_page(&mut self, memory: &mut [u8], virt: u64, phys: u64, flags: u64) -> Result<(), String> {
+        let vpn = [(virt >> 12) & 0x1ff, (virt >> 21) & 0x1ff, (virt >> 30) & 0x1ff];
+        let l2 = self.ensure_table(memory, self.root, vpn[2])?;
+        let l1 = self.ensure_table(memory, l2, vpn[1])?;
+        let leaf = ((phys >> 12) << 10) | flags | 0x1 | 0x10 | 0x40 | 0x80;
+        self.write_pte(memory, l1, vpn[0], leaf)
+    }
+
+    fn ensure_table(&mut self, memory: &mut [u8], table: u64, idx: u64) -> Result<u64, String> {
+        let pte = self.read_pte(memory, table, idx)?;
+        if pte & 0x1 != 0 {
+            return Ok(((pte >> 10) << 12) & !0xfffu64);
+        }
+        let child = self.alloc_table(memory)?;
+        self.write_pte(memory, table, idx, ((child >> 12) << 10) | 0x1)?;
+        Ok(child)
+    }
+
+    fn alloc_table(&mut self, memory: &mut [u8]) -> Result<u64, String> {
+        let table = self.next_pt;
+        self.next_pt = self
+            .next_pt
+            .checked_add(PAGE_SIZE)
+            .ok_or_else(|| "pk page table allocator overflow".to_string())?;
+        if self.next_pt > self.pt_end {
+            return Err("pk page table reserve exhausted".to_string());
+        }
+        let off = guest_offset(memory, table)?;
+        memory[off..off + PAGE_SIZE as usize].fill(0);
+        Ok(table)
+    }
+
+    fn read_pte(&self, memory: &[u8], table: u64, idx: u64) -> Result<u64, String> {
+        let off = guest_offset(memory, table + idx * 8)?;
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(&memory[off..off + 8]);
+        Ok(u64::from_le_bytes(bytes))
+    }
+
+    fn write_pte(&self, memory: &mut [u8], table: u64, idx: u64, value: u64) -> Result<(), String> {
+        write_guest(memory, table + idx * 8, &value.to_le_bytes())
     }
 }
 
@@ -87,6 +236,7 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
     state.npu_instruction_id = state.npu_instruction_id.wrapping_add(1);
     let instruction_id = state.npu_instruction_id;
     let trace = &mut state.trace as *mut TraceState;
+    let btrace = state.trace.btrace_enabled();
 
     unsafe {
         with_trace_ptr(trace, || {
@@ -108,11 +258,16 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         mmio_region_table,
         uart: _,
         syscall: _,
+        pk_vm: _,
         trace: _,
         ..
     } = state;
 
-    let before_hashes: Vec<u64> = banks.iter().map(|bank| bank_hash(bank)).collect();
+    let before_hashes: Vec<u64> = if btrace {
+        banks.iter().map(|bank| bank_hash(bank)).collect()
+    } else {
+        Vec::new()
+    };
 
     let result = unsafe {
         with_trace_ptr(trace, || {
@@ -130,17 +285,19 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         })
     };
 
-    let op_type = format!("funct7_{}", funct7);
-    unsafe {
-        with_trace_ptr(trace, || {
-            for (bank_id, bank) in banks.iter().enumerate() {
-                let hash = bank_hash(bank);
-                if before_hashes[bank_id] != hash {
-                    crate::trace::bemu_bank_hash(instruction_id, bank_id as u32, funct7 as u32, &op_type, hash, pc);
+    if btrace {
+        let op_type = format!("funct7_{}", funct7);
+        unsafe {
+            with_trace_ptr(trace, || {
+                for (bank_id, bank) in banks.iter().enumerate() {
+                    let hash = bank_hash(bank);
+                    if before_hashes[bank_id] != hash {
+                        crate::trace::bemu_bank_hash(instruction_id, bank_id as u32, funct7 as u32, &op_type, hash, pc);
+                    }
                 }
-            }
-        })
-    };
+            })
+        };
+    }
 
     result
 }
@@ -159,6 +316,7 @@ pub extern "C" fn handle_syscall_ffi(
     a5: u64,
 ) -> u64 {
     let state = unsafe { state_mut(state) };
+    let old_brk = state.syscall.brk_addr;
     let (result, _should_exit) = handle_syscall_with_state(
         &mut state.syscall,
         syscall_num,
@@ -170,7 +328,53 @@ pub extern "C" fn handle_syscall_ffi(
         a5,
         &mut state.memory,
     );
+    if let Some(mut pk_vm) = state.pk_vm.take() {
+        let map_result = map_syscall_result(&mut state.memory, &mut pk_vm, old_brk, syscall_num, a0, a1, result);
+        state.pk_vm = Some(pk_vm);
+        if let Err(e) = map_result {
+            eprintln!("[ERROR] pk syscall mapping failed: {e}");
+            state.syscall.exit_code = Some(1);
+            return u64::MAX;
+        }
+    }
     result
+}
+
+fn map_syscall_result(
+    memory: &mut [u8],
+    pk_vm: &mut PkVm,
+    old_brk: u64,
+    syscall_num: u64,
+    a0: u64,
+    a1: u64,
+    result: u64,
+) -> Result<(), String> {
+    if (result as i64) < 0 {
+        return Ok(());
+    }
+
+    match syscall_num {
+        SYS_BRK if result > old_brk => {
+            let start = align_up(old_brk, PAGE_SIZE);
+            let end = align_up(result, PAGE_SIZE);
+            if end > start {
+                pk_vm.alloc_user_pages(memory, start, end - start, 0x2 | 0x4)?;
+            }
+            if let Some(first) = pk_vm.maps.first() {
+                crate::bank::set_fast_addr_map(first.virt, first.phys, result.saturating_sub(first.virt));
+            }
+        }
+        SYS_MMAP => {
+            let len = align_up(a1, PAGE_SIZE);
+            if result != 0 && len != 0 {
+                pk_vm.alloc_user_pages(memory, result, len, 0x2 | 0x4)?;
+            }
+        }
+        _ => {
+            let _ = a0;
+        }
+    }
+    Ok(())
 }
 
 /// Check if program should exit
@@ -217,6 +421,7 @@ extern "C" {
         ctx: *mut c_void,
         entry: u64,
         trap_handler_addr: u64,
+        satp: u64,
         initial_sp: u64,
         initial_a0: u64,
         initial_a1: u64,
@@ -329,6 +534,7 @@ pub fn create_spike(
 struct HartInit {
     entry: u64,
     trap_handler_addr: u64,
+    satp: u64,
     regs: InitialRegs,
     tp: Option<u64>,
     pk: bool,
@@ -362,12 +568,38 @@ fn load_elf_memory(state: &mut EmuState, elf_path: &str) -> Result<LoadInfo, Str
 
 fn hart_init(ctx: *mut c_void, state: &mut EmuState, load: LoadInfo, mem_mb: usize, pk: bool) -> Result<(), String> {
     let mem_end = DRAM_BASE + state.memory.len() as u64;
-    let brk_start = (load.image_end + PAGE_SIZE - 1) & !(PAGE_SIZE - 1);
-    let mmap_base = (mem_end - 8 * 1024 * 1024) & !(PAGE_SIZE - 1);
+    crate::bank::clear_addr_cache();
     state.syscall = SyscallState::new();
-    state.syscall.init_mem_layout(brk_start, mmap_base);
+    state.pk_vm = None;
+    set_guest_mappings(&[]);
 
-    let tp = setup_tls(&mut state.memory, load.tls)?;
+    let brk_start = if pk {
+        align_up(load.analysis.max_vaddr, PAGE_SIZE)
+    } else {
+        align_up(load.image_end, PAGE_SIZE)
+    };
+    let mmap_base = if pk {
+        align_down(USER_TOP - USER_STACK_SIZE - 8 * 1024 * 1024, PAGE_SIZE)
+    } else {
+        align_down(mem_end - 8 * 1024 * 1024, PAGE_SIZE)
+    };
+    state.syscall.init_mem_layout(brk_start, mmap_base);
+    if pk {
+        state
+            .syscall
+            .set_mem_bounds(load.analysis.min_vaddr, USER_TOP - USER_STACK_SIZE);
+        crate::bank::set_fast_addr_map(
+            load.analysis.min_vaddr,
+            DRAM_BASE,
+            brk_start.saturating_sub(load.analysis.min_vaddr),
+        );
+    }
+
+    let tp = if pk {
+        None
+    } else {
+        setup_tls(&mut state.memory, load.tls)?
+    };
     let dtb_addr = install_dtb(&mut state.memory, mem_mb)?;
 
     let trap_handler_addr = if pk {
@@ -375,20 +607,29 @@ fn hart_init(ctx: *mut c_void, state: &mut EmuState, load: LoadInfo, mem_mb: usi
     } else {
         0
     };
-    let initial_regs = if pk {
-        setup_pk_stack(&mut state.memory, &load)?
+    let (entry, satp, initial_regs) = if pk {
+        let pk_vm = setup_pk_vm(&mut state.memory, &load)?;
+        let regs = setup_pk_stack(&mut state.memory, &pk_vm, &load)?;
+        let satp = pk_vm.satp();
+        state.pk_vm = Some(pk_vm);
+        (load.analysis.original_entry, satp, regs)
     } else {
-        InitialRegs {
-            sp: 0,
-            a0: 0,
-            a1: dtb_addr,
-            a2: 0,
-        }
+        (
+            load.entry,
+            0,
+            InitialRegs {
+                sp: 0,
+                a0: 0,
+                a1: dtb_addr,
+                a2: 0,
+            },
+        )
     };
 
     let hart = HartInit {
-        entry: load.entry,
+        entry,
         trap_handler_addr,
+        satp,
         regs: initial_regs,
         tp,
         pk,
@@ -400,6 +641,7 @@ fn hart_init(ctx: *mut c_void, state: &mut EmuState, load: LoadInfo, mem_mb: usi
             ctx,
             hart.entry,
             hart.trap_handler_addr,
+            hart.satp,
             hart.regs.sp,
             hart.regs.a0,
             hart.regs.a1,
@@ -482,7 +724,41 @@ fn install_pk_trap_handler(memory: &mut [u8]) -> Result<u64, String> {
     Ok(trap_handler_addr)
 }
 
-fn setup_pk_stack(memory: &mut [u8], load: &LoadInfo) -> Result<InitialRegs, String> {
+fn setup_pk_vm(memory: &mut [u8], load: &LoadInfo) -> Result<PkVm, String> {
+    let mem_end = DRAM_BASE + memory.len() as u64;
+    let pt_root = align_down(mem_end - PK_HIGH_RESERVE, PAGE_SIZE);
+    let pt_end = pt_root + PK_PT_RESERVE;
+    let stack_phys_bottom = align_down(pt_root - USER_STACK_SIZE, PAGE_SIZE);
+    let stack_virt_bottom = USER_TOP - USER_STACK_SIZE;
+    let next_page = align_up(load.image_end, PAGE_SIZE);
+    let mut vm = PkVm::new(memory, pt_root, pt_end, next_page, stack_phys_bottom)?;
+
+    for seg in &load.analysis.load_segments {
+        let phys = if load.analysis.is_pie || load.analysis.needs_relocation {
+            DRAM_BASE + (seg.vaddr - load.analysis.min_vaddr)
+        } else {
+            seg.vaddr
+        };
+        let mut flags = 0;
+        if (seg.flags & 0x4) != 0 {
+            flags |= 0x2;
+        }
+        if (seg.flags & 0x2) != 0 {
+            flags |= 0x4;
+        }
+        if (seg.flags & 0x1) != 0 {
+            flags |= 0x8;
+        }
+        vm.map_range(memory, seg.vaddr, phys, seg.memsz, flags)?;
+    }
+
+    vm.map_range(memory, stack_virt_bottom, stack_phys_bottom, USER_STACK_SIZE, 0x2 | 0x4)?;
+    let maps: Vec<(u64, u64, u64)> = vm.maps.iter().map(|m| (m.virt, m.phys, m.len)).collect();
+    set_guest_mappings(&maps);
+    Ok(vm)
+}
+
+fn setup_pk_stack(memory: &mut [u8], vm: &PkVm, load: &LoadInfo) -> Result<InitialRegs, String> {
     const AT_NULL: u64 = 0;
     const AT_PHDR: u64 = 3;
     const AT_PHENT: u64 = 4;
@@ -500,28 +776,27 @@ fn setup_pk_stack(memory: &mut [u8], load: &LoadInfo) -> Result<InitialRegs, Str
     const AT_HWCAP2: u64 = 26;
     const AT_EXECFN: u64 = 31;
 
-    let stack_top = align_down(DRAM_BASE + memory.len() as u64 - 0x400000, 16);
+    let stack_top = align_down(USER_TOP - 16, 16);
     let prog_name = b"tutorial-linux\0";
     let random_len = 16u64;
     let word_size = 8u64;
 
     let string_addr = align_down(stack_top - prog_name.len() as u64, 16);
     let random_addr = align_down(string_addr - random_len, 16);
-    let phdr = load.program_headers;
+    let phdr_addr = user_image_addr(load, load.program_headers.addr)?;
 
     let mut stack_entries = Vec::with_capacity(40);
     stack_entries.push(1);
     stack_entries.push(string_addr);
     stack_entries.push(0);
-    let envp_offset_words = stack_entries.len() as u64;
     stack_entries.push(0);
     stack_entries.extend_from_slice(&[
         AT_PHDR,
-        phdr.addr,
+        phdr_addr,
         AT_PHENT,
-        phdr.entry_size,
+        load.program_headers.entry_size,
         AT_PHNUM,
-        phdr.count,
+        load.program_headers.count,
         AT_PAGESZ,
         PAGE_SIZE,
         AT_BASE,
@@ -529,7 +804,7 @@ fn setup_pk_stack(memory: &mut [u8], load: &LoadInfo) -> Result<InitialRegs, Str
         AT_HWCAP,
         0,
         AT_ENTRY,
-        load.entry,
+        load.analysis.original_entry,
         AT_UID,
         0,
         AT_EUID,
@@ -551,20 +826,30 @@ fn setup_pk_stack(memory: &mut [u8], load: &LoadInfo) -> Result<InitialRegs, Str
     ]);
 
     let sp = align_down(random_addr - stack_entries.len() as u64 * word_size, 16);
-    write_guest(memory, string_addr, prog_name)?;
+    vm.write_user(memory, string_addr, prog_name)?;
     for i in 0..random_len {
-        write_guest(memory, random_addr + i, &[0xA5u8 ^ i as u8])?;
+        vm.write_user(memory, random_addr + i, &[0xA5u8 ^ i as u8])?;
     }
     for (i, value) in stack_entries.iter().enumerate() {
-        write_guest(memory, sp + i as u64 * word_size, &value.to_le_bytes())?;
+        vm.write_user(memory, sp + i as u64 * word_size, &value.to_le_bytes())?;
     }
 
     Ok(InitialRegs {
         sp,
-        a0: 1,
-        a1: sp + word_size,
-        a2: sp + envp_offset_words * word_size,
+        a0: 0,
+        a1: 0,
+        a2: 0,
     })
+}
+
+fn user_image_addr(load: &LoadInfo, phys_addr: u64) -> Result<u64, String> {
+    if !load.analysis.is_pie && !load.analysis.needs_relocation {
+        return Ok(phys_addr);
+    }
+    if phys_addr < DRAM_BASE || phys_addr > load.image_end {
+        return Err(format!("loaded image address outside relocated image: 0x{phys_addr:x}"));
+    }
+    Ok(load.analysis.min_vaddr + (phys_addr - DRAM_BASE))
 }
 
 fn write_guest(memory: &mut [u8], addr: u64, bytes: &[u8]) -> Result<(), String> {

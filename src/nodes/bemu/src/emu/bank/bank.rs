@@ -3,6 +3,28 @@ pub const BANK_WIDTH: usize = 128;
 pub const BANK_LINES: usize = 1024;
 pub const BANK_SIZE: usize = BANK_LINES * (BANK_WIDTH / 8);
 pub const MATRIX_SIZE: usize = 16;
+const PAGE_SIZE: u64 = 4096;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static FAST_VIRT_BASE: AtomicU64 = AtomicU64::new(0);
+static FAST_PHYS_BASE: AtomicU64 = AtomicU64::new(0);
+static FAST_LEN: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    static ADDR_CACHE: std::cell::Cell<Option<(u64, usize)>> = const { std::cell::Cell::new(None) };
+}
+
+pub fn clear_addr_cache() {
+    FAST_LEN.store(0, Ordering::Relaxed);
+    ADDR_CACHE.with(|cache| cache.set(None));
+}
+
+pub fn set_fast_addr_map(virt: u64, phys: u64, len: u64) {
+    FAST_VIRT_BASE.store(virt, Ordering::Relaxed);
+    FAST_PHYS_BASE.store(phys, Ordering::Relaxed);
+    FAST_LEN.store(len, Ordering::Release);
+    ADDR_CACHE.with(|cache| cache.set(None));
+}
 
 /// Mirrors RTL `PrivateMemBackend.mappingTable`:
 /// physical SRAM bank slot -> bound virtual bank id.
@@ -66,6 +88,41 @@ pub const DRAM_BASE: u64 = 0x80000000;
 
 #[inline]
 fn dram_offset(mem_len: usize, addr: u64) -> usize {
+    let fast_len = FAST_LEN.load(Ordering::Acquire);
+    if fast_len != 0 {
+        let virt = FAST_VIRT_BASE.load(Ordering::Relaxed);
+        if addr >= virt && addr < virt + fast_len {
+            let phys = FAST_PHYS_BASE.load(Ordering::Relaxed) + (addr - virt);
+            let off = (phys - DRAM_BASE) as usize;
+            if off < mem_len {
+                return off;
+            }
+        }
+    }
+
+    let page = addr & !(PAGE_SIZE - 1);
+    let page_off = (addr - page) as usize;
+    if let Some(off) = ADDR_CACHE.with(|cache| {
+        cache.get().and_then(|(cached_page, cached_off)| {
+            if cached_page == page {
+                cached_off.checked_add(page_off)
+            } else {
+                None
+            }
+        })
+    }) {
+        if off < mem_len {
+            return off;
+        }
+    }
+
+    if let Some(off) = bebop_syscall::translate_guest_addr(addr, 1, mem_len) {
+        if let Some(page_base_off) = off.checked_sub(page_off) {
+            ADDR_CACHE.with(|cache| cache.set(Some((page, page_base_off))));
+        }
+        return off;
+    }
+
     let mem_end = DRAM_BASE + mem_len as u64;
     if addr >= DRAM_BASE && addr < mem_end {
         return (addr - DRAM_BASE) as usize;
