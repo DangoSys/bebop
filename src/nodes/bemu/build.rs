@@ -33,10 +33,17 @@ use std::process::{Command, Stdio};
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let native_dir = manifest_dir.join("native");
+    let native_dir = native_dir(&manifest_dir);
     let spike_dir = native_dir.join("spike");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
+    let chip_inst = chip_inst(&manifest_dir);
+    fs::write(
+        out_dir.join("chip.rs"),
+        format!("#[path = \"{}\"]\npub mod active_chip;\n", chip_inst.display()),
+    )
+    .expect("write active chip module");
+
     let spike_install_dir = out_dir.join("spike_install");
     let spike_build_dir = out_dir.join("spike_build");
 
@@ -46,6 +53,7 @@ fn main() {
 
     // Incremental compilation check
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed={}", chip_inst.display());
     println!("cargo:rerun-if-changed={}", native_dir.join("rocc.cc").display());
     println!("cargo:rerun-if-changed={}", native_dir.join("spike.cc").display());
     println!("cargo:rerun-if-changed={}", native_dir.join("btif.cc").display());
@@ -72,6 +80,41 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=stdc++");
     // Set rpath so the binary can find the libraries at bebop's runtime
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}/lib", spike_install_dir.display());
+}
+
+fn chip_inst(manifest_dir: &Path) -> PathBuf {
+    if let Ok(path) = env::var("BEBOP_BEMU_CHIP_INST") {
+        return PathBuf::from(path);
+    }
+
+    if manifest_dir.join("native").exists() {
+        return manifest_dir.join("src/emu/inst/base.rs");
+    }
+
+    let chip = manifest_dir.join("src/lib.rs");
+    if chip.exists() {
+        return chip;
+    }
+
+    panic!("BEMU chip instruction set not found from {}.", manifest_dir.display());
+}
+
+fn native_dir(manifest_dir: &Path) -> PathBuf {
+    if let Ok(dir) = env::var("BEBOP_BEMU_NATIVE_DIR") {
+        return PathBuf::from(dir);
+    }
+
+    let local = manifest_dir.join("native");
+    if local.join("spike").exists() {
+        return local;
+    }
+
+    let repo_core = manifest_dir.join("../../../../bebop/src/nodes/bemu/native");
+    if repo_core.join("spike").exists() {
+        return repo_core;
+    }
+
+    panic!("BEMU native dir not found from {}.", manifest_dir.display());
 }
 
 fn spike_configure(spike_dir: &Path, build_dir: &Path, install_dir: &Path) {
