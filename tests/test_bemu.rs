@@ -11,7 +11,7 @@ fn main() -> ExitCode {
         args,
         "test_bemu",
         |tc| format!("bemu::{}", tc.name),
-        "Make sure to build with an explicit chip feature, for example: cargo build --features bemu-toy",
+        "Make sure to build with BEMU enabled, for example: cargo build --features bemu",
         BemuBackend,
     )
 }

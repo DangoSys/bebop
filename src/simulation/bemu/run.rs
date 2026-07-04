@@ -23,10 +23,7 @@
 use snafu::{FromString, Whatever};
 use std::path::PathBuf;
 
-#[cfg(all(feature = "bemu", not(any(feature = "bemu-toy"))))]
-compile_error!("bemu requires an explicit chip feature, for example: --features bemu-toy");
-
-#[cfg(feature = "bemu-toy")]
+#[cfg(feature = "bemu")]
 use bebop_bemu::{BemuInstance, TraceConfig};
 
 pub struct BemuRunConfig {
@@ -36,7 +33,7 @@ pub struct BemuRunConfig {
 }
 
 pub fn run(config: BemuRunConfig) -> Result<(), Whatever> {
-    #[cfg(feature = "bemu-toy")]
+    #[cfg(feature = "bemu")]
     {
         let elf = config.elf.display();
         let log_dir = config.log_dir.display();
@@ -66,10 +63,10 @@ pub fn run(config: BemuRunConfig) -> Result<(), Whatever> {
         Ok(())
     }
 
-    #[cfg(not(feature = "bemu-toy"))]
+    #[cfg(not(feature = "bemu"))]
     {
         let _ = config;
-        let error_msg = "bemu chip is not enabled in this build".to_string();
+        let error_msg = "bemu is not enabled in this build".to_string();
         Err(Whatever::without_source(error_msg))
     }
 }

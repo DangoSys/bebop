@@ -97,6 +97,7 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "bebop-bank-hash",
+ "bebop-bemu",
  "bebop-dasm",
  "bebop-fd-redirect",
  "bebop-p2e",
@@ -117,7 +118,6 @@ dependencies = [
  "serde_json",
  "snafu",
  "toml",
- "toy-bemu",
  "walkdir",
 ]
 
@@ -978,20 +978,6 @@ name = "toml_write"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
-
-[[package]]
-name = "toy-bemu"
-version = "0.1.0"
-dependencies = [
- "bebop-bank-hash",
- "bebop-dtb",
- "bebop-elf",
- "bebop-syscall",
- "bebop-uart",
- "cc",
- "once_cell",
- "snafu",
-]
 
 [[package]]
 name = "unicode-ident"
