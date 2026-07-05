@@ -53,6 +53,8 @@ fn main() {
 
     // Incremental compilation check
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=BEBOP_BEMU_CHIP_INST");
+    println!("cargo:rerun-if-env-changed=BEBOP_BEMU_NATIVE_DIR");
     println!("cargo:rerun-if-changed={}", chip_inst.display());
     println!("cargo:rerun-if-changed={}", native_dir.join("rocc.cc").display());
     println!("cargo:rerun-if-changed={}", native_dir.join("spike.cc").display());
