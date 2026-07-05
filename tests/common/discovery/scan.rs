@@ -43,10 +43,11 @@ pub fn scan_elf_files_by_stems(
     root: &Path,
     extension: Option<&str>,
     stems: &[String],
-) -> (Vec<ElfTestCase>, Vec<String>) {
-    use std::collections::HashMap;
+) -> (Vec<ElfTestCase>, Vec<String>, Vec<(String, Vec<std::path::PathBuf>)>) {
+    use std::collections::BTreeMap;
 
-    let mut found: HashMap<String, ElfTestCase> = HashMap::new();
+    let requested: std::collections::HashSet<_> = stems.iter().cloned().collect();
+    let mut found: BTreeMap<String, Vec<ElfTestCase>> = BTreeMap::new();
 
     for entry in WalkDir::new(root)
         .follow_links(false)
@@ -69,10 +70,16 @@ pub fn scan_elf_files_by_stems(
             continue;
         };
 
-        if stems.iter().any(|s| s == &test_case.stem) && !found.contains_key(&test_case.stem) {
-            found.insert(test_case.stem.clone(), test_case);
+        if requested.contains(&test_case.stem) {
+            found.entry(test_case.stem.clone()).or_default().push(test_case);
         }
     }
+
+    let duplicates = found
+        .iter()
+        .filter(|(_, cases)| cases.len() > 1)
+        .map(|(stem, cases)| (stem.clone(), cases.iter().map(|case| case.path.clone()).collect()))
+        .collect();
 
     let mut selected = Vec::new();
     let mut missing = Vec::new();
@@ -81,12 +88,12 @@ pub fn scan_elf_files_by_stems(
         if !seen.insert(stem.clone()) {
             continue;
         }
-        match found.remove(stem) {
-            Some(tc) => selected.push(tc),
+        match found.get(stem) {
+            Some(cases) => selected.push(cases[0].clone()),
             None => missing.push(stem.clone()),
         }
     }
-    (selected, missing)
+    (selected, missing, duplicates)
 }
 
 pub fn filter_tests(

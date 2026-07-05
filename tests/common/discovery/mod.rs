@@ -64,12 +64,18 @@ fn discover_from_workload_toml(
         return Err(DiscoveryError::RootMissing { path: search_root });
     }
 
-    let (test_cases, missing) = scan_elf_files_by_stems(&search_root, extension, &spec.tests);
+    let (test_cases, missing, duplicates) = scan_elf_files_by_stems(&search_root, extension, &spec.tests);
 
     if !missing.is_empty() {
         return Err(DiscoveryError::WorkloadTomlMissing {
             path: toml_path.to_path_buf(),
             missing,
+        });
+    }
+    if !duplicates.is_empty() {
+        return Err(DiscoveryError::WorkloadTomlDuplicate {
+            path: toml_path.to_path_buf(),
+            duplicates,
         });
     }
 
@@ -140,6 +146,10 @@ pub enum DiscoveryError {
         path: PathBuf,
         missing: Vec<String>,
     },
+    WorkloadTomlDuplicate {
+        path: PathBuf,
+        duplicates: Vec<(String, Vec<PathBuf>)>,
+    },
 }
 
 impl std::fmt::Display for DiscoveryError {
@@ -171,6 +181,26 @@ impl std::fmt::Display for DiscoveryError {
                     "Workload TOML {} has unknown test case(s): {}",
                     path.display(),
                     missing.join(", ")
+                )
+            }
+            DiscoveryError::WorkloadTomlDuplicate { path, duplicates } => {
+                let details = duplicates
+                    .iter()
+                    .map(|(stem, paths)| {
+                        let paths = paths
+                            .iter()
+                            .map(|path| path.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("{stem}: {paths}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                write!(
+                    f,
+                    "Workload TOML {} has duplicate test case(s): {}",
+                    path.display(),
+                    details
                 )
             }
         }
