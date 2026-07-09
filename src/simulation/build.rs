@@ -58,19 +58,23 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
                 .whatever_context("failed to build p2e")?;
 
             #[cfg(feature = "p2e")]
-            BitstreamBuilder::new(out_dir.clone())
-                .build()
-                .map_err(Whatever::without_source)?;
-            #[cfg(not(feature = "p2e"))]
-            return Err(Whatever::without_source(
-                "p2e builder is not compiled into this executable".to_string(),
-            ));
+            {
+                BitstreamBuilder::new(out_dir.clone())
+                    .build()
+                    .map_err(Whatever::without_source)?;
 
-            // copy the built executable to the output directory
-            let dest = out_dir.join("bebop-p2e");
-            std::fs::copy("target/debug/bebop", &dest).whatever_context("failed to copy built executable")?;
-            println!("Built executable: {}", dest.display());
-            Ok(())
+                // copy the built executable to the output directory
+                let dest = out_dir.join("bebop-p2e");
+                std::fs::copy("target/debug/bebop", &dest).whatever_context("failed to copy built executable")?;
+                println!("Built executable: {}", dest.display());
+                Ok(())
+            }
+            #[cfg(not(feature = "p2e"))]
+            {
+                Err(Whatever::without_source(
+                    "p2e builder is not compiled into this executable".to_string(),
+                ))
+            }
         }
     }
 }

@@ -20,6 +20,7 @@
 //
 //===----------------------------------------------------------------------===//
 use snafu::{FromString, Whatever};
+#[cfg(feature = "verilator")]
 use std::path::PathBuf;
 
 #[cfg(feature = "verilator")]
@@ -42,6 +43,7 @@ use bebop_verilator::{exit_code, init_trace, setup_ctrlc_handler, should_exit, S
 #[cfg(feature = "verilator")]
 use super::console::ConsoleServer;
 
+#[cfg(feature = "verilator")]
 pub struct VerilatorRunConfig {
     pub elf: PathBuf,
     pub log_dir: PathBuf,
@@ -53,6 +55,7 @@ pub struct VerilatorRunConfig {
 }
 
 #[derive(Debug)]
+#[cfg(feature = "verilator")]
 pub struct VerilatorTraceConfig {
     pub itrace: bool,
     pub mtrace: bool,
@@ -61,6 +64,7 @@ pub struct VerilatorTraceConfig {
     pub banktrace: bool,
 }
 
+#[cfg(feature = "verilator")]
 impl VerilatorRunConfig {
     fn mode(&self) -> &'static str {
         if self.fast && self.diff {
@@ -75,102 +79,99 @@ impl VerilatorRunConfig {
     }
 }
 
+#[cfg(feature = "verilator")]
 pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
-    #[cfg(feature = "verilator")]
-    {
-        //===----------------------------------------------------------------------===//
-        // Configuration Checks
-        //===----------------------------------------------------------------------===//
-        setup_ctrlc_handler();
-        if config.diff || config.fast {
-            return Err(Whatever::without_source(
-                "Verilator diff/fast run is not supported yet".to_string(),
-            ));
-        }
+    //===----------------------------------------------------------------------===//
+    // Configuration Checks
+    //===----------------------------------------------------------------------===//
+    setup_ctrlc_handler();
+    if config.diff || config.fast {
+        return Err(Whatever::without_source(
+            "Verilator diff/fast run is not supported yet".to_string(),
+        ));
+    }
 
-        let stdout_file = config.log_dir.join("stdout.log");
-        let stderr_file = config.log_dir.join("stderr.log");
-        let fst_file = config
-            .fst_dir
-            .as_ref()
-            .cloned()
-            .unwrap_or_else(|| config.log_dir.join("fst"))
-            .join("waveform.fst");
-        let trace_config = TraceConfig {
-            itrace: config.trace.itrace,
-            mtrace: config.trace.mtrace,
-            pmctrace: config.trace.pmctrace,
-            ctrace: config.trace.ctrace,
-            banktrace: config.trace.banktrace,
-        };
+    let stdout_file = config.log_dir.join("stdout.log");
+    let stderr_file = config.log_dir.join("stderr.log");
+    let fst_file = config
+        .fst_dir
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|| config.log_dir.join("fst"))
+        .join("waveform.fst");
+    let trace_config = TraceConfig {
+        itrace: config.trace.itrace,
+        mtrace: config.trace.mtrace,
+        pmctrace: config.trace.pmctrace,
+        ctrace: config.trace.ctrace,
+        banktrace: config.trace.banktrace,
+    };
 
-        println!("ELF file: {}", config.elf.display());
-        println!("Simulator mode: {}", config.mode());
-        println!("Trace configuration: {:?}", config.trace);
-        println!("Log directory: {}", config.log_dir.display());
-        if let Some(fst_dir) = config.fst_dir.as_ref() {
-            println!("Waveform will be saved to: {}", fst_dir.display());
-        }
+    println!("ELF file: {}", config.elf.display());
+    println!("Simulator mode: {}", config.mode());
+    println!("Trace configuration: {:?}", config.trace);
+    println!("Log directory: {}", config.log_dir.display());
+    if let Some(fst_dir) = config.fst_dir.as_ref() {
+        println!("Waveform will be saved to: {}", fst_dir.display());
+    }
 
-        create_output_dirs(&config.log_dir, config.wave.then_some(fst_file.as_path()))?;
-        init_trace(&config.log_dir, trace_config)
-            .map_err(|e| Whatever::without_source(format!("failed to init Verilator trace: {e}")))?;
+    create_output_dirs(&config.log_dir, config.wave.then_some(fst_file.as_path()))?;
+    init_trace(&config.log_dir, trace_config)
+        .map_err(|e| Whatever::without_source(format!("failed to init Verilator trace: {e}")))?;
 
-        //===----------------------------------------------------------------------===//
-        // Initialize Verilator
-        //===----------------------------------------------------------------------===//
-        let stdout_guard = FdRedirect::new_tee(std::io::stdout().as_raw_fd(), &stdout_file, "stdout")
-            .whatever_context("failed to redirect stdout")?;
-        let stderr_guard = FdRedirect::new(std::io::stderr().as_raw_fd(), &stderr_file, "stderr")
-            .whatever_context("failed to redirect stderr")?;
+    //===----------------------------------------------------------------------===//
+    // Initialize Verilator
+    //===----------------------------------------------------------------------===//
+    let stdout_guard = FdRedirect::new_tee(std::io::stdout().as_raw_fd(), &stdout_file, "stdout")
+        .whatever_context("failed to redirect stdout")?;
+    let stderr_guard = FdRedirect::new(std::io::stderr().as_raw_fd(), &stderr_file, "stderr")
+        .whatever_context("failed to redirect stderr")?;
 
-        let console = ConsoleServer::start(&config.log_dir)?;
-        println!("Console socket: {}", console.socket_path().display());
-        println!("UART logs: {}", console.uart_log_dir().display());
+    let console = ConsoleServer::start(&config.log_dir)?;
+    println!("Console socket: {}", console.socket_path().display());
+    println!("UART logs: {}", console.uart_log_dir().display());
 
-        let elf_arg = format!("+elf={}", config.elf.display());
-        let mut simulator = Simulator::new(config.wave.then_some(fst_file.as_path()), &[elf_arg])
-            .map_err(|e| Whatever::without_source(format!("failed to create Verilator simulator: {e}")))?;
+    let elf_arg = format!("+elf={}", config.elf.display());
+    let mut simulator = Simulator::new(config.wave.then_some(fst_file.as_path()), &[elf_arg])
+        .map_err(|e| Whatever::without_source(format!("failed to create Verilator simulator: {e}")))?;
 
-        //===----------------------------------------------------------------------===//
-        // Run
-        //===----------------------------------------------------------------------===//
-        loop {
-            console.poll_tx();
-            if simulator.exec_once() {
-                break;
-            }
-            if should_exit() {
-                break;
-            }
-        }
+    //===----------------------------------------------------------------------===//
+    // Run
+    //===----------------------------------------------------------------------===//
+    loop {
         console.poll_tx();
-        let code = exit_code();
-
-        //===----------------------------------------------------------------------===//
-        // Finish Simulation
-        //===----------------------------------------------------------------------===//
-        simulator.finalize();
-
-        drop(console);
-        drop(stderr_guard);
-        drop(stdout_guard);
-
-        write_disasm_log(&stderr_file)?;
-
-        if code != 0 {
-            return Err(Whatever::without_source(format!("Verilator exited with code {code}")));
+        if simulator.exec_once() {
+            break;
         }
-        Ok(())
+        if should_exit() {
+            break;
+        }
     }
+    console.poll_tx();
+    let code = exit_code();
 
-    #[cfg(not(feature = "verilator"))]
-    {
-        let _ = config;
-        Err(Whatever::without_source(
-            "verilator runner is not compiled into this executable".to_string(),
-        ))
+    //===----------------------------------------------------------------------===//
+    // Finish Simulation
+    //===----------------------------------------------------------------------===//
+    simulator.finalize();
+
+    drop(console);
+    drop(stderr_guard);
+    drop(stdout_guard);
+
+    write_disasm_log(&stderr_file)?;
+
+    if code != 0 {
+        return Err(Whatever::without_source(format!("Verilator exited with code {code}")));
     }
+    Ok(())
+}
+
+#[cfg(not(feature = "verilator"))]
+pub fn run_unavailable() -> Result<(), Whatever> {
+    Err(Whatever::without_source(
+        "verilator runner is not compiled into this executable".to_string(),
+    ))
 }
 
 #[cfg(feature = "verilator")]

@@ -40,21 +40,31 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             no_wave,
             diff,
             fast,
-        } => crate::simulation::verilator::run::run(crate::simulation::verilator::run::VerilatorRunConfig {
-            elf,
-            log_dir,
-            fst_dir,
-            wave: !no_wave,
-            diff,
-            fast,
-            trace: crate::simulation::verilator::run::VerilatorTraceConfig {
-                itrace: true,
-                mtrace: true,
-                pmctrace: false,
-                ctrace: false,
-                banktrace: true,
-            },
-        }),
+        } => {
+            #[cfg(feature = "verilator")]
+            {
+                crate::simulation::verilator::run::run(crate::simulation::verilator::run::VerilatorRunConfig {
+                    elf,
+                    log_dir,
+                    fst_dir,
+                    wave: !no_wave,
+                    diff,
+                    fast,
+                    trace: crate::simulation::verilator::run::VerilatorTraceConfig {
+                        itrace: true,
+                        mtrace: true,
+                        pmctrace: false,
+                        ctrace: false,
+                        banktrace: true,
+                    },
+                })
+            }
+            #[cfg(not(feature = "verilator"))]
+            {
+                let _ = (elf, log_dir, fst_dir, no_wave, diff, fast);
+                crate::simulation::verilator::run::run_unavailable()
+            }
+        }
         RunTarget::Bemu { elf, log_dir, pk } => {
             crate::simulation::bemu::run::run(crate::simulation::bemu::run::BemuRunConfig { elf, log_dir, pk })
         }
@@ -65,13 +75,23 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             multi_fpga,
             wave,
             wave_start,
-        } => crate::simulation::p2e::run::run(crate::simulation::p2e::run::P2eRunConfig {
-            image,
-            bitstream,
-            log_dir,
-            multi_fpga,
-            wave,
-            wave_start,
-        }),
+        } => {
+            #[cfg(feature = "p2e")]
+            {
+                crate::simulation::p2e::run::run(crate::simulation::p2e::run::P2eRunConfig {
+                    image,
+                    bitstream,
+                    log_dir,
+                    multi_fpga,
+                    wave,
+                    wave_start,
+                })
+            }
+            #[cfg(not(feature = "p2e"))]
+            {
+                let _ = (image, bitstream, log_dir, multi_fpga, wave, wave_start);
+                crate::simulation::p2e::run::run_unavailable()
+            }
+        }
     }
 }
