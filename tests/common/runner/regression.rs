@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use super::super::args::RegressionArgs;
+use super::super::artifacts::ArtifactManager;
 use super::super::discovery::{discover_tests, write_nextest_terse_list, ElfTestCase};
 use super::backend::BackendRunner;
 use super::exec::{print_failure_details, run_backend_elf_test};
@@ -61,6 +62,13 @@ where
         return ExitCode::SUCCESS;
     }
 
+    if args.clean_before {
+        if let Err(e) = ArtifactManager::clean_all() {
+            eprintln!("Error: failed to clean previous test artifacts: {e}");
+            return ExitCode::FAILURE;
+        }
+    }
+
     if args.verbose {
         eprintln!("Found {} ELF test cases", test_cases.len());
         for tc in &test_cases {
@@ -75,12 +83,11 @@ where
             let name = test_case_display_name.clone()(&test_case);
             let bebop_bin = bebop_bin.clone();
             let elf_path = test_case.path.clone();
-            let keep_temp = args.keep_temp;
             let verbose = args.verbose;
             let backend = backend.clone();
 
             Trial::test(name, move || {
-                let result = run_backend_elf_test(&bebop_bin, &elf_path, keep_temp, verbose, &backend);
+                let result = run_backend_elf_test(&bebop_bin, &elf_path, verbose, &backend);
                 if result.success() {
                     Ok(())
                 } else {

@@ -8,10 +8,6 @@ name = "bebop_p2e"
 path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
-[features]
-default = []
-build-bitstream = []
-
 [dependencies]
 bebop-uart = { path = "../lib/uart" }
 log = "0.4"

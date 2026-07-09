@@ -21,10 +21,10 @@ pub struct RegressionArgs {
     pub case_list: Option<PathBuf>,
 
     #[arg(long)]
-    pub keep_temp: bool,
+    pub clean_before: bool,
 
-    #[arg(long, short = 'j', value_name = "N", default_value = "1")]
-    pub jobs: usize,
+    #[arg(long, short = 'j', value_name = "N")]
+    pub jobs: Option<usize>,
 
     #[arg(long, short = 'v')]
     pub verbose: bool,
@@ -94,6 +94,10 @@ impl RegressionArgs {
         }
         if self.bench {
             out.push("--bench".to_string());
+        }
+        if let Some(jobs) = self.jobs {
+            out.push("--test-threads".to_string());
+            out.push(jobs.to_string());
         }
         out
     }

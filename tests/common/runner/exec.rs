@@ -8,7 +8,6 @@ use super::backend::BackendRunner;
 pub fn run_backend_elf_test(
     bebop_bin: &Path,
     elf_path: &Path,
-    keep_temp: bool,
     verbose: bool,
     backend: &impl BackendRunner,
 ) -> RegressionResult {
@@ -17,7 +16,7 @@ pub fn run_backend_elf_test(
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let artifacts = match ArtifactManager::create_with_backend(backend.backend_name(), &workload_name, keep_temp) {
+    let artifacts = match ArtifactManager::create_with_backend(backend.backend_name(), &workload_name) {
         Ok(a) => a,
         Err(e) => {
             return RegressionResult::infra_error(

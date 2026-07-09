@@ -48,7 +48,6 @@ default = []
 verilator = ["dep:bebop-verilator"]
 bemu = ["dep:bebop-bemu"]
 p2e = ["dep:bebop-p2e"]
-build-bitstream = ["bebop-p2e?/build-bitstream"]
 
 [dependencies]
 bebop-verilator = { path = "src/nodes/verilator", optional = true }

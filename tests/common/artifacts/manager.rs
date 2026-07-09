@@ -21,9 +21,17 @@ pub struct ArtifactManager {
 }
 
 impl ArtifactManager {
+    pub fn clean_all() -> std::io::Result<()> {
+        let root = workspace_root().join(ARTIFACT_ROOT);
+        if root.exists() {
+            fs::remove_dir_all(root)?;
+        }
+        Ok(())
+    }
+
     /// Create artifact directory with backend and timestamp prefix.
     /// Format: <backend>-<YYYY-MM-DD-HH-MM-SS>-<workload-name>
-    pub fn create_with_backend(backend: &str, workload_name: &str, _keep_temp: bool) -> std::io::Result<Self> {
+    pub fn create_with_backend(backend: &str, workload_name: &str) -> std::io::Result<Self> {
         let timestamp = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S");
         let dir_name = format!("{}-{}-{}", backend, timestamp, workload_name);
         let root = workspace_root().join(ARTIFACT_ROOT).join(dir_name);
@@ -69,8 +77,7 @@ impl ArtifactManager {
     }
 
     pub fn finalize(self, _test_passed: bool) -> Option<PathBuf> {
-        // Always keep artifacts (logs, waveforms) for inspection.
-        // Users can manually `rm -rf test-artifacts/` to clean up.
+        // Always keep artifacts from the current run for inspection.
         Some(self.root.clone())
     }
 }

@@ -2,6 +2,9 @@ use crate::{BuildCommand, BuildTarget};
 use duct::cmd;
 use snafu::{FromString, ResultExt, Whatever};
 
+#[cfg(feature = "p2e")]
+use bebop_p2e::BitstreamBuilder;
+
 pub fn build(command: BuildCommand) -> Result<(), Whatever> {
     match command.target {
         BuildTarget::Verilator {
@@ -47,11 +50,21 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
                 .whatever_context("failed to canonicalize RTL directory")?;
             std::fs::create_dir_all(&out_dir).whatever_context("failed to create output directory")?;
             println!("Building p2e: {} -> {}", rtl_dir.display(), out_dir.display());
-            cmd!("cargo", "build", "--bin", "bebop", "--features", "p2e")
+            let features = "p2e";
+            cmd!("cargo", "build", "--bin", "bebop", "--features", features)
                 .env("VSRC_PATH", &rtl_dir)
                 .env("OUT_PATH", &out_dir)
                 .run()
                 .whatever_context("failed to build p2e")?;
+
+            #[cfg(feature = "p2e")]
+            BitstreamBuilder::new(out_dir.clone())
+                .build()
+                .map_err(Whatever::without_source)?;
+            #[cfg(not(feature = "p2e"))]
+            return Err(Whatever::without_source(
+                "p2e builder is not compiled into this executable".to_string(),
+            ));
 
             // copy the built executable to the output directory
             let dest = out_dir.join("bebop-p2e");

@@ -48,10 +48,6 @@ impl PnrStep {
             .status()
             .map_err(|e| format!("Failed to execute make: {}", e))?;
 
-        if !status.success() {
-            return Err("PNR failed".to_string());
-        }
-
         // Copy bitstream from pnrDir to fpgaCompDir root
         let bitstream_src = self
             .output_dir
@@ -59,7 +55,14 @@ impl PnrStep {
         let bitstream_dst = self.output_dir.join("fpgaCompDir/bitstream.bit");
 
         if !bitstream_src.exists() {
+            if !status.success() {
+                return Err("PNR failed".to_string());
+            }
             return Err(format!("Bitstream not generated: {:?}", bitstream_src));
+        }
+
+        if !status.success() {
+            log::warn!("PNR command returned non-zero, but bitstream was generated; continuing");
         }
 
         std::fs::copy(&bitstream_src, &bitstream_dst).map_err(|e| format!("Failed to copy bitstream: {}", e))?;
