@@ -1,3 +1,4 @@
+use super::cycle_trace::CycleTraceCollector;
 use bebop_uart::UartTx;
 use std::collections::HashMap;
 use std::ffi::CString;
@@ -55,6 +56,8 @@ struct RuntimeState {
     uart_rx_probe_counts: HashMap<u32, u32>,
     uart_rx_last_probe: HashMap<u32, (u64, u64, bool)>,
     console_tx: Option<Sender<UartTx>>,
+    cycle_trace: Option<CycleTraceCollector>,
+    cycle_trace_error: Option<String>,
 }
 
 static STATE: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
@@ -85,6 +88,25 @@ pub fn set_log_dir(log_dir: String) {
 
 pub fn set_console_tx(tx: Sender<UartTx>) {
     state().lock().unwrap().console_tx = Some(tx);
+}
+
+pub fn init_cycle_trace(log_dir: &std::path::Path) -> Result<(), String> {
+    state().lock().unwrap().cycle_trace = Some(CycleTraceCollector::new(log_dir)?);
+    Ok(())
+}
+
+pub fn finish_cycle_trace() -> Result<(), String> {
+    let (collector, error) = {
+        let mut guard = state().lock().unwrap();
+        (guard.cycle_trace.take(), guard.cycle_trace_error.take())
+    };
+    if let Some(error) = error {
+        return Err(error);
+    }
+    if let Some(collector) = collector {
+        collector.finish()?;
+    }
+    Ok(())
 }
 
 pub fn push_uart_rx(hart_id: u32, byte: u8) {
@@ -131,6 +153,11 @@ pub fn host_mmio_write(addr: u64, data: u64) -> i32 {
         if addr == UART_BASE_ADDR {
             let byte = (data & 0xff) as u8;
             guard.uart_log.push(byte);
+            if let Some(collector) = guard.cycle_trace.as_mut() {
+                if let Err(error) = collector.push_uart_byte(0, byte) {
+                    guard.cycle_trace_error.get_or_insert(error);
+                }
+            }
             print!("{}", byte as char);
             let _ = std::io::Write::flush(&mut std::io::stdout());
         }
@@ -176,6 +203,11 @@ pub extern "C" fn scu_uart_write(hart_id: u32, ch: u32) {
     // Also write to global uart_log for backward compatibility
     let byte = (ch & 0xff) as u8;
     guard.uart_log.push(byte);
+    if let Some(collector) = guard.cycle_trace.as_mut() {
+        if let Err(error) = collector.push_uart_byte(hart_id, byte) {
+            guard.cycle_trace_error.get_or_insert(error);
+        }
+    }
     if let Some(tx) = &guard.console_tx {
         let _ = tx.send(UartTx { hart_id, byte });
     }

@@ -4,10 +4,26 @@ use std::path::Path;
 
 pub fn run_vvac(out_dir: &Path, sourceme: &Path, flist: &Path, top: &str) {
     let vvac_cmd = format!(
-        "source {} && vvac -bc -f {} -top {}",
-        sourceme.display(),
-        flist.display(),
-        top
+        r#"clang_format_bin="$(command -v clang-format || true)"
+clang_format_bin="${{clang_format_bin%/*}}"
+source {sourceme}
+vvac_bin="$(command -v vvac || true)"
+vvac_bin="${{vvac_bin%/*}}"
+filtered_path=()
+IFS=: read -r -a path_entries <<< "$PATH"
+for path_entry in "${{path_entries[@]}}"; do
+    case "$path_entry" in
+        "$clang_format_bin"|"$vvac_bin"|/home/wanghui/Code/buckyball/result/bin|/usr/*|/bin|/sbin) ;;
+        *) filtered_path+=("$path_entry") ;;
+    esac
+done
+PATH="$(IFS=:; printf '%s' "${{filtered_path[*]}}")"
+PATH="/usr/bin:/bin:${{vvac_bin}}:$PATH"
+export PATH
+vvac -bc -f {flist} -top {top}"#,
+        sourceme = sourceme.display(),
+        flist = flist.display(),
+        top = top,
     );
 
     cmd!("bash", "-c", &vvac_cmd)

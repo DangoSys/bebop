@@ -93,6 +93,16 @@ pub enum RunTarget {
         diff: bool,
         #[arg(long, help = "Run with a BEMU fast/difftest instance")]
         fast: bool,
+        #[arg(long, help = "Enable RTL instruction trace")]
+        itrace: bool,
+        #[arg(long, help = "Enable RTL memory trace")]
+        mtrace: bool,
+        #[arg(long, help = "Enable RTL performance counter trace")]
+        pmctrace: bool,
+        #[arg(long, help = "Enable RTL cycle counter trace")]
+        ctrace: bool,
+        #[arg(long, help = "Enable RTL bank trace")]
+        banktrace: bool,
     },
     /// Run a workload on BEMU.
     Bemu {
@@ -117,6 +127,16 @@ pub enum RunTarget {
         wave: bool,
         #[arg(long, help = "Start waveform dump from this cycle")]
         wave_start: Option<u64>,
+        #[arg(long, help = "Enable RTL instruction trace")]
+        itrace: bool,
+        #[arg(long, help = "Enable RTL memory trace")]
+        mtrace: bool,
+        #[arg(long, help = "Enable RTL performance counter trace")]
+        pmctrace: bool,
+        #[arg(long, help = "Enable RTL cycle counter trace")]
+        ctrace: bool,
+        #[arg(long, help = "Enable RTL bank trace")]
+        banktrace: bool,
     },
 }
 

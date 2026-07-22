@@ -222,6 +222,8 @@ pub struct App {
     pub mode: Mode,
     pub panes: Vec<Pane>,
     pub conns: Vec<Conn>,
+    pub page: usize,
+    pub page_size: usize,
     pub active: usize,
     pub grid: bool,
     pub exit: bool,
@@ -235,6 +237,8 @@ impl App {
             mode: Mode::Start,
             panes: Vec::new(),
             conns: Vec::new(),
+            page: 0,
+            page_size: 1,
             active: 0,
             grid: true,
             exit: false,
@@ -246,6 +250,8 @@ impl App {
         self.session += 1;
         self.panes = (0..harts).map(Pane::new).collect();
         self.conns.clear();
+        self.page = 0;
+        self.page_size = harts as usize;
         self.active = 0;
         self.grid = harts > 1;
         self.mode = Mode::Session;
@@ -254,6 +260,8 @@ impl App {
     pub fn disconnect(&mut self, msg: String) {
         self.conns.clear();
         self.panes.clear();
+        self.page = 0;
+        self.page_size = 1;
         self.active = 0;
         self.mode = Mode::Start;
         self.form.msg = msg;
@@ -265,12 +273,94 @@ impl App {
             && self.panes.iter().all(|p| !p.connected && p.status != "connecting")
     }
 
+    pub fn page_count(&self) -> usize {
+        let len = self.panes.len();
+        if len == 0 {
+            0
+        } else {
+            len.div_ceil(self.page_size.max(1))
+        }
+    }
+
+    pub fn page_start(&self) -> usize {
+        self.page * self.page_size.max(1)
+    }
+
+    pub fn page_end(&self) -> usize {
+        (self.page_start() + self.page_size.max(1)).min(self.panes.len())
+    }
+
+    pub fn page_len(&self) -> usize {
+        self.page_end().saturating_sub(self.page_start())
+    }
+
+    pub fn page_panes(&self) -> &[Pane] {
+        &self.panes[self.page_start()..self.page_end()]
+    }
+
+    pub fn increase_page_size(&mut self) {
+        if self.panes.is_empty() {
+            return;
+        }
+        let global = self.page_start() + self.active;
+        let next = self.page_size.saturating_mul(2).min(self.panes.len()).max(1);
+        self.set_page_size(next, global);
+    }
+
+    pub fn decrease_page_size(&mut self) {
+        if self.panes.is_empty() {
+            return;
+        }
+        let global = self.page_start() + self.active;
+        let next = (self.page_size / 2).max(1);
+        self.set_page_size(next, global);
+    }
+
+    fn set_page_size(&mut self, page_size: usize, global: usize) {
+        let len = self.panes.len();
+        self.page_size = page_size.max(1).min(len.max(1));
+        if len == 0 {
+            self.page = 0;
+            self.active = 0;
+            return;
+        }
+        let page_count = self.page_count();
+        self.page = (global / self.page_size).min(page_count - 1);
+        self.active = global % self.page_size;
+        self.clamp_active();
+    }
+
+    pub fn set_page(&mut self, page: usize) {
+        let page_count = self.page_count();
+        if page_count == 0 {
+            self.page = 0;
+            self.active = 0;
+            return;
+        }
+        self.page = page.min(page_count - 1);
+        self.clamp_active();
+    }
+
+    pub fn next_page(&mut self) {
+        self.set_page(self.page.saturating_add(1));
+    }
+
+    pub fn prev_page(&mut self) {
+        self.set_page(self.page.saturating_sub(1));
+    }
+
+    fn clamp_active(&mut self) {
+        let len = self.page_len();
+        self.active = if len == 0 { 0 } else { self.active.min(len - 1) };
+    }
+
     pub fn pane(&self) -> &Pane {
-        &self.panes[self.active]
+        &self.panes[self.page_start() + self.active]
     }
 
     pub fn pane_mut(&mut self) -> &mut Pane {
-        &mut self.panes[self.active]
+        let idx = self.page_start() + self.active;
+        &mut self.panes[idx]
     }
 
     pub fn by_hart(&mut self, hart: u32) -> Option<&mut Pane> {

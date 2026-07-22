@@ -1,9 +1,11 @@
-use snafu::Whatever;
+use snafu::{FromString, Whatever};
 #[cfg(feature = "p2e")]
 use std::path::PathBuf;
 
 #[cfg(feature = "p2e")]
 use bebop_p2e::{self};
+#[cfg(feature = "p2e")]
+use bebop_rtl_trace::{init_trace, write_trace_summary, TraceConfig};
 #[cfg(feature = "p2e")]
 use bebop_uart::{ConsoleConfig, ConsoleServer};
 #[cfg(feature = "p2e")]
@@ -20,6 +22,17 @@ pub struct P2eRunConfig {
     pub multi_fpga: bool,
     pub wave: bool,
     pub wave_start: Option<u64>,
+    pub trace: P2eTraceConfig,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "p2e")]
+pub struct P2eTraceConfig {
+    pub itrace: bool,
+    pub mtrace: bool,
+    pub pmctrace: bool,
+    pub ctrace: bool,
+    pub banktrace: bool,
 }
 
 #[cfg(feature = "p2e")]
@@ -36,10 +49,15 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
         snafu::whatever!("log directory not found: {}", config.log_dir.display());
     }
 
-    let case_home = config
-        .log_dir
+    let bitstream = config
+        .bitstream
         .canonicalize()
-        .whatever_context("failed to canonicalize P2E output directory")?;
+        .whatever_context("failed to canonicalize P2E bitstream")?;
+    let case_home = bitstream
+        .parent()
+        .and_then(|fpga_comp_dir| fpga_comp_dir.parent())
+        .map(std::path::Path::to_path_buf)
+        .ok_or_else(|| Whatever::without_source("P2E bitstream must be under <case>/fpgaCompDir".to_string()))?;
     let rtcfg_path = case_home.join("vvacDir/runtimeDir/rtcfg");
     if !rtcfg_path.exists() {
         snafu::whatever!("P2E runtime config not found: {}", rtcfg_path.display());
@@ -49,18 +67,33 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
 
     log::info!("P2E Simulation Starting");
     log::info!("  Image: {}", config.image.display());
-    log::info!("  Bitstream: {}", config.bitstream.display());
+    log::info!("  Bitstream: {}", bitstream.display());
     log::info!("  FPGA: {}", FPGA_LOCATION);
-    log::info!("  Output: {}", case_home.display());
+    log::info!("  Runtime case: {}", case_home.display());
+    log::info!("  Log directory: {}", config.log_dir.display());
     log::info!("  UART Log: {}", uart_log_path.display());
     log::info!("  Multi FPGA: {}", config.multi_fpga);
     log::info!("  Waveform: {}", config.wave);
     log::info!("  Waveform Start Cycle: {}", config.wave_start.unwrap_or(0));
+    log::info!("  Trace: {:?}", config.trace);
 
     bebop_p2e::source_environment().whatever_context("failed to initialize P2E environment")?;
     bebop_p2e::configure_vvac_environment();
     bebop_p2e::ffi::reset_runtime_state();
     bebop_p2e::ffi::set_log_dir(config.log_dir.to_string_lossy().to_string());
+    bebop_p2e::ffi::init_cycle_trace(&config.log_dir)
+        .map_err(|e| Whatever::without_source(format!("failed to initialize P2E cycle trace collector: {e}")))?;
+    init_trace(
+        &config.log_dir,
+        TraceConfig {
+            itrace: config.trace.itrace,
+            mtrace: config.trace.mtrace,
+            pmctrace: config.trace.pmctrace,
+            ctrace: config.trace.ctrace,
+            banktrace: config.trace.banktrace,
+        },
+    )
+    .map_err(|e| Whatever::without_source(format!("failed to init P2E trace: {e}")))?;
 
     let console = ConsoleServer::start(&config.log_dir, ConsoleConfig::new("p2e"), bebop_p2e::ffi::push_uart_rx)
         .whatever_context("failed to start P2E console")?;
@@ -71,7 +104,7 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let main_tcl = bebop_p2e::generate_main_tcl(
         FPGA_LOCATION,
         &config.image,
-        &config.bitstream,
+        &bitstream,
         config.multi_fpga,
         config.wave,
         config.wave_start.unwrap_or(0),
@@ -95,6 +128,10 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
 
     let result = bebop_p2e::wait_for_completion().whatever_context("P2E simulation failed")?;
     drop(console);
+
+    bebop_p2e::ffi::finish_cycle_trace()
+        .map_err(|e| Whatever::without_source(format!("failed to finalize P2E cycle trace: {e}")))?;
+    write_trace_summary(&config.log_dir).whatever_context("failed to write P2E RTL trace summary")?;
 
     std::fs::write(&uart_log_path, &result.uart_log).whatever_context("failed to write P2E UART log")?;
 

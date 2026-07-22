@@ -101,6 +101,7 @@ dependencies = [
  "bebop-dasm",
  "bebop-fd-redirect",
  "bebop-p2e",
+ "bebop-rtl-trace",
  "bebop-uart",
  "bebop-verilator",
  "camino",
@@ -167,10 +168,15 @@ dependencies = [
 name = "bebop-p2e"
 version = "0.1.0"
 dependencies = [
+ "bebop-rtl-trace",
  "bebop-uart",
  "duct",
  "log",
 ]
+
+[[package]]
+name = "bebop-rtl-trace"
+version = "0.1.0"
 
 [[package]]
 name = "bebop-syscall"
@@ -187,9 +193,9 @@ version = "0.1.0"
 name = "bebop-verilator"
 version = "0.1.0"
 dependencies = [
- "bebop-bank-hash",
  "bebop-dasm",
  "bebop-fd-redirect",
+ "bebop-rtl-trace",
  "bebop-uart",
  "cc",
  "ctrlc",

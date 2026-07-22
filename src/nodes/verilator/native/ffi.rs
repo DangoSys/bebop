@@ -31,13 +31,6 @@ extern "C" {
     pub fn verilator_top_free(top: *mut VerilatorTop);
     pub fn verilator_top_eval(top: *mut VerilatorTop);
     pub fn verilator_top_trace(top: *mut VerilatorTop, tfp: *mut VerilatorTrace, levels: c_int);
-    pub fn verilator_read_private_bank(top: *mut VerilatorTop, bank_id: u32, out: *mut u8, out_len: u32) -> bool;
-    pub fn verilator_read_bank_scoreboard(
-        top: *mut VerilatorTop,
-        bank_id: u32,
-        rd_count: *mut u32,
-        wr_busy: *mut bool,
-    ) -> bool;
 
     // Top module signals
     pub fn verilator_top_set_clock(top: *mut VerilatorTop, val: u8);

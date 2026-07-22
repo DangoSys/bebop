@@ -1,6 +1,5 @@
 use crate::ffi::*;
 use crate::mmio;
-use crate::trace;
 use std::ffi::CString;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
@@ -45,12 +44,10 @@ impl Simulator {
                 verilator_context_free(context);
                 return Err(io::Error::other("failed to create top module"));
             }
-            trace::set_verilator_top(top);
 
             let trace = match init_waveform(context, top, fst_path) {
                 Ok(trace) => trace,
                 Err(e) => {
-                    trace::set_verilator_top(std::ptr::null_mut());
                     verilator_top_free(top);
                     verilator_context_free(context);
                     return Err(e);
@@ -83,7 +80,6 @@ impl Simulator {
     fn step_and_dump(&mut self) {
         unsafe {
             verilator_top_eval(self.top);
-            trace::poll_rtl_bank_hash_stability();
             verilator_context_time_inc(self.context, 1);
             let time = verilator_context_time(self.context);
             if !self.trace.is_null() {
@@ -96,7 +92,6 @@ impl Simulator {
         unsafe {
             verilator_top_set_clock(self.top, 1);
             verilator_top_eval(self.top);
-            trace::poll_rtl_bank_hash_stability();
 
             let should_exit = mmio::should_exit();
 
@@ -171,7 +166,6 @@ impl Drop for Simulator {
     fn drop(&mut self) {
         unsafe {
             if !self.top.is_null() {
-                trace::set_verilator_top(std::ptr::null_mut());
                 verilator_top_free(self.top);
             }
             if !self.trace.is_null() {

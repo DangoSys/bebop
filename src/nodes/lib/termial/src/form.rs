@@ -15,7 +15,9 @@ impl Form {
                     .as_ref()
                     .map(|p| p.display().to_string())
                     .unwrap_or_default(),
-                "1".to_string(),
+                cli.harts
+                    .map(|harts| harts.to_string())
+                    .unwrap_or_else(|| "1".to_string()),
             ],
             active: 0,
             msg: "enter log dir, set harts, then press enter".to_string(),

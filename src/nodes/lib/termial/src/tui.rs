@@ -197,10 +197,72 @@ fn form_u32(app: &App, idx: usize, name: &str) -> Result<u32, String> {
 
 fn session_key(app: &mut App, k: KeyEvent) -> Result<(), String> {
     match k {
-        KeyEvent { code: KeyCode::Tab, .. } => app.active = (app.active + 1) % app.panes.len(),
+        KeyEvent {
+            code: KeyCode::Tab,
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) => app.next_page(),
+        KeyEvent {
+            code: KeyCode::BackTab,
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) => app.prev_page(),
+        KeyEvent { code: KeyCode::Tab, .. } => cycle_active(app, 1),
         KeyEvent {
             code: KeyCode::BackTab, ..
-        } => app.active = (app.active + app.panes.len() - 1) % app.panes.len(),
+        } => cycle_active(app, -1),
+        KeyEvent {
+            code: KeyCode::Left,
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => app.prev_page(),
+        KeyEvent {
+            code: KeyCode::Right,
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => app.next_page(),
+        KeyEvent {
+            code: KeyCode::PageUp,
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => {
+            app.increase_page_size()
+        }
+        KeyEvent {
+            code: KeyCode::PageDown,
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => {
+            app.decrease_page_size()
+        }
+        KeyEvent {
+            code: KeyCode::Char('='),
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => {
+            app.increase_page_size()
+        }
+        KeyEvent {
+            code: KeyCode::Char('+'),
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => {
+            app.increase_page_size()
+        }
+        KeyEvent {
+            code: KeyCode::Char('-'),
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => {
+            app.decrease_page_size()
+        }
+        KeyEvent {
+            code: KeyCode::Char('_'),
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => {
+            app.decrease_page_size()
+        }
         KeyEvent {
             code: KeyCode::Left, ..
         } => move_input_cursor(app, -1),
@@ -232,7 +294,7 @@ fn session_key(app: &mut App, k: KeyEvent) -> Result<(), String> {
         }
         KeyEvent {
             code: KeyCode::Char('f'),
-            modifiers: KeyModifiers::CONTROL,
+            modifiers: KeyModifiers::ALT,
             ..
         } => app.grid = !app.grid,
         KeyEvent {
@@ -245,6 +307,18 @@ fn session_key(app: &mut App, k: KeyEvent) -> Result<(), String> {
         _ => {}
     }
     Ok(())
+}
+
+fn cycle_active(app: &mut App, dir: isize) {
+    let len = app.page_len();
+    if len == 0 {
+        return;
+    }
+    if dir < 0 {
+        app.active = (app.active + len - 1) % len;
+    } else {
+        app.active = (app.active + 1) % len;
+    }
 }
 
 fn move_input_cursor(app: &mut App, dir: isize) {
@@ -299,8 +373,12 @@ fn send_input(app: &mut App) -> Result<(), String> {
 }
 
 fn move_row(app: &mut App, dir: isize) {
-    let next = app.active as isize + dir * cols(app.panes.len()) as isize;
-    if (0..app.panes.len() as isize).contains(&next) {
+    let len = app.page_len();
+    if len == 0 {
+        return;
+    }
+    let next = app.active as isize + dir * cols(len) as isize;
+    if (0..len as isize).contains(&next) {
         app.active = next as usize;
     }
 }
@@ -400,7 +478,24 @@ fn tabs(f: &mut Frame<'_>, area: Rect, app: &App) {
         " bebop-termial ",
         Style::default().fg(Color::Black).bg(Color::Cyan),
     )];
-    for (idx, p) in app.panes.iter().enumerate() {
+    let page_count = app.page_count();
+    let total = app.panes.len();
+    if total > 0 {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            format!("view {}/{}", app.page_len(), total),
+            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+        ));
+    }
+    if page_count > 1 {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            format!("page {}/{}", app.page + 1, page_count),
+            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+        ));
+    }
+    let panes = app.page_panes();
+    for (idx, p) in panes.iter().enumerate() {
         let color = if idx == app.active {
             Color::Yellow
         } else if p.connected {
@@ -415,14 +510,19 @@ fn tabs(f: &mut Frame<'_>, area: Rect, app: &App) {
         ));
     }
     spans.push(Span::raw(
-        "  tab switch  left/right edit  ctrl-f grid  enter send  esc disconnect  ctrl-c quit",
+        "  tab switch  ctrl/alt-left/right page  ctrl-pgup more  ctrl-pgdn fewer  left/right edit  alt-f grid  enter send  esc disconnect  ctrl-c quit",
     ));
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn grid(f: &mut Frame<'_>, area: Rect, app: &App) {
-    let cols = cols(app.panes.len());
-    let rows = app.panes.len().div_ceil(cols);
+    let len = app.page_len();
+    if len == 0 {
+        return;
+    }
+    let cols = cols(len);
+    let rows = len.div_ceil(cols);
+    let panes = app.page_panes();
     let rs = Layout::default()
         .direction(Direction::Vertical)
         .constraints(vec![Constraint::Ratio(1, rows as u32); rows])
@@ -434,7 +534,7 @@ fn grid(f: &mut Frame<'_>, area: Rect, app: &App) {
             .split(rs[r]);
         for c in 0..cols {
             let idx = r * cols + c;
-            if let Some(p) = app.panes.get(idx) {
+            if let Some(p) = panes.get(idx) {
                 pane(f, cs[c], p, idx == app.active);
             }
         }

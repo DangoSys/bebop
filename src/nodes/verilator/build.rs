@@ -129,8 +129,8 @@ fn main() {
         }
     }
 
-    // Compile minimal wrapper + memory model + generated Verilator code
-    // All DPI-C callbacks are implemented in Rust (dpi.rs)
+    // Compile minimal wrapper + memory model + generated Verilator code.
+    // DPI-C trace callbacks are provided by bebop-rtl-trace.
     let native_csrcs = [
         native_dir.join("verilator.cc"),
         native_dir.join("memory/BBSimDRAM.cc"),
