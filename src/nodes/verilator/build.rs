@@ -104,7 +104,7 @@ fn main() {
         }
     }
 
-    // Fallback: search Nix store for spike and dramsim2 include paths
+    // Fallback: search Nix store for spike and dramsim3 include paths
     // Nix store directory names follow the pattern: <hash>-<name>-<version>
     if let Ok(entries) = fs::read_dir("/nix/store") {
         for entry in entries.flatten() {
@@ -118,8 +118,8 @@ fn main() {
             if name_str.contains("-spike-") {
                 build.include(&include_dir);
             }
-            // Match dramsim2 packages (e.g. "dramsim2-2023-05-10")
-            if name_str.contains("-dramsim2-") {
+            // Match dramsim3 packages (e.g. "dramsim3-2023-05-10")
+            if name_str.contains("-dramsim3-") {
                 build.include(&include_dir);
             }
             // Match zlib dev packages (e.g. "zlib-1.3.1-dev")
@@ -135,7 +135,7 @@ fn main() {
         native_dir.join("verilator.cc"),
         native_dir.join("memory/BBSimDRAM.cc"),
         native_dir.join("memory/mm.cc"),
-        native_dir.join("memory/mm_dramsim2.cc"),
+        native_dir.join("memory/mm_dramsim3.cc"),
     ];
     for src in native_csrcs {
         println!("cargo:rerun-if-changed={}", src.display());
@@ -167,7 +167,7 @@ fn main() {
         }
     }
 
-    // Fallback: search Nix store for dramsim2 and zlib lib paths
+    // Fallback: search Nix store for dramsim3 and zlib lib paths
     if let Ok(entries) = fs::read_dir("/nix/store") {
         for entry in entries.flatten() {
             let name = entry.file_name();
@@ -176,7 +176,7 @@ fn main() {
             if !lib_dir.exists() {
                 continue;
             }
-            if name_str.contains("-dramsim2-") {
+            if name_str.contains("-dramsim3-") {
                 println!("cargo:rustc-link-search=native={}", lib_dir.display());
             }
             if name_str.contains("-zlib-") && !name_str.contains("-dev") {
@@ -185,7 +185,7 @@ fn main() {
         }
     }
 
-    println!("cargo:rustc-link-lib=dylib=dramsim");
+    println!("cargo:rustc-link-lib=dylib=dramsim3");
     println!("cargo:rustc-link-lib=z");
 }
 
