@@ -26,6 +26,7 @@ struct EmuState {
     banks: Vec<Vec<u8>>,
     bank_cfgs: Vec<BankConfig>,
     bank_map: BankMap,
+    bank_scoreboard: inst::instruction::BankScoreboard,
     mmio_banks: [[u8; 1024]; 16],
     mmio_region_table: [crate::inst::instruction::MmioRegion; 32],
     total_lat: u64,
@@ -47,6 +48,7 @@ impl EmuState {
             banks: vec![vec![0; BANK_SIZE]; BANK_NUM],
             bank_cfgs: vec![BankConfig::default(); BANK_NUM],
             bank_map: BankMap::new(BANK_NUM),
+            bank_scoreboard: inst::instruction::BankScoreboard::new(BANK_NUM),
             mmio_banks: [[0u8; 1024]; 16],
             mmio_region_table: [crate::inst::instruction::MmioRegion::default(); 32],
             total_lat: 0,
@@ -64,6 +66,7 @@ impl EmuState {
         }
         self.bank_cfgs.fill(BankConfig::default());
         self.bank_map = BankMap::new(BANK_NUM);
+        self.bank_scoreboard.reset();
         for bank in &mut self.mmio_banks {
             bank.fill(0);
         }
@@ -237,6 +240,9 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
     let instruction_id = state.npu_instruction_id;
     let trace = &mut state.trace as *mut TraceState;
     let btrace = state.trace.btrace_enabled();
+    if btrace {
+        state.bank_scoreboard.issue(instruction_id);
+    }
 
     unsafe {
         with_trace_ptr(trace, || {
@@ -254,6 +260,7 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         banks,
         bank_cfgs,
         bank_map,
+        bank_scoreboard,
         mmio_banks,
         mmio_region_table,
         uart: _,
@@ -263,17 +270,11 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         ..
     } = state;
 
-    let before_hashes: Vec<u64> = if btrace {
-        banks.iter().map(|bank| bank_hash(bank)).collect()
-    } else {
-        Vec::new()
-    };
-
     let result = unsafe {
         with_trace_ptr(trace, || {
             let mut ctx = inst::instruction::ExecContext {
                 memory,
-                banks,
+                banks: inst::instruction::TrackedBanks::new(banks, btrace.then_some(&*bank_scoreboard), instruction_id),
                 cfgs: bank_cfgs,
                 bank_map,
                 mmio_banks,
@@ -286,14 +287,14 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
     };
 
     if btrace {
+        let affected_banks = bank_scoreboard.complete(instruction_id);
         let op_type = format!("funct7_{}", funct7);
         unsafe {
             with_trace_ptr(trace, || {
-                for (bank_id, bank) in banks.iter().enumerate() {
+                for bank_id in affected_banks {
+                    let bank = &banks[bank_id];
                     let hash = bank_hash(bank);
-                    if before_hashes[bank_id] != hash {
-                        crate::trace::bemu_bank_hash(instruction_id, bank_id as u32, funct7 as u32, &op_type, hash, pc);
-                    }
+                    crate::trace::bemu_bank_hash(instruction_id, bank_id as u32, funct7 as u32, &op_type, hash, pc);
                 }
             })
         };
@@ -477,6 +478,10 @@ impl NativeSpike {
 
     pub fn total_latency(&self) -> u64 {
         self.state.total_lat
+    }
+
+    pub fn scratchpad_snapshot(&self) -> Vec<Vec<u8>> {
+        self.state.banks.clone()
     }
 }
 

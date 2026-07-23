@@ -36,7 +36,7 @@ impl Instruction for Mset {
                     .first_free_pbank()
                     .unwrap_or_else(|| panic!("mset: no free physical bank"));
                 ctx.bank_map.bind_group(p, v, group as u32);
-                ctx.banks[p].fill(0);
+                ctx.banks.initialize(p, 0);
             }
             ctx.cfgs[i] = BankConfig {
                 allocated: true,

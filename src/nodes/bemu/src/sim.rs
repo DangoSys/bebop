@@ -61,4 +61,9 @@ impl BemuInstance {
     pub fn total_latency(&self) -> u64 {
         self.spike.total_latency()
     }
+
+    /// Return an owned snapshot of every physical private Bank.
+    pub fn scratchpad_snapshot(&self) -> Vec<Vec<u8>> {
+        self.spike.scratchpad_snapshot()
+    }
 }

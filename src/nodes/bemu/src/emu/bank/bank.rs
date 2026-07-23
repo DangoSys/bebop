@@ -1,7 +1,4 @@
-pub const BANK_NUM: usize = 32;
-pub const BANK_WIDTH: usize = 128;
-pub const BANK_LINES: usize = 1024;
-pub const BANK_SIZE: usize = BANK_LINES * (BANK_WIDTH / 8);
+include!(concat!(env!("OUT_DIR"), "/memory_model.rs"));
 pub const MATRIX_SIZE: usize = 16;
 const PAGE_SIZE: u64 = 4096;
 use std::sync::atomic::{AtomicU64, Ordering};

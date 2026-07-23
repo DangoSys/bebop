@@ -43,4 +43,8 @@ impl SpikeInstance {
     pub fn total_latency(&self) -> u64 {
         self.native.total_latency()
     }
+
+    pub fn scratchpad_snapshot(&self) -> Vec<Vec<u8>> {
+        self.native.scratchpad_snapshot()
+    }
 }
