@@ -14,6 +14,7 @@ bebop-uart = { path = "../lib/uart" }
 bebop-dasm = { path = "../lib/dasm" }
 bebop-fd-redirect = { path = "../lib/fd-redirect" }
 bebop-rtl-trace = { path = "../lib/rtl-trace" }
+bebop-bank-hash = { path = "../lib/bank-hash" }
 ctrlc = "3.4"
 
 [build-dependencies]

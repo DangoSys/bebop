@@ -1,5 +1,6 @@
 include!(concat!(env!("OUT_DIR"), "/memory_model.rs"));
 pub const MATRIX_SIZE: usize = 16;
+pub const LOGICAL_BANK_GROUPS: u32 = BANK_NUM as u32;
 const PAGE_SIZE: u64 = 4096;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -71,6 +72,15 @@ impl BankMap {
             .iter()
             .position(|e| e.valid && e.vbank_id == v && e.group_id == group)
     }
+
+    pub fn logical_bank_for_pbank(&self, pbank: usize) -> Option<u32> {
+        let entry = self.slots.get(pbank)?;
+        entry.valid.then(|| logical_bank_id(entry.vbank_id, entry.group_id))
+    }
+}
+
+pub const fn logical_bank_id(vbank_id: u32, group_id: u32) -> u32 {
+    vbank_id * LOGICAL_BANK_GROUPS + group_id
 }
 
 #[derive(Default, Clone, Copy, Debug)]

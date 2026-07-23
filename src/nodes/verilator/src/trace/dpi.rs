@@ -1,18 +1,8 @@
 // DPI-C callback implementations (called from RTL)
 
-use crate::{state, trace};
+use crate::trace;
 
 // DPI-C exports (called from RTL via extern "C")
-
-pub(crate) fn force_link() {
-    let _ = dpi_bdb_set_clk as extern "C" fn(u64);
-    let _ = dpi_itrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
-    let _ = dpi_mtrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
-    let _ = dpi_pmctrace as extern "C" fn(u32, u32, u32, u32);
-    let _ = dpi_mem_pmctrace as extern "C" fn(u32, u32, u32, u32);
-    let _ = dpi_ctrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32);
-    let _ = jtag_tick as extern "C" fn(*mut u8, *mut u8, *mut u8, *mut u8, u8, *mut u32) -> u8;
-}
 
 #[no_mangle]
 pub extern "C" fn dpi_bdb_set_clk(c: u64) {
@@ -41,7 +31,6 @@ pub extern "C" fn dpi_itrace(
     rs2_data_hi: u32,
     bank_enable: u32,
 ) {
-    state::record_itrace_callback();
     trace::itrace(trace::ITraceEvent {
         is_issue: is_issue as u8,
         rob_id,
@@ -70,7 +59,6 @@ pub extern "C" fn dpi_mtrace(
     data_hi_lo: u32,
     data_hi_hi: u32,
 ) {
-    state::record_mtrace_callback();
     trace::mtrace(trace::MTraceEvent {
         is_write: is_write as u8,
         is_shared: is_shared as u8,
@@ -86,14 +74,32 @@ pub extern "C" fn dpi_mtrace(
 }
 
 #[no_mangle]
+pub extern "C" fn dpi_bank_write_dispatch(rob_id: u32) {
+    trace::bank_write_dispatch(rob_id);
+}
+
+#[no_mangle]
+pub extern "C" fn dpi_bank_write_visible(rob_id: u32, vbank_id: u32, pbank_id: u32, group_id: u32) {
+    trace::bank_write_visible(rob_id, vbank_id, pbank_id, group_id);
+}
+
+#[no_mangle]
+pub extern "C" fn dpi_bank_write_end(rob_id: u32) {
+    trace::bank_write_end(rob_id);
+}
+
+#[no_mangle]
+pub extern "C" fn dpi_bank_instruction_cancel(rob_id: u32) {
+    trace::bank_instruction_cancel(rob_id);
+}
+
+#[no_mangle]
 pub extern "C" fn dpi_pmctrace(ball_id: u32, rob_id: u32, elapsed_lo: u32, elapsed_hi: u32) {
-    state::record_pmc_ball_callback();
     trace::pmctrace_ball(ball_id, rob_id, u64_from_words(elapsed_lo, elapsed_hi));
 }
 
 #[no_mangle]
 pub extern "C" fn dpi_mem_pmctrace(is_store: u32, rob_id: u32, elapsed_lo: u32, elapsed_hi: u32) {
-    state::record_pmc_mem_callback();
     trace::pmctrace_mem(is_store as u8, rob_id, u64_from_words(elapsed_lo, elapsed_hi));
 }
 
@@ -108,7 +114,6 @@ pub extern "C" fn dpi_ctrace(
     cycle_lo: u32,
     cycle_hi: u32,
 ) {
-    state::record_ctrace_callback();
     trace::ctrace(
         subcmd as u8,
         ctr_id,

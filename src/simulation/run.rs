@@ -45,6 +45,10 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             pmctrace,
             ctrace,
             banktrace,
+            inject_spm_fault,
+            fault_semantic_seq,
+            fault_byte_offset,
+            fault_bit,
         } => {
             #[cfg(feature = "verilator")]
             {
@@ -62,12 +66,31 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
                         ctrace,
                         banktrace,
                     },
+                    fault: inject_spm_fault.then_some(crate::simulation::verilator::run::SpmFaultConfig {
+                        semantic_seq: fault_semantic_seq,
+                        byte_offset: fault_byte_offset,
+                        bit: fault_bit,
+                    }),
                 })
             }
             #[cfg(not(feature = "verilator"))]
             {
                 let _ = (
-                    elf, log_dir, fst_dir, no_wave, diff, fast, itrace, mtrace, pmctrace, ctrace, banktrace,
+                    elf,
+                    log_dir,
+                    fst_dir,
+                    no_wave,
+                    diff,
+                    fast,
+                    itrace,
+                    mtrace,
+                    pmctrace,
+                    ctrace,
+                    banktrace,
+                    inject_spm_fault,
+                    fault_semantic_seq,
+                    fault_byte_offset,
+                    fault_bit,
                 );
                 crate::simulation::verilator::run::run_unavailable()
             }

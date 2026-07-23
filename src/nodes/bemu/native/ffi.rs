@@ -1,8 +1,11 @@
-use bebop_bank_hash::bank_hash;
+use bebop_bank_hash::{
+    bank_hash, submit_runtime_bank_boundary, BankDigest, BankHashSource, BankVersionRef, InstructionBankBoundaryPacket,
+};
 use bebop_dtb::DtbBuilder;
 use bebop_elf::{load_elf, LoadInfo, TlsInfo};
 use bebop_syscall::{add_guest_mapping, handle_syscall_with_state, set_guest_mappings, SyscallState};
 use bebop_uart::Uart;
+use std::collections::BTreeMap;
 use std::os::raw::{c_char, c_void};
 use std::path::Path;
 
@@ -27,6 +30,7 @@ struct EmuState {
     bank_cfgs: Vec<BankConfig>,
     bank_map: BankMap,
     bank_scoreboard: inst::instruction::BankScoreboard,
+    bank_versions: BTreeMap<u32, u32>,
     mmio_banks: [[u8; 1024]; 16],
     mmio_region_table: [crate::inst::instruction::MmioRegion; 32],
     total_lat: u64,
@@ -49,6 +53,7 @@ impl EmuState {
             bank_cfgs: vec![BankConfig::default(); BANK_NUM],
             bank_map: BankMap::new(BANK_NUM),
             bank_scoreboard: inst::instruction::BankScoreboard::new(BANK_NUM),
+            bank_versions: BTreeMap::new(),
             mmio_banks: [[0u8; 1024]; 16],
             mmio_region_table: [crate::inst::instruction::MmioRegion::default(); 32],
             total_lat: 0,
@@ -67,6 +72,7 @@ impl EmuState {
         self.bank_cfgs.fill(BankConfig::default());
         self.bank_map = BankMap::new(BANK_NUM);
         self.bank_scoreboard.reset();
+        self.bank_versions.clear();
         for bank in &mut self.mmio_banks {
             bank.fill(0);
         }
@@ -236,11 +242,17 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
     let lat = inst::decode::cycles_after_issue(funct7 as u32, xs1, xs2);
     state.total_lat += lat;
     state.trace.set_bemu_clk(state.total_lat);
-    state.npu_instruction_id = state.npu_instruction_id.wrapping_add(1);
+    // Fence and barrier are handled by the RTL frontend and never allocate a
+    // GlobalROB entry. Keep BEMU's semantic sequence aligned to RTL's ROB
+    // allocation order by excluding those frontend-only commands.
+    let track_bank_boundary = state.trace.btrace_enabled() && !matches!(funct7, 0 | 1);
+    if track_bank_boundary {
+        state.npu_instruction_id = state.npu_instruction_id.wrapping_add(1);
+    }
     let instruction_id = state.npu_instruction_id;
+    let boundary_cycle = state.total_lat;
     let trace = &mut state.trace as *mut TraceState;
-    let btrace = state.trace.btrace_enabled();
-    if btrace {
+    if track_bank_boundary {
         state.bank_scoreboard.issue(instruction_id);
     }
 
@@ -261,6 +273,7 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         bank_cfgs,
         bank_map,
         bank_scoreboard,
+        bank_versions,
         mmio_banks,
         mmio_region_table,
         uart: _,
@@ -274,7 +287,11 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         with_trace_ptr(trace, || {
             let mut ctx = inst::instruction::ExecContext {
                 memory,
-                banks: inst::instruction::TrackedBanks::new(banks, btrace.then_some(&*bank_scoreboard), instruction_id),
+                banks: inst::instruction::TrackedBanks::new(
+                    banks,
+                    track_bank_boundary.then_some(&*bank_scoreboard),
+                    instruction_id,
+                ),
                 cfgs: bank_cfgs,
                 bank_map,
                 mmio_banks,
@@ -286,18 +303,67 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         })
     };
 
-    if btrace {
-        let affected_banks = bank_scoreboard.complete(instruction_id);
+    if track_bank_boundary {
+        let access = bank_scoreboard.complete(instruction_id);
         let op_type = format!("funct7_{}", funct7);
+        let reads: Vec<_> = access
+            .reads
+            .iter()
+            .map(|&pbank| {
+                let bank_id = bank_map
+                    .logical_bank_for_pbank(pbank)
+                    .unwrap_or_else(|| panic!("BEMU read from unmapped physical Bank {pbank}"));
+                BankVersionRef {
+                    bank_id,
+                    version: bank_versions.get(&bank_id).copied().unwrap_or(0),
+                }
+            })
+            .collect();
+        let mut writes = Vec::with_capacity(access.writes.len());
+        let mut expected_banks = Vec::with_capacity(access.writes.len());
         unsafe {
             with_trace_ptr(trace, || {
-                for bank_id in affected_banks {
-                    let bank = &banks[bank_id];
+                for pbank in access.writes {
+                    let bank_id = bank_map
+                        .logical_bank_for_pbank(pbank)
+                        .unwrap_or_else(|| panic!("BEMU write to unmapped physical Bank {pbank}"));
+                    let version = bank_versions.entry(bank_id).or_insert(0);
+                    *version = version.wrapping_add(1);
+                    let bank = &banks[pbank];
                     let hash = bank_hash(bank);
-                    crate::trace::bemu_bank_hash(instruction_id, bank_id as u32, funct7 as u32, &op_type, hash, pc);
+                    expected_banks.push(bank_id);
+                    writes.push(BankDigest {
+                        bank_id,
+                        version: *version,
+                        hash,
+                    });
+                    crate::trace::bemu_bank_hash(
+                        instruction_id,
+                        instruction_id,
+                        bank_id,
+                        *version,
+                        funct7 as u32,
+                        &op_type,
+                        hash,
+                        pc,
+                    );
                 }
             })
         };
+        submit_runtime_bank_boundary(InstructionBankBoundaryPacket {
+            record_type: "instruction_bank_boundary",
+            source: BankHashSource::Bemu,
+            instruction_id,
+            semantic_seq: instruction_id,
+            funct7: funct7 as u32,
+            pc,
+            expected_banks: expected_banks.clone(),
+            actual_banks: expected_banks,
+            reads,
+            writes,
+            cycle: boundary_cycle,
+            cancelled: false,
+        });
     }
 
     result

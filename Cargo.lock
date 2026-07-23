@@ -193,6 +193,7 @@ version = "0.1.0"
 name = "bebop-verilator"
 version = "0.1.0"
 dependencies = [
+ "bebop-bank-hash",
  "bebop-dasm",
  "bebop-fd-redirect",
  "bebop-rtl-trace",

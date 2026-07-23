@@ -31,6 +31,22 @@ extern "C" {
     pub fn verilator_top_free(top: *mut VerilatorTop);
     pub fn verilator_top_eval(top: *mut VerilatorTop);
     pub fn verilator_top_trace(top: *mut VerilatorTop, tfp: *mut VerilatorTrace, levels: c_int);
+    pub fn verilator_private_bank_count() -> u32;
+    pub fn verilator_private_bank_bytes(top: *mut VerilatorTop) -> u32;
+    pub fn verilator_read_private_bank(top: *mut VerilatorTop, bank_id: u32, out: *mut u8, out_len: u32) -> bool;
+    pub fn verilator_hash_private_bank(top: *mut VerilatorTop, bank_id: u32, out_hash: *mut u64) -> bool;
+    pub fn verilator_flip_private_bank_bit(top: *mut VerilatorTop, bank_id: u32, byte_offset: u32, bit: u8) -> bool;
+    pub fn verilator_resolve_private_bank_mask(top: *mut VerilatorTop, vbank_id: u32, pbank_mask: *mut u32) -> bool;
+    pub fn verilator_read_rob_bank_access(
+        top: *mut VerilatorTop,
+        rob_id: u32,
+        rd0_valid: *mut bool,
+        rd0_vbank_id: *mut u32,
+        rd1_valid: *mut bool,
+        rd1_vbank_id: *mut u32,
+        wr_valid: *mut bool,
+        wr_vbank_id: *mut u32,
+    ) -> bool;
 
     // Top module signals
     pub fn verilator_top_set_clock(top: *mut VerilatorTop, val: u8);

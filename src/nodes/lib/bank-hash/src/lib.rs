@@ -1,16 +1,21 @@
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Mutex, OnceLock};
 
 mod comparator;
 
-pub use comparator::{run_online_with_summary as run_online_compare_with_summary, BankHashCompareSummary};
+pub use comparator::{
+    run_online_with_summary as run_online_compare_with_summary, BankHashCompareSummary, SynchronousBankComparator,
+};
 
 const FNV1A_64_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV1A_64_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 pub const BANK_NUM: usize = 32;
 pub const BANK_WIDTH: usize = 128;
+/// Baseline Toy layout. Runtime DiffTest queries the compiled RTL backdoor
+/// directly instead of relying on this value for compatibility checks.
 pub const BANK_LINES: usize = 1024;
 pub const BANK_SIZE: usize = BANK_LINES * (BANK_WIDTH / 8);
 
@@ -52,6 +57,64 @@ pub enum BankHashTime {
     VerilatorTime(u64),
 }
 
+/// A logical Bank and the state version consumed or produced by an
+/// instruction.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct BankVersionRef {
+    pub bank_id: u32,
+    pub version: u32,
+}
+
+/// Immutable whole-Bank content captured at an instruction's stable boundary.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct BankDigest {
+    pub bank_id: u32,
+    pub version: u32,
+    #[serde(rename = "hash_u64")]
+    pub hash: u64,
+}
+
+/// Instruction-scoped Bank observation.
+///
+/// `semantic_seq` is assigned at architectural allocation/issue order and is
+/// therefore independent of RTL completion timing. The comparator first
+/// validates `actual_banks` against the golden `expected_banks`, then compares
+/// the corresponding immutable whole-Bank digests.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct InstructionBankBoundaryPacket {
+    #[serde(rename = "type")]
+    pub record_type: &'static str,
+    pub source: BankHashSource,
+    pub instruction_id: u64,
+    pub semantic_seq: u64,
+    pub funct7: u32,
+    pub pc: u64,
+    pub expected_banks: Vec<u32>,
+    pub actual_banks: Vec<u32>,
+    pub reads: Vec<BankVersionRef>,
+    pub writes: Vec<BankDigest>,
+    pub cycle: u64,
+    pub cancelled: bool,
+}
+
+impl InstructionBankBoundaryPacket {
+    pub fn normalize(&mut self) {
+        self.expected_banks.sort_unstable();
+        self.expected_banks.dedup();
+        self.actual_banks.sort_unstable();
+        self.actual_banks.dedup();
+        self.reads.sort_unstable();
+        self.reads.dedup();
+        self.writes.sort_unstable_by_key(|entry| (entry.bank_id, entry.version));
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum RuntimeBankDifftestEvent {
+    Hash(CanonicalBankHashPacket),
+    Boundary(InstructionBankBoundaryPacket),
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BankHashPacket {
     #[serde(rename = "type")]
@@ -77,9 +140,11 @@ pub struct CanonicalBankHashPacket {
     #[serde(rename = "type")]
     pub record_type: BankHashRecordType,
     pub source: BankHashSource,
+    #[serde(rename = "op_id", alias = "original_instruction_id")]
     pub original_instruction_id: u64,
     pub comparable_seq: Option<u64>,
     pub bank_id: u32,
+    #[serde(rename = "bank_version", alias = "version")]
     pub version: u32,
     pub funct7: u32,
     pub op_type: String,
@@ -177,6 +242,11 @@ impl CanonicalBankHashPacket {
         }
     }
 
+    pub fn with_bank_version(mut self, version: u32) -> Self {
+        self.version = version;
+        self
+    }
+
     pub fn to_ndjson(&self) -> serde_json::Result<String> {
         let mut line = serde_json::to_string(self)?;
         line.push('\n');
@@ -184,21 +254,43 @@ impl CanonicalBankHashPacket {
     }
 }
 
-static RUNTIME_PACKET_SINK: OnceLock<Mutex<Option<Sender<CanonicalBankHashPacket>>>> = OnceLock::new();
+static RUNTIME_PACKET_SINK: OnceLock<Mutex<Option<Sender<RuntimeBankDifftestEvent>>>> = OnceLock::new();
+static RUNTIME_DIFFTEST_FAILURE_DETECTED: AtomicBool = AtomicBool::new(false);
 
-fn get_runtime_packet_sink() -> &'static Mutex<Option<Sender<CanonicalBankHashPacket>>> {
+fn get_runtime_packet_sink() -> &'static Mutex<Option<Sender<RuntimeBankDifftestEvent>>> {
     RUNTIME_PACKET_SINK.get_or_init(|| Mutex::new(None))
 }
 
-pub fn init_runtime_packet_channel() -> Receiver<CanonicalBankHashPacket> {
-    let (sender, receiver) = mpsc::channel::<CanonicalBankHashPacket>();
+pub fn init_runtime_packet_channel() -> Receiver<RuntimeBankDifftestEvent> {
+    RUNTIME_DIFFTEST_FAILURE_DETECTED.store(false, Ordering::Release);
+    let (sender, receiver) = mpsc::channel::<RuntimeBankDifftestEvent>();
     *get_runtime_packet_sink().lock().unwrap() = Some(sender);
     receiver
 }
 
-pub fn submit_runtime_bank_hash_packet(packet: &CanonicalBankHashPacket) {
-    if let Some(sink) = get_runtime_packet_sink().lock().unwrap().as_ref() {
-        sink.send(packet.clone()).ok();
+pub fn runtime_bank_difftest_failure_detected() -> bool {
+    RUNTIME_DIFFTEST_FAILURE_DETECTED.load(Ordering::Acquire)
+}
+
+/// Request that the running RTL simulation stop at its next DiffTest polling
+/// boundary. This is shared by hash mismatches, Bank-target mismatches, and
+/// write-attribution failures.
+pub fn report_runtime_bank_difftest_failure() {
+    RUNTIME_DIFFTEST_FAILURE_DETECTED.store(true, Ordering::Release);
+}
+
+pub fn submit_runtime_bank_hash_packet(packet: CanonicalBankHashPacket) {
+    let sink = get_runtime_packet_sink().lock().unwrap().clone();
+    if let Some(sink) = sink {
+        let _ = sink.send(RuntimeBankDifftestEvent::Hash(packet));
+    }
+}
+
+pub fn submit_runtime_bank_boundary(mut packet: InstructionBankBoundaryPacket) {
+    packet.normalize();
+    let sink = get_runtime_packet_sink().lock().unwrap().clone();
+    if let Some(sink) = sink {
+        let _ = sink.send(RuntimeBankDifftestEvent::Boundary(packet));
     }
 }
 
@@ -313,9 +405,10 @@ mod tests {
             serde_json::from_str(packet.to_ndjson().expect("packet should serialize").trim_end()).unwrap();
         assert_eq!(value["type"], "canonical_bank_hash");
         assert_eq!(value["source"], "RTL");
-        assert_eq!(value["original_instruction_id"], 4);
+        assert_eq!(value["op_id"], 4);
         assert_eq!(value["comparable_seq"], 1);
         assert_eq!(value["bank_id"], 0);
+        assert_eq!(value["bank_version"], 0);
         assert_eq!(value["funct7"], 33);
         assert_eq!(value["op_type"], "funct7_33");
         assert_eq!(value["event_class"], "bank_data_write");

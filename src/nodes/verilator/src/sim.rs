@@ -1,5 +1,6 @@
 use crate::ffi::*;
 use crate::mmio;
+use crate::trace;
 use std::ffi::CString;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
@@ -26,6 +27,14 @@ pub struct Simulator {
     trace: *mut VerilatorTrace,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ExecOutcome {
+    pub finished: bool,
+    pub rtl_bank_hash_events: u32,
+    pub rtl_difftest_failure: bool,
+    pub rtl_bank_hash_pending: bool,
+}
+
 impl Simulator {
     pub fn new(fst_path: Option<&Path>, args: &[String]) -> io::Result<Self> {
         unsafe {
@@ -44,10 +53,12 @@ impl Simulator {
                 verilator_context_free(context);
                 return Err(io::Error::other("failed to create top module"));
             }
+            trace::set_verilator_top(top);
 
             let trace = match init_waveform(context, top, fst_path) {
                 Ok(trace) => trace,
                 Err(e) => {
+                    trace::set_verilator_top(std::ptr::null_mut());
                     verilator_top_free(top);
                     verilator_context_free(context);
                     return Err(e);
@@ -77,21 +88,24 @@ impl Simulator {
         }
     }
 
-    fn step_and_dump(&mut self) {
+    fn step_and_dump(&mut self) -> trace::RtlBankHashEvalOutcome {
         unsafe {
             verilator_top_eval(self.top);
+            let outcome = trace::finish_rtl_bank_hash_eval();
             verilator_context_time_inc(self.context, 1);
             let time = verilator_context_time(self.context);
             if !self.trace.is_null() {
                 verilator_trace_dump(self.trace, time);
             }
+            outcome
         }
     }
 
-    pub fn exec_once(&mut self) -> bool {
+    pub fn exec_once(&mut self) -> ExecOutcome {
         unsafe {
             verilator_top_set_clock(self.top, 1);
             verilator_top_eval(self.top);
+            let rising = trace::finish_rtl_bank_hash_eval();
 
             let should_exit = mmio::should_exit();
 
@@ -102,9 +116,14 @@ impl Simulator {
             }
 
             verilator_top_set_clock(self.top, 0);
-            self.step_and_dump();
+            let falling = self.step_and_dump();
 
-            should_exit
+            ExecOutcome {
+                finished: should_exit,
+                rtl_bank_hash_events: rising.events.saturating_add(falling.events),
+                rtl_difftest_failure: rising.failure || falling.failure,
+                rtl_bank_hash_pending: falling.pending,
+            }
         }
     }
 
@@ -117,6 +136,17 @@ impl Simulator {
                 verilator_trace_close(self.trace);
             }
         }
+    }
+
+    pub fn private_bank_layout(&self) -> io::Result<(usize, usize)> {
+        let count = unsafe { verilator_private_bank_count() as usize };
+        let bytes = unsafe { verilator_private_bank_bytes(self.top) as usize };
+        if count == 0 || bytes == 0 {
+            return Err(io::Error::other(
+                "Verilator private-Bank layout backdoor is unavailable",
+            ));
+        }
+        Ok((count, bytes))
     }
 }
 
@@ -166,6 +196,7 @@ impl Drop for Simulator {
     fn drop(&mut self) {
         unsafe {
             if !self.top.is_null() {
+                trace::set_verilator_top(std::ptr::null_mut());
                 verilator_top_free(self.top);
             }
             if !self.trace.is_null() {

@@ -35,7 +35,7 @@ use std::ops::{Index, IndexMut};
 #[derive(Default)]
 pub struct BankScoreboard {
     banks: RefCell<Vec<BankScoreboardEntry>>,
-    instructions: RefCell<BTreeMap<u64, InstructionBankAccess>>,
+    instructions: RefCell<BTreeMap<u64, CompletedBankAccess>>,
 }
 
 #[derive(Default)]
@@ -45,9 +45,9 @@ struct BankScoreboardEntry {
 }
 
 #[derive(Default)]
-struct InstructionBankAccess {
-    reads: BTreeSet<usize>,
-    writes: BTreeSet<usize>,
+pub struct CompletedBankAccess {
+    pub reads: BTreeSet<usize>,
+    pub writes: BTreeSet<usize>,
 }
 
 impl BankScoreboard {
@@ -69,7 +69,7 @@ impl BankScoreboard {
         let old = self
             .instructions
             .borrow_mut()
-            .insert(instruction_id, InstructionBankAccess::default());
+            .insert(instruction_id, CompletedBankAccess::default());
         assert!(
             old.is_none(),
             "duplicate BEMU scoreboard issue for instruction {instruction_id}"
@@ -102,8 +102,8 @@ impl BankScoreboard {
         }
     }
 
-    /// Retire an operation and return exactly the physical Banks it wrote.
-    pub fn complete(&self, instruction_id: u64) -> BTreeSet<usize> {
+    /// Retire an operation and return the physical Banks it read and wrote.
+    pub fn complete(&self, instruction_id: u64) -> CompletedBankAccess {
         let access = self
             .instructions
             .borrow_mut()
@@ -116,7 +116,7 @@ impl BankScoreboard {
         for bank_id in &access.writes {
             banks[*bank_id].writers.remove(&instruction_id);
         }
-        access.writes
+        access
     }
 }
 
@@ -235,7 +235,7 @@ mod tests {
         banks[2][1] = 0;
 
         drop(banks);
-        assert_eq!(scoreboard.complete(7), BTreeSet::from([2]));
+        assert_eq!(scoreboard.complete(7).writes, BTreeSet::from([2]));
     }
 
     #[test]
@@ -249,7 +249,7 @@ mod tests {
         destination[1] = source[1];
 
         drop(banks);
-        assert_eq!(scoreboard.complete(8), BTreeSet::from([0]));
+        assert_eq!(scoreboard.complete(8).writes, BTreeSet::from([0]));
     }
 
     #[test]
@@ -262,7 +262,7 @@ mod tests {
         banks.initialize(0, 0);
 
         drop(banks);
-        assert!(scoreboard.complete(9).is_empty());
+        assert!(scoreboard.complete(9).writes.is_empty());
     }
 
     #[test]
@@ -285,6 +285,6 @@ mod tests {
         scoreboard.reset();
         scoreboard.issue(11);
 
-        assert!(scoreboard.complete(11).is_empty());
+        assert!(scoreboard.complete(11).writes.is_empty());
     }
 }

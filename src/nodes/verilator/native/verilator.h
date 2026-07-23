@@ -21,6 +21,17 @@ void* verilator_top_new(void* ctx);
 void verilator_top_free(void* top);
 void verilator_top_eval(void* top);
 void verilator_top_trace(void* top, void* tfp, int levels);
+uint32_t verilator_private_bank_count();
+uint32_t verilator_private_bank_bytes(void* top);
+bool verilator_read_private_bank(void* top, uint32_t bank_id, uint8_t* out, uint32_t out_len);
+bool verilator_hash_private_bank(void* top, uint32_t bank_id, uint64_t* out_hash);
+bool verilator_flip_private_bank_bit(void* top, uint32_t bank_id,
+                                     uint32_t byte_offset, uint8_t bit);
+bool verilator_resolve_private_bank_mask(void* top, uint32_t vbank_id, uint32_t* pbank_mask);
+bool verilator_read_rob_bank_access(void* top, uint32_t rob_id,
+                                    bool* rd0_valid, uint32_t* rd0_vbank_id,
+                                    bool* rd1_valid, uint32_t* rd1_vbank_id,
+                                    bool* wr_valid, uint32_t* wr_vbank_id);
 
 // Top module signals
 void verilator_top_set_clock(void* top, uint8_t val);

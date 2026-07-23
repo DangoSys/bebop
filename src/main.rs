@@ -103,6 +103,19 @@ pub enum RunTarget {
         ctrace: bool,
         #[arg(long, help = "Enable RTL bank trace")]
         banktrace: bool,
+        #[arg(long, help = "Flip one bit in the first stable RTL SPM Bank update")]
+        inject_spm_fault: bool,
+        #[arg(long, value_name = "SEQ", help = "Only inject at this semantic instruction sequence")]
+        fault_semantic_seq: Option<u64>,
+        #[arg(
+            long,
+            default_value_t = 0,
+            value_name = "BYTE",
+            help = "Byte offset within the physical Bank"
+        )]
+        fault_byte_offset: u32,
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=7), value_name = "BIT")]
+        fault_bit: u8,
     },
     /// Run a workload on BEMU.
     Bemu {
