@@ -96,6 +96,9 @@ set_dr_mode -add enable
 # Enable this when this board is reousrces are limited for design
 # memory_options -add{bram_balance SMART}
 
+# Enable logic replication to avoid long path in multi-fpga design
+logic_replication -enable
+
 # Generate FPGA design
 design_edit
 design_generation

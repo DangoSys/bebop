@@ -11,32 +11,44 @@
     doCheck = false;
   });
 
-  dramsim2 = pkgs.stdenv.mkDerivation {
-    pname = "dramsim2";
-    version = "2023-05-10";
+  dramsim3 = pkgs.stdenv.mkDerivation {
+    pname = "dramsim3";
+    version = "unstable-2026-07-23";
 
     src = pkgs.fetchFromGitHub {
       owner = "umd-memsys";
-      repo = "DRAMSim2";
-      rev = "753819a8571d24f01e44915093e62857efafb97f";
-      hash = "sha256-1wrjxqr937yznmf47l3df029j2m5i6rmabr0rpqpl05z2szkmlka";
+      repo = "DRAMsim3";
+      rev = "29817593b3389f1337235d63cac515024ab8fd6e";
+      hash = "sha256-uErpWJEn6C9oKR6Bv1NOAC3ij3ne3A6BPtjtX7D8ZwE=";
     };
 
-    nativeBuildInputs = [ pkgs.gnumake ];
+    nativeBuildInputs = [ pkgs.cmake ];
+    dontUseCmakeConfigure = true;
+    postPatch = ''
+      substituteInPlace src/dramsim3.h \
+        --replace-fail '#include <string>' '#include <string>
+#include <stdint.h>'
+    '';
 
     buildPhase = ''
-      make libdramsim.so
+      runHook preBuild
+      cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      cmake --build build --target dramsim3
+      runHook postBuild
     '';
 
     installPhase = ''
-      mkdir -p $out/lib $out/include
-      cp libdramsim.so $out/lib/
-      cp *.h $out/include/
+      runHook preInstall
+      mkdir -p $out/lib $out/include $out/share/dramsim3
+      cp libdramsim3.so $out/lib/
+      cp src/*.h ext/headers/*.h ext/headers/*.hpp $out/include/
+      cp -r configs $out/share/dramsim3/
+      runHook postInstall
     '';
 
     meta = {
-      description = "DRAMSim2 memory system simulator";
-      homepage = "https://github.com/umd-memsys/DRAMSim2";
+      description = "DRAMsim3 memory system simulator";
+      homepage = "https://github.com/umd-memsys/DRAMsim3";
     };
   };
 }
