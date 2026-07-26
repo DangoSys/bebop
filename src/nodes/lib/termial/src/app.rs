@@ -38,6 +38,7 @@ pub struct Pane {
     pub hart: u32,
     pub lines: VecDeque<Vec<Run>>,
     pub cur: Vec<Run>,
+    pub scroll: usize,
     pub input: String,
     pub input_cursor: usize,
     pub rx: u64,
@@ -54,6 +55,7 @@ impl Pane {
             hart,
             lines: VecDeque::new(),
             cur: Vec::new(),
+            scroll: 0,
             input: String::new(),
             input_cursor: 0,
             rx: 0,
@@ -74,6 +76,9 @@ impl Pane {
 
     pub fn push_plain(&mut self, text: String) {
         self.lines.push_back(vec![Run::new(text, Style::default())]);
+        if self.scroll > 0 {
+            self.scroll += 1;
+        }
         self.truncate();
     }
 
@@ -168,13 +173,26 @@ impl Pane {
 
     fn finish(&mut self) {
         self.lines.push_back(std::mem::take(&mut self.cur));
+        if self.scroll > 0 {
+            self.scroll += 1;
+        }
         self.truncate();
     }
 
     fn truncate(&mut self) {
+        let mut removed = 0;
         while self.lines.len() > MAX_LINES {
             self.lines.pop_front();
+            removed += 1;
         }
+        if removed > 0 {
+            self.scroll = self.scroll.saturating_sub(removed);
+        }
+        self.scroll = self.scroll.min(self.scroll_limit());
+    }
+
+    fn scroll_limit(&self) -> usize {
+        (self.lines.len() + usize::from(!self.cur.is_empty())).saturating_sub(1)
     }
 }
 
@@ -361,6 +379,24 @@ impl App {
     pub fn pane_mut(&mut self) -> &mut Pane {
         let idx = self.page_start() + self.active;
         &mut self.panes[idx]
+    }
+
+    pub fn scroll_active(&mut self, delta: isize) {
+        let p = self.pane_mut();
+        if delta < 0 {
+            p.scroll = p.scroll.saturating_sub(delta.unsigned_abs());
+        } else {
+            p.scroll = p.scroll.saturating_add(delta as usize).min(p.scroll_limit());
+        }
+    }
+
+    pub fn scroll_active_to_bottom(&mut self) {
+        self.pane_mut().scroll = 0;
+    }
+
+    pub fn scroll_active_to_top(&mut self) {
+        let p = self.pane_mut();
+        p.scroll = p.scroll_limit();
     }
 
     pub fn by_hart(&mut self, hart: u32) -> Option<&mut Pane> {

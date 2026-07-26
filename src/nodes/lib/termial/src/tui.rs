@@ -6,10 +6,10 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap};
 use ratatui::{Frame, Terminal};
 
 use crate::app::{App, Conn, Mode, Pane, Run};
@@ -236,6 +236,13 @@ fn session_key(app: &mut App, k: KeyEvent) -> Result<(), String> {
             app.decrease_page_size()
         }
         KeyEvent {
+            code: KeyCode::PageUp, ..
+        } => scroll_output(app, 1),
+        KeyEvent {
+            code: KeyCode::PageDown,
+            ..
+        } => scroll_output(app, -1),
+        KeyEvent {
             code: KeyCode::Char('='),
             modifiers,
             ..
@@ -270,9 +277,35 @@ fn session_key(app: &mut App, k: KeyEvent) -> Result<(), String> {
             code: KeyCode::Right, ..
         } => move_input_cursor(app, 1),
         KeyEvent {
+            code: KeyCode::Home,
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => {
+            app.scroll_active_to_top()
+        }
+        KeyEvent {
+            code: KeyCode::End,
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => {
+            app.scroll_active_to_bottom()
+        }
+        KeyEvent {
             code: KeyCode::Home, ..
         } => app.pane_mut().input_cursor = 0,
         KeyEvent { code: KeyCode::End, .. } => app.pane_mut().input_cursor = app.pane().input.len(),
+        KeyEvent {
+            code: KeyCode::Up,
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => app.scroll_active(1),
+        KeyEvent {
+            code: KeyCode::Down,
+            modifiers,
+            ..
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => {
+            app.scroll_active(-1)
+        }
         KeyEvent { code: KeyCode::Up, .. } => move_row(app, -1),
         KeyEvent {
             code: KeyCode::Down, ..
@@ -307,6 +340,26 @@ fn session_key(app: &mut App, k: KeyEvent) -> Result<(), String> {
         _ => {}
     }
     Ok(())
+}
+
+fn scroll_output(app: &mut App, dir: isize) {
+    let rows = output_rows(app);
+    app.scroll_active(dir * rows as isize);
+}
+
+fn output_rows(app: &App) -> usize {
+    let Ok((_, height)) = terminal::size() else {
+        return 10;
+    };
+    let session_height = height.saturating_sub(4);
+    let pane_height = if app.grid {
+        let len = app.page_len().max(1);
+        let grid_rows = len.div_ceil(cols(len)) as u16;
+        session_height / grid_rows.max(1)
+    } else {
+        session_height
+    };
+    pane_height.saturating_sub(2).max(1) as usize
 }
 
 fn cycle_active(app: &mut App, dir: isize) {
@@ -510,7 +563,7 @@ fn tabs(f: &mut Frame<'_>, area: Rect, app: &App) {
         ));
     }
     spans.push(Span::raw(
-        "  tab switch  ctrl/alt-left/right page  ctrl-pgup more  ctrl-pgdn fewer  left/right edit  alt-f grid  enter send  esc disconnect  ctrl-c quit",
+        "  tab switch  pgup/pgdn scroll  ctrl/alt-up/down line  ctrl/alt-home/end top/bottom  ctrl/alt-left/right page  ctrl-pgup more  ctrl-pgdn fewer  left/right edit  alt-f grid  enter send  esc disconnect  ctrl-c quit",
     ));
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
@@ -559,17 +612,46 @@ fn pane(f: &mut Frame<'_>, area: Rect, p: &Pane, active: bool) {
     };
     let title = format!(" hart{}  {}  rx:{} tx:{} ", p.hart, p.status, p.rx, p.tx);
     let rows = area.height.saturating_sub(2) as usize;
-    let cap = rows.saturating_sub((!p.cur.is_empty()) as usize);
-    let mut lines: Vec<Line<'static>> = p.lines.iter().rev().take(cap).map(|runs| runs_line(runs)).collect();
-    lines.reverse();
-    if !p.cur.is_empty() && lines.len() < rows {
-        lines.push(runs_line(&p.cur));
-    }
+    let total = p.lines.len() + usize::from(!p.cur.is_empty());
+    let scroll = p.scroll.min(total.saturating_sub(rows));
+    let end = total.saturating_sub(scroll);
+    let start = end.saturating_sub(rows);
+    let lines = pane_lines(p, start, end);
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(color));
     f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+    if total > rows && rows > 0 {
+        let mut state = ScrollbarState::new(total).position(start).viewport_content_length(rows);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_style(Style::default().fg(Color::DarkGray))
+            .thumb_style(Style::default().fg(color));
+        f.render_stateful_widget(
+            scrollbar,
+            area.inner(Margin {
+                vertical: 1,
+                horizontal: 0,
+            }),
+            &mut state,
+        );
+    }
+}
+
+fn pane_lines(p: &Pane, start: usize, end: usize) -> Vec<Line<'static>> {
+    (start..end)
+        .filter_map(|idx| {
+            if idx < p.lines.len() {
+                p.lines.get(idx).map(|runs| runs_line(runs))
+            } else if !p.cur.is_empty() {
+                Some(runs_line(&p.cur))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn runs_line(runs: &[Run]) -> Line<'static> {
