@@ -281,7 +281,7 @@ fn session_key(app: &mut App, k: KeyEvent) -> Result<(), String> {
             modifiers,
             ..
         } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => {
-            app.scroll_active_to_top()
+            app.scroll_active_to_top(output_metrics(app).max_scroll)
         }
         KeyEvent {
             code: KeyCode::End,
@@ -298,13 +298,15 @@ fn session_key(app: &mut App, k: KeyEvent) -> Result<(), String> {
             code: KeyCode::Up,
             modifiers,
             ..
-        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => app.scroll_active(1),
+        } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => {
+            app.scroll_active(1, output_metrics(app).max_scroll)
+        }
         KeyEvent {
             code: KeyCode::Down,
             modifiers,
             ..
         } if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) => {
-            app.scroll_active(-1)
+            app.scroll_active(-1, output_metrics(app).max_scroll)
         }
         KeyEvent { code: KeyCode::Up, .. } => move_row(app, -1),
         KeyEvent {
@@ -343,23 +345,39 @@ fn session_key(app: &mut App, k: KeyEvent) -> Result<(), String> {
 }
 
 fn scroll_output(app: &mut App, dir: isize) {
-    let rows = output_rows(app);
-    app.scroll_active(dir * rows as isize);
+    let metrics = output_metrics(app);
+    app.scroll_active(dir * metrics.rows as isize, metrics.max_scroll);
 }
 
-fn output_rows(app: &App) -> usize {
-    let Ok((_, height)) = terminal::size() else {
-        return 10;
+struct OutputMetrics {
+    rows: usize,
+    max_scroll: usize,
+}
+
+fn output_metrics(app: &App) -> OutputMetrics {
+    let Ok((width, height)) = terminal::size() else {
+        let rows = 10;
+        let width = 80;
+        return OutputMetrics {
+            rows,
+            max_scroll: pane_screen_rows(app.pane(), width).saturating_sub(rows),
+        };
     };
     let session_height = height.saturating_sub(4);
-    let pane_height = if app.grid {
+    let (pane_width, pane_height) = if app.grid {
         let len = app.page_len().max(1);
+        let grid_cols = cols(len) as u16;
         let grid_rows = len.div_ceil(cols(len)) as u16;
-        session_height / grid_rows.max(1)
+        (width / grid_cols.max(1), session_height / grid_rows.max(1))
     } else {
-        session_height
+        (width, session_height)
     };
-    pane_height.saturating_sub(2).max(1) as usize
+    let rows = pane_height.saturating_sub(2).max(1) as usize;
+    let width = pane_width.saturating_sub(2).max(1) as usize;
+    OutputMetrics {
+        rows,
+        max_scroll: pane_screen_rows(app.pane(), width).saturating_sub(rows),
+    }
 }
 
 fn cycle_active(app: &mut App, dir: isize) {
@@ -612,16 +630,18 @@ fn pane(f: &mut Frame<'_>, area: Rect, p: &Pane, active: bool) {
     };
     let title = format!(" hart{}  {}  rx:{} tx:{} ", p.hart, p.status, p.rx, p.tx);
     let rows = area.height.saturating_sub(2) as usize;
-    let total = p.lines.len() + usize::from(!p.cur.is_empty());
+    let width = area.width.saturating_sub(2).max(1) as usize;
+    let all_lines = pane_display_lines(p, width);
+    let total = all_lines.len();
     let scroll = p.scroll.min(total.saturating_sub(rows));
     let end = total.saturating_sub(scroll);
     let start = end.saturating_sub(rows);
-    let lines = pane_lines(p, start, end);
+    let lines = all_lines[start..end].to_vec();
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(color));
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+    f.render_widget(Paragraph::new(lines).block(block), area);
     if total > rows && rows > 0 {
         let mut state = ScrollbarState::new(total).position(start).viewport_content_length(rows);
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
@@ -640,26 +660,65 @@ fn pane(f: &mut Frame<'_>, area: Rect, p: &Pane, active: bool) {
     }
 }
 
-fn pane_lines(p: &Pane, start: usize, end: usize) -> Vec<Line<'static>> {
-    (start..end)
-        .filter_map(|idx| {
-            if idx < p.lines.len() {
-                p.lines.get(idx).map(|runs| runs_line(runs))
-            } else if !p.cur.is_empty() {
-                Some(runs_line(&p.cur))
-            } else {
-                None
-            }
-        })
-        .collect()
+fn pane_display_lines(p: &Pane, width: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    for runs in &p.lines {
+        lines.extend(wrap_runs(runs, width));
+    }
+    if !p.cur.is_empty() {
+        lines.extend(wrap_runs(&p.cur, width));
+    }
+    lines
 }
 
-fn runs_line(runs: &[Run]) -> Line<'static> {
-    Line::from(
-        runs.iter()
-            .map(|run| Span::styled(run.text.clone(), run.style))
-            .collect::<Vec<_>>(),
-    )
+fn pane_screen_rows(p: &Pane, width: usize) -> usize {
+    let finished = p.lines.iter().map(|runs| runs_screen_rows(runs, width)).sum::<usize>();
+    let current = if p.cur.is_empty() {
+        0
+    } else {
+        runs_screen_rows(&p.cur, width)
+    };
+    finished + current
+}
+
+fn runs_screen_rows(runs: &[Run], width: usize) -> usize {
+    runs.iter()
+        .map(|run| run.text.chars().count())
+        .sum::<usize>()
+        .div_ceil(width.max(1))
+        .max(1)
+}
+
+fn wrap_runs(runs: &[Run], width: usize) -> Vec<Line<'static>> {
+    let width = width.max(1);
+    let mut lines = Vec::new();
+    let mut spans = Vec::new();
+    let mut col = 0;
+
+    for run in runs {
+        let mut text = String::new();
+        for ch in run.text.chars() {
+            if col == width {
+                push_span(&mut spans, &mut text, run.style);
+                lines.push(Line::from(std::mem::take(&mut spans)));
+                col = 0;
+            }
+            text.push(ch);
+            col += 1;
+        }
+        push_span(&mut spans, &mut text, run.style);
+    }
+
+    if !spans.is_empty() || lines.is_empty() {
+        lines.push(Line::from(spans));
+    }
+    lines
+}
+
+fn push_span(spans: &mut Vec<Span<'static>>, text: &mut String, style: Style) {
+    if !text.is_empty() {
+        spans.push(Span::styled(std::mem::take(text), style));
+    }
 }
 
 fn input(f: &mut Frame<'_>, area: Rect, app: &App) {

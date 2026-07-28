@@ -188,11 +188,6 @@ impl Pane {
         if removed > 0 {
             self.scroll = self.scroll.saturating_sub(removed);
         }
-        self.scroll = self.scroll.min(self.scroll_limit());
-    }
-
-    fn scroll_limit(&self) -> usize {
-        (self.lines.len() + usize::from(!self.cur.is_empty())).saturating_sub(1)
     }
 }
 
@@ -381,12 +376,12 @@ impl App {
         &mut self.panes[idx]
     }
 
-    pub fn scroll_active(&mut self, delta: isize) {
+    pub fn scroll_active(&mut self, delta: isize, max_scroll: usize) {
         let p = self.pane_mut();
         if delta < 0 {
             p.scroll = p.scroll.saturating_sub(delta.unsigned_abs());
         } else {
-            p.scroll = p.scroll.saturating_add(delta as usize).min(p.scroll_limit());
+            p.scroll = p.scroll.saturating_add(delta as usize).min(max_scroll);
         }
     }
 
@@ -394,9 +389,8 @@ impl App {
         self.pane_mut().scroll = 0;
     }
 
-    pub fn scroll_active_to_top(&mut self) {
-        let p = self.pane_mut();
-        p.scroll = p.scroll_limit();
+    pub fn scroll_active_to_top(&mut self, max_scroll: usize) {
+        self.pane_mut().scroll = max_scroll;
     }
 
     pub fn by_hart(&mut self, hart: u32) -> Option<&mut Pane> {
