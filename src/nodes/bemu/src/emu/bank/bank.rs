@@ -1,7 +1,9 @@
-pub const BANK_NUM: usize = 32;
-pub const BANK_WIDTH: usize = 128;
-pub const BANK_LINES: usize = 1024;
-pub const BANK_SIZE: usize = BANK_LINES * (BANK_WIDTH / 8);
+#[allow(unused_imports)]
+pub use crate::config::{
+    bank_lines, bank_num, bank_row_bytes, bank_size, bank_width, mmio_bank_lines, mmio_bank_num, mmio_bank_row_bytes,
+    mmio_bank_size, mmio_bank_width, mmio_enable, mmio_read_width, mmio_total_size,
+};
+
 pub const MATRIX_SIZE: usize = 16;
 const PAGE_SIZE: u64 = 4096;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -65,6 +67,7 @@ impl BankMap {
         self.slots[p].group_id = group;
     }
 
+    #[allow(dead_code)]
     pub fn resolve(&self, v: u32) -> Option<usize> {
         self.resolve_group(v, 0)
     }

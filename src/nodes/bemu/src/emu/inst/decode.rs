@@ -5,10 +5,10 @@
 //
 //===-----------------------------------------------------------------===//-----===//
 
-use super::super::bank::{BankMap, BANK_NUM};
+use super::super::bank::{bank_num, BankMap};
 
 // Re-export the active chip instruction set.
-pub use super::active_chip::{cycles_after_issue, execute_known};
+pub use super::{cycles_after_issue, execute_known};
 
 #[inline]
 pub fn rs1_b0(xs1: u64) -> u64 {
@@ -54,7 +54,7 @@ pub fn pbank(bm: &BankMap, vbank: u64) -> usize {
 
 #[inline]
 pub fn pbank_group(bm: &BankMap, vbank: u64, group: u64) -> usize {
-    if vbank >= BANK_NUM as u64 {
+    if vbank >= bank_num() as u64 {
         panic!("pbank: invalid vbank_id {vbank}");
     }
     bm.resolve_group(vbank as u32, group as u32)

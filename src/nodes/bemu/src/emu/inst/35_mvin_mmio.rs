@@ -12,7 +12,7 @@
 //
 //===-----------------------------------------------------------------===//-----===//
 
-use super::super::bank::mem_read;
+use super::super::bank::{mem_read, mmio_bank_row_bytes, mmio_bank_size, mmio_enable, mmio_total_size};
 use super::instruction::{ExecContext, Instruction};
 
 pub struct MvinMmio;
@@ -21,29 +21,26 @@ impl Instruction for MvinMmio {
     const FUNCT: u32 = 35;
 
     fn exec(xs1: u64, xs2: u64, ctx: &mut ExecContext) -> u64 {
+        if !mmio_enable() {
+            panic!("mvin_mmio: MMIO is disabled for this BEMU chip config");
+        }
+
         let dram_addr = xs2 & 0x7F_FFFF_FFFF; // bits [38:0]
         let mmio_addr = ((xs2 >> 39) & 0x1_FFFF) as u32; // bits [55:39], 17-bit
         let col = ((xs2 >> 56) & 0xFF) as u8; // bits [63:56]
         let row = ((xs1 >> 30) & 0x3_FFFF_FFFF) as u32; // bits [63:30], 34-bit
 
-        if std::env::var("BEMU_RTRACE").is_ok() {
-            eprintln!(
-                "[RTRACE] mvin_mmio: DRAM[0x{:x}] -> MMIO[0x{:x}] row={} col={}",
-                dram_addr, mmio_addr, row, col
-            );
-        }
-
-        let bytes_per_row = 16usize;
+        let bytes_per_row = mmio_bank_row_bytes();
         for r in 0..row as usize {
             let src_addr = dram_addr + (r * bytes_per_row) as u64;
             let dst_offset = mmio_addr as usize + r * bytes_per_row;
 
-            if dst_offset + bytes_per_row > 16384 {
+            if dst_offset + bytes_per_row > mmio_total_size() {
                 panic!("mvin_mmio: MMIO address out of range");
             }
 
-            let bank_idx = dst_offset / 1024;
-            let bank_offset = dst_offset % 1024;
+            let bank_idx = dst_offset / mmio_bank_size();
+            let bank_offset = dst_offset % mmio_bank_size();
 
             for b in 0..(col as usize).min(bytes_per_row) {
                 ctx.mmio_banks[bank_idx][bank_offset + b] = mem_read(ctx.memory, src_addr + b as u64);

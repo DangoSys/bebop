@@ -6,7 +6,7 @@ use bebop_uart::Uart;
 use std::os::raw::{c_char, c_void};
 use std::path::Path;
 
-use crate::bank::{BankConfig, BankMap, BANK_NUM, BANK_SIZE};
+use crate::bank::{bank_num, bank_size, mmio_bank_num, mmio_bank_size, BankConfig, BankMap};
 use crate::inst;
 use crate::trace::{with_trace_ptr, TraceConfig, TraceState};
 
@@ -26,8 +26,8 @@ struct EmuState {
     banks: Vec<Vec<u8>>,
     bank_cfgs: Vec<BankConfig>,
     bank_map: BankMap,
-    mmio_banks: [[u8; 1024]; 16],
-    mmio_region_table: [crate::inst::instruction::MmioRegion; 32],
+    mmio_banks: Vec<Vec<u8>>,
+    mmio_region_table: Vec<crate::inst::instruction::MmioRegion>,
     total_lat: u64,
     npu_instruction_id: u64,
     uart: Uart,
@@ -44,11 +44,11 @@ impl EmuState {
         Ok(Self {
             // memory is maintained by bemu not spike
             memory: vec![0; MEM_SIZE],
-            banks: vec![vec![0; BANK_SIZE]; BANK_NUM],
-            bank_cfgs: vec![BankConfig::default(); BANK_NUM],
-            bank_map: BankMap::new(BANK_NUM),
-            mmio_banks: [[0u8; 1024]; 16],
-            mmio_region_table: [crate::inst::instruction::MmioRegion::default(); 32],
+            banks: vec![vec![0; bank_size()]; bank_num()],
+            bank_cfgs: vec![BankConfig::default(); bank_num()],
+            bank_map: BankMap::new(bank_num()),
+            mmio_banks: vec![vec![0; mmio_bank_size()]; mmio_bank_num()],
+            mmio_region_table: vec![crate::inst::instruction::MmioRegion::default(); bank_num()],
             total_lat: 0,
             npu_instruction_id: 0,
             uart: Uart::new(),
@@ -63,11 +63,12 @@ impl EmuState {
             b.fill(0);
         }
         self.bank_cfgs.fill(BankConfig::default());
-        self.bank_map = BankMap::new(BANK_NUM);
+        self.bank_map = BankMap::new(bank_num());
         for bank in &mut self.mmio_banks {
             bank.fill(0);
         }
-        self.mmio_region_table = [crate::inst::instruction::MmioRegion::default(); 32];
+        self.mmio_region_table
+            .fill(crate::inst::instruction::MmioRegion::default());
         self.total_lat = 0;
         self.npu_instruction_id = 0;
     }

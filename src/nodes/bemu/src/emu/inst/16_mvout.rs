@@ -1,6 +1,6 @@
 //===- 16_mvout.rs - MVOUT instruction (bank to memory) --------------------===//
 
-use super::super::bank::{mem_write, BANK_NUM, BANK_SIZE, MATRIX_SIZE};
+use super::super::bank::{bank_num, bank_size, mem_write, MATRIX_SIZE};
 use super::decode::{pbank, pbank_group, rs1_b0, rs1_iter, xs2_mem_stride};
 use super::instruction::{ExecContext, Instruction};
 
@@ -14,15 +14,7 @@ impl Instruction for Mvout {
         let depth = rs1_iter(xs1);
         let (mem_addr, stride) = xs2_mem_stride(xs2);
 
-        let rtrace = std::env::var("BEMU_RTRACE").is_ok();
-        if rtrace {
-            eprintln!(
-                "[RTRACE] mvout: bank{} depth={} -> DRAM[0x{:x}] stride={}",
-                bank_id, depth, mem_addr, stride
-            );
-        }
-
-        if bank_id >= BANK_NUM as u64 {
+        if bank_id >= bank_num() as u64 {
             panic!("mvout: invalid bank_id {bank_id}");
         }
 
@@ -53,25 +45,11 @@ impl Instruction for Mvout {
                 depth
             } as usize;
 
-            if rtrace {
-                let bytes = rows as u64 * groups as u64 * 16;
-                let last_row = rows.saturating_sub(1) as u64;
-                let end = if rows == 0 {
-                    mem_addr
-                } else {
-                    mem_addr + last_row * groups as u64 * 16 * stride + groups as u64 * 16
-                };
-                eprintln!(
-                    "[RTRACE] mvout-range: bank{} cols={} groups={} rows={} bytes={} DRAM[0x{:x}..0x{:x})",
-                    bank_id, cols, groups, rows, bytes, mem_addr, end
-                );
-            }
-
             for i in 0..rows {
                 for group in 0..groups {
                     let p = pbank_group(ctx.bank_map, bank_id, group as u64);
                     let bank_offset = i * 16;
-                    if bank_offset + 16 > BANK_SIZE {
+                    if bank_offset + 16 > bank_size() {
                         panic!("mvout: bank range: bank_offset={bank_offset} line_bytes=16 depth={depth}");
                     }
                     let addr = mem_addr + i as u64 * groups as u64 * 16 * stride + group as u64 * 16;
@@ -95,22 +73,9 @@ impl Instruction for Mvout {
             let matrix_mode_acc = cols == 4 && depth <= MATRIX_SIZE as u64;
             let line_bytes = if matrix_mode_acc { 64usize } else { 16usize };
 
-            if rtrace {
-                let bytes = depth * line_bytes as u64;
-                let end = if depth == 0 {
-                    mem_addr
-                } else {
-                    mem_addr + (depth - 1) * line_bytes as u64 * stride + line_bytes as u64
-                };
-                eprintln!(
-                    "[RTRACE] mvout-range: bank{} cols={} groups={} line_bytes={} rows={} bytes={} DRAM[0x{:x}..0x{:x})",
-                    bank_id, cols, groups, line_bytes, depth, bytes, mem_addr, end
-                );
-            }
-
             for i in 0..depth {
                 let bank_offset = (i as usize) * line_bytes;
-                if bank_offset + line_bytes > BANK_SIZE {
+                if bank_offset + line_bytes > bank_size() {
                     panic!("mvout: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
                 }
                 let addr = mem_addr + i * line_bytes as u64 * stride;

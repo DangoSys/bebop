@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 const I8_ROW_STRIDE: usize = 16;
 const I32_ROW_STRIDE: usize = 64;
 

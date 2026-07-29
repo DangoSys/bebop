@@ -8,6 +8,7 @@
 //
 //===-----------------------------------------------------------------===//-----===//
 
+use super::super::bank::mmio_enable;
 use super::decode::rs1_b0;
 use super::instruction::{ExecContext, Instruction, MmioRegion};
 
@@ -17,18 +18,15 @@ impl Instruction for MmioSet {
     const FUNCT: u32 = 34;
 
     fn exec(xs1: u64, xs2: u64, ctx: &mut ExecContext) -> u64 {
+        if !mmio_enable() {
+            panic!("mmio_set: MMIO is disabled for this BEMU chip config");
+        }
+
         let main_bank = rs1_b0(xs1) as usize;
         let mmio_addr = (xs2 & 0xFFFF) as u16;
         let size_rows = ((xs2 >> 16) & 0xFF) as u8;
 
-        if std::env::var("BEMU_RTRACE").is_ok() {
-            eprintln!(
-                "[RTRACE] mmio_set: main_bank={} mmio_addr=0x{:x} size_rows={}",
-                main_bank, mmio_addr, size_rows
-            );
-        }
-
-        if main_bank >= 32 {
+        if main_bank >= ctx.mmio_region_table.len() {
             panic!("mmio_set: invalid main_bank {}", main_bank);
         }
 

@@ -21,157 +21,31 @@
 //  Link Spike libs with rpath, let bemu can find the libraries at runtime.
 //  Spike API calls come from riscv/{processor,extension,rocc}.h in libriscv
 //
-// 3. How to register instructions?
-//  Manually register in INSTRUCTIONS array, build.rs generates dispatch code.
+// 3. How to register chip balls?
+//  The chip crate's `src/lib.rs` names the top-level chip TOML, and
+//  `src/chip.rs` links the ball emu modules for that chip. This script parses
+//  the TOML include chain at build time and fails if `chip.rs` does not exactly
+//  match the TOML ball domain. No BEMU Rust dispatch is generated here.
 //
 //===-----------------------------------------------------------------===//-----===//
 
+mod build_support;
+
 use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::PathBuf;
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let native_dir = native_dir(&manifest_dir);
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
+    let native_dir = build_support::spike::native_dir(&manifest_dir);
     let spike_dir = native_dir.join("spike");
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    let chip_inst = chip_inst(&manifest_dir);
-    fs::write(
-        out_dir.join("chip.rs"),
-        format!("#[path = \"{}\"]\npub mod active_chip;\n", chip_inst.display()),
-    )
-    .expect("write active chip module");
+    let top_config = build_support::config_loader::top_config_from_manifest(&manifest_dir);
+    let topology = build_support::config_loader::parse_topology(&top_config);
+    let chip_ball_files = build_support::chip::validate_ball_set(&manifest_dir, &topology);
+    build_support::rerun::emit(&manifest_dir, &native_dir, topology.files_read, chip_ball_files);
 
     let spike_install_dir = out_dir.join("spike_install");
     let spike_build_dir = out_dir.join("spike_build");
-
-    if !spike_dir.exists() || !spike_dir.join("configure.ac").exists() {
-        panic!("Spike missing at {}.", spike_dir.display());
-    }
-
-    // Incremental compilation check
-    println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-env-changed=BEBOP_BEMU_CHIP_INST");
-    println!("cargo:rerun-if-env-changed=BEBOP_BEMU_NATIVE_DIR");
-    println!("cargo:rerun-if-changed={}", chip_inst.display());
-    println!("cargo:rerun-if-changed={}", native_dir.join("rocc.cc").display());
-    println!("cargo:rerun-if-changed={}", native_dir.join("spike.cc").display());
-    println!("cargo:rerun-if-changed={}", native_dir.join("btif.cc").display());
-    println!("cargo:rerun-if-changed={}", native_dir.join("btif.h").display());
-
-    // Build and install spike
-    build_spike(&spike_dir, &spike_build_dir, &spike_install_dir);
-
-    cc::Build::new()
-        .cpp(true)
-        .file(native_dir.join("spike.cc"))
-        .file(native_dir.join("rocc.cc"))
-        .file(native_dir.join("btif.cc"))
-        .include(spike_install_dir.join("include/riscv"))
-        .include(spike_install_dir.join("include/fesvr"))
-        .flag("-std=c++17")
-        .compile("spike_wrapper");
-
-    println!("cargo:rustc-link-search=native={}/lib", spike_install_dir.display());
-    println!("cargo:rustc-link-lib=dylib=riscv");
-    println!("cargo:rustc-link-lib=dylib=disasm");
-    println!("cargo:rustc-link-lib=dylib=softfloat");
-    println!("cargo:rustc-link-lib=dylib=fesvr");
-    println!("cargo:rustc-link-lib=dylib=stdc++");
-    // Set rpath so the binary can find the libraries at bebop's runtime
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{}/lib", spike_install_dir.display());
-}
-
-fn chip_inst(manifest_dir: &Path) -> PathBuf {
-    if let Ok(path) = env::var("BEBOP_BEMU_CHIP_INST") {
-        return PathBuf::from(path);
-    }
-
-    if manifest_dir.join("native").exists() {
-        return manifest_dir.join("src/emu/inst/base.rs");
-    }
-
-    let chip = manifest_dir.join("src/lib.rs");
-    if chip.exists() {
-        return chip;
-    }
-
-    panic!("BEMU chip instruction set not found from {}.", manifest_dir.display());
-}
-
-fn native_dir(manifest_dir: &Path) -> PathBuf {
-    if let Ok(dir) = env::var("BEBOP_BEMU_NATIVE_DIR") {
-        return PathBuf::from(dir);
-    }
-
-    let local = manifest_dir.join("native");
-    if local.join("spike").exists() {
-        return local;
-    }
-
-    let repo_core = manifest_dir.join("../../../../bebop/src/nodes/bemu/native");
-    if repo_core.join("spike").exists() {
-        return repo_core;
-    }
-
-    panic!("BEMU native dir not found from {}.", manifest_dir.display());
-}
-
-fn spike_configure(spike_dir: &Path, build_dir: &Path, install_dir: &Path) {
-    let st = Command::new(spike_dir.join("configure"))
-        .current_dir(build_dir)
-        .arg("--prefix")
-        .arg(install_dir)
-        .args(["--with-boost=no", "--with-boost-asio=no", "--with-boost-regex=no"])
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .expect("failed to execute configure");
-
-    if !st.success() {
-        panic!("spike configure failed with status {}", st);
-    }
-}
-
-fn spike_make(build_dir: &Path) {
-    let st = Command::new("make")
-        .current_dir(build_dir)
-        .arg("-j")
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .expect("run spike make");
-
-    if !st.success() {
-        panic!("spike make failed with status {}", st);
-    }
-}
-
-fn spike_make_install(build_dir: &Path) {
-    let st = Command::new("make")
-        .current_dir(build_dir)
-        .arg("install")
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .expect("run spike make install");
-
-    if !st.success() {
-        panic!("spike make install failed with status {}", st);
-    }
-}
-
-fn build_spike(spike_dir: &Path, build_dir: &Path, install_dir: &Path) {
-    fs::create_dir_all(build_dir).expect("create spike build dir");
-    fs::create_dir_all(install_dir).expect("create spike install dir");
-
-    println!("cargo:warning=Building spike from {}", spike_dir.display());
-
-    spike_configure(spike_dir, build_dir, install_dir);
-    spike_make(build_dir);
-    spike_make_install(build_dir);
-
-    println!("cargo:warning=Spike installed to {}", install_dir.display());
+    build_support::spike::build_and_link(&native_dir, &spike_dir, &spike_build_dir, &spike_install_dir);
 }

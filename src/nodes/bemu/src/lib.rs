@@ -9,6 +9,9 @@ mod spike;
 #[path = "emu/bank/mod.rs"]
 mod bank;
 
+#[path = "emu/config.rs"]
+mod config;
+
 #[path = "emu/inst/mod.rs"]
 mod inst;
 

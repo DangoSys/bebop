@@ -16,7 +16,11 @@ macro_rules! register_instructions {
                         Some(<$inst as Instruction>::exec(xs1, xs2, ctx))
                     }
                 )*
-                _ => None,
+                _ => {
+                    let ball_class = crate::config::ball_domain::ball_class_for_funct(funct)
+                        .unwrap_or_else(|| panic!("funct7 {funct} is not declared in BEMU ballISA TOML"));
+                    Some(crate::chip::execute_known(ball_class, funct, xs1, xs2, ctx))
+                },
             }
         }
 
@@ -27,7 +31,11 @@ macro_rules! register_instructions {
                         <$inst as Instruction>::latency(xs1, xs2)
                     }
                 )*
-                _ => 1,
+                _ => {
+                    let ball_class = crate::config::ball_domain::ball_class_for_funct(funct)
+                        .unwrap_or_else(|| panic!("funct7 {funct} is not declared in BEMU ballISA TOML"));
+                    crate::chip::cycles_after_issue(ball_class, funct, xs1, xs2)
+                },
             }
         }
     };

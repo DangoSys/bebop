@@ -1,6 +1,6 @@
 pub mod bank_matrix;
+pub mod base;
 pub mod decode;
-pub(crate) use super::bank;
 #[path = "00_fence.rs"]
 pub mod f00_fence;
 #[path = "01_barrier.rs"]
@@ -16,4 +16,4 @@ pub mod f34_mmio_set;
 #[path = "35_mvin_mmio.rs"]
 pub mod f35_mvin_mmio;
 pub mod instruction;
-include!(concat!(env!("OUT_DIR"), "/chip.rs"));
+pub use base::{cycles_after_issue, execute_known};

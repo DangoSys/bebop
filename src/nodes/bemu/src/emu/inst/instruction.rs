@@ -25,6 +25,7 @@
 use super::super::bank::{BankConfig, BankMap};
 
 /// MMIO region descriptor
+#[allow(dead_code)]
 #[derive(Clone, Copy, Default)]
 pub struct MmioRegion {
     pub valid: bool,
@@ -38,8 +39,8 @@ pub struct ExecContext<'a> {
     pub banks: &'a mut [Vec<u8>],
     pub cfgs: &'a mut [BankConfig],
     pub bank_map: &'a mut BankMap,
-    pub mmio_banks: &'a mut [[u8; 1024]; 16],
-    pub mmio_region_table: &'a mut [MmioRegion; 32],
+    pub mmio_banks: &'a mut [Vec<u8>],
+    pub mmio_region_table: &'a mut [MmioRegion],
 }
 
 /// Instruction trait - all instructions must implement this
