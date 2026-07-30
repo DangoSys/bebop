@@ -3,6 +3,13 @@ use std::env;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=OUT_PATH");
+    println!("cargo:rerun-if-env-changed=RISCV");
+
+    if env::var("CARGO_FEATURE_VERILATOR").is_ok() {
+        let riscv = env::var("RISCV").expect("RISCV must be set by the nix development environment");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{}/lib", riscv);
+        println!("cargo:rustc-link-arg=-Wl,--enable-new-dtags");
+    }
 
     // Only set RPATH when building with p2e feature
     if env::var("CARGO_FEATURE_P2E").is_ok() {
