@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-//===-----------------------------------------------------------------===//-----===//
+//===---------------------------------------------------------------------------===//
 //
 // 1. Why build Spike first?
 //  Spike headers/libs are required for bemu's CPU part simulation.
@@ -27,7 +27,7 @@
 //  the TOML include chain at build time and fails if `chip.rs` does not exactly
 //  match the TOML ball domain. No BEMU Rust dispatch is generated here.
 //
-//===-----------------------------------------------------------------===//-----===//
+//===---------------------------------------------------------------------------===//
 
 mod build_support;
 

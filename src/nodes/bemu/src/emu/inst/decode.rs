@@ -1,13 +1,12 @@
 //===- decode.rs - Instruction dispatch ------------------------------------===//
 //
-// ISA decode — funct7 and rs1/rs2 fields match `bb-tests/workloads/lib/bbhw/isa/isa.h`
+// ISA decode - funct7 and rs1/rs2 fields match `bb-tests/workloads/lib/bbhw/isa/isa.h`
 // (`FIELD`, `BB_BANK0`..`BB_BANK2`, `BB_ITER`).
 //
 //===-----------------------------------------------------------------===//-----===//
 
 use super::super::bank::{bank_num, BankMap};
 
-// Re-export the active chip instruction set.
 pub use super::{cycles_after_issue, execute_known};
 
 #[inline]
@@ -25,7 +24,7 @@ pub fn rs1_b2(xs1: u64) -> u64 {
     (xs1 >> 20) & 0x3ff
 }
 
-/// `BB_ITER` — bits [63:30].
+/// `BB_ITER` - bits [63:30].
 #[inline]
 pub fn rs1_iter(xs1: u64) -> u64 {
     xs1 >> 30
