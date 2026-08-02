@@ -183,6 +183,7 @@ fn emit_link_config(native_lib_dir: &Path, riscv: &NixRiscv) {
     println!("cargo:rustc-link-lib=static=fesvr");
     println!("cargo:rustc-link-lib=stdc++");
     println!("cargo:rustc-link-lib=dylib=dramsim3");
+    println!("cargo:rustc-link-lib=lz4");
     println!("cargo:rustc-link-lib=z");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", riscv.lib_dir.display());
 }
