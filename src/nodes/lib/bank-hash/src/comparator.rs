@@ -1,7 +1,5 @@
-use crate::{BankHashEventClass, BankHashSource, CanonicalBankHashPacket};
+use crate::{BankDigestRecord, BankHashEventClass, BankHashSource, LogicalBankId};
 use serde::Serialize;
-#[cfg(test)]
-use serde_json::Value;
 use snafu::{ResultExt, Whatever};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
@@ -14,163 +12,142 @@ pub struct BankHashCompareSummary {
     pub pass: u64,
     pub mismatch: u64,
     pub missing_rtl: u64,
-    pub missing_bemu: u64,
+    pub unexpected_rtl: u64,
 }
 
 impl BankHashCompareSummary {
     pub fn total(&self) -> u64 {
-        self.pass + self.mismatch + self.missing_rtl + self.missing_bemu
+        self.pass + self.mismatch + self.missing_rtl + self.unexpected_rtl
     }
 
-    fn add_packet(&mut self, packet: &ComparePacket) {
-        match packet.result {
-            CompareResult::Pass => self.pass += 1,
-            CompareResult::Mismatch => self.mismatch += 1,
-            CompareResult::MissingRtl => self.missing_rtl += 1,
-            CompareResult::MissingBemu => self.missing_bemu += 1,
+    pub fn passed(&self) -> bool {
+        self.mismatch == 0 && self.missing_rtl == 0 && self.unexpected_rtl == 0
+    }
+
+    fn add(&mut self, result: BankDigestCompareResult) {
+        match result {
+            BankDigestCompareResult::Pass => self.pass += 1,
+            BankDigestCompareResult::Mismatch => self.mismatch += 1,
+            BankDigestCompareResult::MissingRtl => self.missing_rtl += 1,
+            BankDigestCompareResult::UnexpectedRtl => self.unexpected_rtl += 1,
         }
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct CompareKey {
-    comparable_seq: u64,
-    bank_id: u32,
-    version: u32,
+    instruction_id: u64,
+    bank_id: LogicalBankId,
 }
 
-#[derive(Clone, Debug)]
-struct CompareRecord {
-    original_instruction_id: Option<u64>,
-    funct7: Option<u32>,
-    op_type: Option<String>,
-    hash: u64,
-    cycle: Option<u64>,
-    verilator_time: Option<u64>,
-    pc: Option<u64>,
-    original_record_ref: Option<String>,
-    line_no: u64,
+impl From<&BankDigestRecord> for CompareKey {
+    fn from(record: &BankDigestRecord) -> Self {
+        Self {
+            instruction_id: record.instruction_id,
+            bank_id: record.bank_id,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum CompareResult {
+pub enum BankDigestCompareResult {
     Pass,
     Mismatch,
     MissingRtl,
-    MissingBemu,
+    UnexpectedRtl,
 }
 
-#[derive(Clone, Debug, Serialize)]
-struct ComparePacket {
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BankDigestComparison {
     #[serde(rename = "type")]
     record_type: &'static str,
-    result: CompareResult,
-    comparable_seq: u64,
-    bank_id: u32,
-    version: u32,
+    pub result: BankDigestCompareResult,
+    pub instruction_id: u64,
+    pub bank_id: LogicalBankId,
     #[serde(skip_serializing_if = "Option::is_none")]
-    rtl_original_instruction_id: Option<u64>,
+    pub rtl_digest: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    bemu_original_instruction_id: Option<u64>,
+    pub bemu_digest: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    funct7: Option<u32>,
+    pub rtl_physical_bank_id: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    op_type: Option<String>,
+    pub bemu_physical_bank_id: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    rtl_hash: Option<u64>,
+    pub funct7: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    bemu_hash: Option<u64>,
+    pub op_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    rtl_cycle: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    bemu_cycle: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    rtl_time: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    bemu_time: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    rtl_pc: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    bemu_pc: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    rtl_record_ref: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    bemu_record_ref: Option<String>,
+    pub pc: Option<u64>,
 }
 
-pub fn run_online_with_summary(
-    packets: Receiver<CanonicalBankHashPacket>,
-    output: PathBuf,
-) -> Result<BankHashCompareSummary, Whatever> {
-    let mut comparator = StreamingComparator::new(create_compare_writer(&output)?, output.clone());
+fn compare_pair(
+    key: CompareKey,
+    rtl: Option<&BankDigestRecord>,
+    bemu: Option<&BankDigestRecord>,
+) -> BankDigestComparison {
+    let result = match (rtl, bemu) {
+        (Some(rtl), Some(bemu)) if rtl.digest == bemu.digest => BankDigestCompareResult::Pass,
+        (Some(_), Some(_)) => BankDigestCompareResult::Mismatch,
+        (None, Some(_)) => BankDigestCompareResult::MissingRtl,
+        (Some(_), None) => BankDigestCompareResult::UnexpectedRtl,
+        (None, None) => unreachable!("comparison key comes from an existing record"),
+    };
 
-    for packet in packets {
-        comparator.ingest_packet(packet)?;
+    BankDigestComparison {
+        record_type: "bank_digest_compare",
+        result,
+        instruction_id: key.instruction_id,
+        bank_id: key.bank_id,
+        rtl_digest: rtl.map(|record| record.digest),
+        bemu_digest: bemu.map(|record| record.digest),
+        rtl_physical_bank_id: rtl.and_then(|record| record.physical_bank_id),
+        bemu_physical_bank_id: bemu.and_then(|record| record.physical_bank_id),
+        funct7: bemu
+            .map(|record| record.funct7)
+            .or_else(|| rtl.map(|record| record.funct7)),
+        op_type: bemu
+            .map(|record| record.op_type.clone())
+            .or_else(|| rtl.map(|record| record.op_type.clone())),
+        pc: bemu
+            .and_then(|record| record.pc)
+            .or_else(|| rtl.and_then(|record| record.pc)),
     }
-
-    let summary = comparator.finish()?;
-    println!("Online bank hash compare: {}", output.display());
-    Ok(summary)
 }
 
-fn compare_records(
-    rtl: &BTreeMap<CompareKey, CompareRecord>,
-    bemu: &BTreeMap<CompareKey, CompareRecord>,
-) -> Vec<ComparePacket> {
-    let keys: BTreeSet<_> = rtl.keys().chain(bemu.keys()).cloned().collect();
-
-    keys.into_iter()
-        .map(|key| compare_record_pair(&key, rtl.get(&key), bemu.get(&key)))
+fn records_by_key(records: impl IntoIterator<Item = BankDigestRecord>) -> BTreeMap<CompareKey, BankDigestRecord> {
+    records
+        .into_iter()
+        .filter(|record| record.event_class == BankHashEventClass::BankDataWrite)
+        .map(|record| (CompareKey::from(&record), record))
         .collect()
 }
 
-fn compare_record_pair(
-    key: &CompareKey,
-    rtl_record: Option<&CompareRecord>,
-    bemu_record: Option<&CompareRecord>,
-) -> ComparePacket {
-    let result = match (rtl_record, bemu_record) {
-        (Some(rtl), Some(bemu)) if rtl.hash == bemu.hash => CompareResult::Pass,
-        (Some(_), Some(_)) => CompareResult::Mismatch,
-        (None, Some(_)) => CompareResult::MissingRtl,
-        (Some(_), None) => CompareResult::MissingBemu,
-        (None, None) => unreachable!("key set is derived from existing records"),
-    };
+/// M1 offline comparison entry point. Arrival order and physical placement do
+/// not affect matching; only <InstID, LogicalBankID> forms the key.
+pub fn compare_offline(
+    rtl: impl IntoIterator<Item = BankDigestRecord>,
+    bemu: impl IntoIterator<Item = BankDigestRecord>,
+) -> Vec<BankDigestComparison> {
+    let rtl = records_by_key(rtl);
+    let bemu = records_by_key(bemu);
+    let keys: BTreeSet<_> = rtl.keys().chain(bemu.keys()).copied().collect();
+    keys.into_iter()
+        .map(|key| compare_pair(key, rtl.get(&key), bemu.get(&key)))
+        .collect()
+}
 
-    ComparePacket {
-        record_type: "bank_hash_compare",
-        result,
-        comparable_seq: key.comparable_seq,
-        bank_id: key.bank_id,
-        version: key.version,
-        rtl_original_instruction_id: rtl_record.and_then(|r| r.original_instruction_id),
-        bemu_original_instruction_id: bemu_record.and_then(|r| r.original_instruction_id),
-        funct7: bemu_record
-            .and_then(|r| r.funct7)
-            .or_else(|| rtl_record.and_then(|r| r.funct7)),
-        op_type: bemu_record
-            .and_then(|r| r.op_type.clone())
-            .or_else(|| rtl_record.and_then(|r| r.op_type.clone())),
-        rtl_hash: rtl_record.map(|r| r.hash),
-        bemu_hash: bemu_record.map(|r| r.hash),
-        rtl_cycle: rtl_record.and_then(|r| r.cycle),
-        bemu_cycle: bemu_record.and_then(|r| r.cycle),
-        rtl_time: rtl_record.and_then(|r| r.verilator_time),
-        bemu_time: bemu_record.and_then(|r| r.verilator_time),
-        rtl_pc: rtl_record.and_then(|r| r.pc),
-        bemu_pc: bemu_record.and_then(|r| r.pc),
-        rtl_record_ref: rtl_record.map(|r| {
-            r.original_record_ref
-                .clone()
-                .unwrap_or_else(|| format!("line {}", r.line_no))
-        }),
-        bemu_record_ref: bemu_record.map(|r| {
-            r.original_record_ref
-                .clone()
-                .unwrap_or_else(|| format!("line {}", r.line_no))
-        }),
+pub fn run_online_with_summary(
+    records: Receiver<BankDigestRecord>,
+    output: PathBuf,
+) -> Result<BankHashCompareSummary, Whatever> {
+    let mut comparator = StreamingComparator::new(create_compare_writer(&output)?, output.clone());
+    for record in records {
+        comparator.ingest(record)?;
     }
+    let summary = comparator.finish()?;
+    println!("Online bank digest compare: {}", output.display());
+    Ok(summary)
 }
 
 fn create_compare_writer(path: &Path) -> Result<BufWriter<File>, Whatever> {
@@ -178,13 +155,17 @@ fn create_compare_writer(path: &Path) -> Result<BufWriter<File>, Whatever> {
         std::fs::create_dir_all(parent)
             .whatever_context(format!("failed to create output directory {}", parent.display()))?;
     }
-
-    let file = File::create(path).whatever_context(format!("failed to create {}", path.display()))?;
-    Ok(BufWriter::new(file))
+    File::create(path)
+        .map(BufWriter::new)
+        .whatever_context(format!("failed to create {}", path.display()))
 }
 
-fn write_compare_packet(writer: &mut BufWriter<File>, packet: &ComparePacket, path: &Path) -> Result<(), Whatever> {
-    serde_json::to_writer(&mut *writer, packet).whatever_context(format!("failed to write {}", path.display()))?;
+fn write_comparison(
+    writer: &mut BufWriter<File>,
+    comparison: &BankDigestComparison,
+    path: &Path,
+) -> Result<(), Whatever> {
+    serde_json::to_writer(&mut *writer, comparison).whatever_context(format!("failed to write {}", path.display()))?;
     writer
         .write_all(b"\n")
         .whatever_context(format!("failed to write {}", path.display()))?;
@@ -195,8 +176,8 @@ fn write_compare_packet(writer: &mut BufWriter<File>, packet: &ComparePacket, pa
 }
 
 struct StreamingComparator {
-    rtl: BTreeMap<CompareKey, CompareRecord>,
-    bemu: BTreeMap<CompareKey, CompareRecord>,
+    rtl: BTreeMap<CompareKey, BankDigestRecord>,
+    bemu: BTreeMap<CompareKey, BankDigestRecord>,
     emitted: BTreeSet<CompareKey>,
     writer: BufWriter<File>,
     output_path: PathBuf,
@@ -215,68 +196,38 @@ impl StreamingComparator {
         }
     }
 
-    fn ingest_packet(&mut self, packet: CanonicalBankHashPacket) -> Result<(), Whatever> {
-        if packet.event_class != BankHashEventClass::BankDataWrite {
+    fn ingest(&mut self, record: BankDigestRecord) -> Result<(), Whatever> {
+        if record.event_class != BankHashEventClass::BankDataWrite {
             return Ok(());
         }
-
-        let Some(comparable_seq) = packet.comparable_seq else {
-            eprintln!("warning: skipping online bank hash packet: bank_data_write missing comparable_seq");
-            return Ok(());
-        };
-
-        let key = CompareKey {
-            comparable_seq,
-            bank_id: packet.bank_id,
-            version: packet.version,
-        };
+        let key = CompareKey::from(&record);
         if self.emitted.contains(&key) {
-            eprintln!("warning: duplicate online btrace key after compare; ignoring");
+            eprintln!("warning: duplicate bank digest key after comparison; ignoring");
             return Ok(());
         }
-
-        let record = CompareRecord {
-            original_instruction_id: Some(packet.original_instruction_id),
-            funct7: Some(packet.funct7),
-            op_type: Some(packet.op_type),
-            hash: packet.hash,
-            cycle: packet.cycle,
-            verilator_time: packet.verilator_time,
-            pc: packet.pc,
-            original_record_ref: Some(packet.original_record_ref),
-            line_no: packet.original_log_line,
+        match record.source {
+            BankHashSource::Rtl => self.rtl.insert(key, record),
+            BankHashSource::Bemu => self.bemu.insert(key, record),
         };
 
-        match packet.source {
-            BankHashSource::Rtl => {
-                self.rtl.insert(key.clone(), record);
-            }
-            BankHashSource::Bemu => {
-                self.bemu.insert(key.clone(), record);
-            }
-        }
-
-        if self.rtl.contains_key(&key) && self.bemu.contains_key(&key) {
-            let rtl = self.rtl.remove(&key).expect("checked above");
-            let bemu = self.bemu.remove(&key).expect("checked above");
-            let packet = compare_record_pair(&key, Some(&rtl), Some(&bemu));
-            write_compare_packet(&mut self.writer, &packet, &self.output_path)?;
-            self.summary.add_packet(&packet);
+        if let (Some(rtl), Some(bemu)) = (self.rtl.remove(&key), self.bemu.remove(&key)) {
+            let comparison = compare_pair(key, Some(&rtl), Some(&bemu));
+            write_comparison(&mut self.writer, &comparison, &self.output_path)?;
+            self.summary.add(comparison.result);
             self.emitted.insert(key);
         }
-
         Ok(())
     }
 
     fn finish(mut self) -> Result<BankHashCompareSummary, Whatever> {
-        let missing = compare_records(&self.rtl, &self.bemu);
-        for packet in &missing {
-            write_compare_packet(&mut self.writer, packet, &self.output_path)?;
-            self.summary.add_packet(packet);
+        let remaining = compare_offline(self.rtl.into_values(), self.bemu.into_values());
+        for comparison in &remaining {
+            write_comparison(&mut self.writer, comparison, &self.output_path)?;
+            self.summary.add(comparison.result);
         }
         self.writer
             .flush()
-            .whatever_context("failed to flush online bank hash compare output")?;
+            .whatever_context("failed to flush bank digest comparison output")?;
         Ok(self.summary)
     }
 }
@@ -284,151 +235,70 @@ impl StreamingComparator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{bank_hash, BankHashTime};
 
-    fn key(seq: u64, bank_id: u32, version: u32) -> CompareKey {
-        CompareKey {
-            comparable_seq: seq,
-            bank_id,
-            version,
-        }
-    }
-
-    fn record(seq: u64, _bank_id: u32, _version: u32, hash: u64) -> CompareRecord {
-        CompareRecord {
-            original_instruction_id: Some(seq),
-            funct7: Some(33),
-            op_type: Some("funct7_33".to_string()),
-            hash,
-            cycle: Some(seq * 10),
-            verilator_time: None,
-            pc: Some(0x8000_0000 + seq),
-            original_record_ref: Some(format!("line {seq}")),
-            line_no: seq,
-        }
-    }
-
-    #[test]
-    fn compare_reports_pass_mismatch_and_missing() {
-        let mut rtl = BTreeMap::new();
-        rtl.insert(key(1, 0, 0), record(1, 0, 0, 10));
-        rtl.insert(key(2, 0, 0), record(2, 0, 0, 20));
-        rtl.insert(key(3, 0, 0), record(3, 0, 0, 30));
-
-        let mut bemu = BTreeMap::new();
-        bemu.insert(key(1, 0, 0), record(1, 0, 0, 10));
-        bemu.insert(key(2, 0, 0), record(2, 0, 0, 21));
-        bemu.insert(key(4, 0, 0), record(4, 0, 0, 40));
-
-        let packets = compare_records(&rtl, &bemu);
-        let results: Vec<_> = packets.iter().map(|p| p.result.clone()).collect();
-
-        assert_eq!(
-            results,
-            vec![
-                CompareResult::Pass,
-                CompareResult::Mismatch,
-                CompareResult::MissingBemu,
-                CompareResult::MissingRtl
-            ]
-        );
+    fn record(
+        source: BankHashSource,
+        inst: u64,
+        vbank: u32,
+        group: u32,
+        physical: u32,
+        bytes: &[u8],
+    ) -> BankDigestRecord {
+        BankDigestRecord::new(
+            source,
+            inst,
+            LogicalBankId::new(vbank, group),
+            Some(physical),
+            bank_hash(bytes),
+            64,
+            "funct7_64",
+            BankHashEventClass::BankDataWrite,
+            BankHashTime::Cycle(inst * 10),
+            Some(0x8000_0000 + inst),
+            None,
+        )
     }
 
     #[test]
-    fn compare_ignores_original_instruction_ids() {
-        let mut rtl = BTreeMap::new();
-        let mut rtl_record = record(4, 0, 0, 3746813360834562347);
-        rtl_record.original_instruction_id = Some(4);
-        rtl.insert(key(1, 0, 0), rtl_record);
+    fn m1_offline_compare_matches_by_inst_and_logical_bank() {
+        let bemu = vec![
+            record(BankHashSource::Bemu, 7, 2, 0, 4, b"same"),
+            record(BankHashSource::Bemu, 8, 3, 1, 5, b"golden"),
+            record(BankHashSource::Bemu, 9, 4, 0, 6, b"missing"),
+        ];
+        let rtl = vec![
+            // Deliberately out of order and in a different physical slot.
+            record(BankHashSource::Rtl, 8, 3, 1, 23, b"corrupt"),
+            record(BankHashSource::Rtl, 7, 2, 0, 22, b"same"),
+            record(BankHashSource::Rtl, 10, 5, 0, 24, b"unexpected"),
+        ];
 
-        let mut bemu = BTreeMap::new();
-        let mut bemu_record = record(2, 0, 0, 3746813360834562347);
-        bemu_record.original_instruction_id = Some(2);
-        bemu.insert(key(1, 0, 0), bemu_record);
-
-        let packets = compare_records(&rtl, &bemu);
-
-        assert_eq!(packets.len(), 1);
-        assert_eq!(packets[0].result, CompareResult::Pass);
-        assert_eq!(packets[0].comparable_seq, 1);
-        assert_eq!(packets[0].bank_id, 0);
-        assert_eq!(packets[0].version, 0);
-        assert_eq!(packets[0].rtl_original_instruction_id, Some(4));
-        assert_eq!(packets[0].bemu_original_instruction_id, Some(2));
+        let comparisons = compare_offline(rtl, bemu);
+        assert_eq!(comparisons.len(), 4);
+        assert_eq!(comparisons[0].result, BankDigestCompareResult::Pass);
+        assert_eq!(comparisons[1].result, BankDigestCompareResult::Mismatch);
+        assert_eq!(comparisons[2].result, BankDigestCompareResult::MissingRtl);
+        assert_eq!(comparisons[3].result, BankDigestCompareResult::UnexpectedRtl);
+        assert_eq!(comparisons[0].rtl_physical_bank_id, Some(22));
+        assert_eq!(comparisons[0].bemu_physical_bank_id, Some(4));
     }
 
     #[test]
-    fn online_compare_reports_pass_and_missing() {
-        let output = std::env::temp_dir().join(format!("bebop-bank-hash-online-{}-{}.ndjson", std::process::id(), 1));
-        let writer = create_compare_writer(&output).unwrap();
-        let mut comparator = StreamingComparator::new(writer, output.clone());
+    fn same_inst_different_groups_are_independent_records() {
+        let bemu = vec![
+            record(BankHashSource::Bemu, 3, 1, 0, 4, b"g0"),
+            record(BankHashSource::Bemu, 3, 1, 1, 5, b"g1"),
+        ];
+        let rtl = vec![
+            record(BankHashSource::Rtl, 3, 1, 1, 9, b"g1"),
+            record(BankHashSource::Rtl, 3, 1, 0, 8, b"g0"),
+        ];
 
-        comparator
-            .ingest_packet(CanonicalBankHashPacket::new(
-                BankHashSource::Rtl,
-                4,
-                Some(1),
-                0,
-                33,
-                "funct7_33",
-                BankHashEventClass::BankDataWrite,
-                3746813360834562347,
-                crate::BankHashTime::Cycle(10),
-                Some(2147486388),
-                "rtl_bank_hash.ndjson:33",
-                33,
-            ))
-            .unwrap();
-        comparator
-            .ingest_packet(CanonicalBankHashPacket::new(
-                BankHashSource::Bemu,
-                2,
-                Some(1),
-                0,
-                33,
-                "funct7_33",
-                BankHashEventClass::BankDataWrite,
-                3746813360834562347,
-                crate::BankHashTime::Cycle(2),
-                Some(2147486388),
-                "bemu_bank_hash.ndjson:2",
-                2,
-            ))
-            .unwrap();
-        comparator
-            .ingest_packet(CanonicalBankHashPacket::new(
-                BankHashSource::Rtl,
-                5,
-                Some(2),
-                0,
-                33,
-                "funct7_33",
-                BankHashEventClass::BankDataWrite,
-                123,
-                crate::BankHashTime::Cycle(20),
-                Some(2147486400),
-                "rtl_bank_hash.ndjson:34",
-                34,
-            ))
-            .unwrap();
-
-        let summary = comparator.finish().unwrap();
-        let lines = std::fs::read_to_string(&output).unwrap();
-        let values: Vec<Value> = lines.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
-        std::fs::remove_file(&output).ok();
-
-        assert_eq!(
-            summary,
-            BankHashCompareSummary {
-                pass: 1,
-                mismatch: 0,
-                missing_rtl: 0,
-                missing_bemu: 1
-            }
-        );
-        assert_eq!(values.len(), 2);
-        assert_eq!(values[0]["result"], "PASS");
-        assert_eq!(values[0]["comparable_seq"], 1);
-        assert_eq!(values[1]["result"], "MISSING_BEMU");
-        assert_eq!(values[1]["comparable_seq"], 2);
+        let comparisons = compare_offline(rtl, bemu);
+        assert_eq!(comparisons.len(), 2);
+        assert!(comparisons
+            .iter()
+            .all(|comparison| comparison.result == BankDigestCompareResult::Pass));
     }
 }

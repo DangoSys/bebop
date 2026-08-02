@@ -30,6 +30,7 @@ pub struct BemuRunConfig {
     pub elf: PathBuf,
     pub log_dir: PathBuf,
     pub pk: bool,
+    pub bank_digest: bool,
 }
 
 pub fn run(config: BemuRunConfig) -> Result<(), Whatever> {
@@ -40,7 +41,8 @@ pub fn run(config: BemuRunConfig) -> Result<(), Whatever> {
         println!("[INFO] Running BEMU: elf={elf} log_dir={log_dir}");
 
         // Step 1: Initialize BEMU
-        let trace_config = TraceConfig::new(false, false);
+        let mut trace_config = TraceConfig::new(false, false);
+        trace_config.btrace = config.bank_digest;
         let mut bemu = BemuInstance::new(&config.log_dir, trace_config)?;
 
         // Step 2: Load workload

@@ -23,6 +23,70 @@
 //===-----------------------------------------------------------------===//-----===//
 
 use super::super::bank::{BankConfig, BankMap};
+use std::collections::BTreeSet;
+use std::ops::{Index, IndexMut};
+
+/// Bank storage wrapper used to derive the architectural write-set.
+/// Mutable indexing records a write even when the new bytes equal the old
+/// bytes, which is required for Golden Records of idempotent writes.
+pub struct TrackedBanks<'a> {
+    banks: &'a mut [Vec<u8>],
+    written: BTreeSet<usize>,
+    tracking_enabled: bool,
+}
+
+impl<'a> TrackedBanks<'a> {
+    pub fn new(banks: &'a mut [Vec<u8>], tracking_enabled: bool) -> Self {
+        Self {
+            banks,
+            written: BTreeSet::new(),
+            tracking_enabled,
+        }
+    }
+
+    pub fn into_written(self) -> BTreeSet<usize> {
+        self.written
+    }
+
+    /// Alias-safe access for operations that stream from one bank into a
+    /// different destination bank.
+    pub fn read_write(&mut self, read_bank: usize, write_bank: usize) -> (&[u8], &mut [u8]) {
+        assert_ne!(read_bank, write_bank, "bank read/write pair must be distinct");
+        if self.tracking_enabled {
+            self.written.insert(write_bank);
+        }
+        if read_bank < write_bank {
+            let (left, right) = self.banks.split_at_mut(write_bank);
+            (&left[read_bank], &mut right[0])
+        } else {
+            let (left, right) = self.banks.split_at_mut(read_bank);
+            (&right[0], &mut left[write_bank])
+        }
+    }
+
+    /// Allocation-time clearing is configuration initialization, not an SPM
+    /// result produced by an instruction.
+    pub fn initialize(&mut self, bank_id: usize, value: u8) {
+        self.banks[bank_id].fill(value);
+    }
+}
+
+impl Index<usize> for TrackedBanks<'_> {
+    type Output = Vec<u8>;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.banks[index]
+    }
+}
+
+impl IndexMut<usize> for TrackedBanks<'_> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        if self.tracking_enabled {
+            self.written.insert(index);
+        }
+        &mut self.banks[index]
+    }
+}
 
 /// MMIO region descriptor
 #[allow(dead_code)]
@@ -36,11 +100,33 @@ pub struct MmioRegion {
 /// Execution context passed to all instructions
 pub struct ExecContext<'a> {
     pub memory: &'a mut [u8],
-    pub banks: &'a mut [Vec<u8>],
+    pub banks: TrackedBanks<'a>,
     pub cfgs: &'a mut [BankConfig],
     pub bank_map: &'a mut BankMap,
     pub mmio_banks: &'a mut [Vec<u8>],
     pub mmio_region_table: &'a mut [MmioRegion],
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TrackedBanks;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn idempotent_mutation_is_still_an_architectural_write() {
+        let mut storage = vec![vec![0u8; 4]; 2];
+        let mut banks = TrackedBanks::new(&mut storage, true);
+        banks[1][0] = 0;
+        assert_eq!(banks.into_written(), BTreeSet::from([1]));
+    }
+
+    #[test]
+    fn allocation_initialization_is_not_a_data_write() {
+        let mut storage = vec![vec![1u8; 4]; 2];
+        let mut banks = TrackedBanks::new(&mut storage, true);
+        banks.initialize(0, 0);
+        assert!(banks.into_written().is_empty());
+    }
 }
 
 /// Instruction trait - all instructions must implement this

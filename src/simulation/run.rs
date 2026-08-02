@@ -72,9 +72,17 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
                 crate::simulation::verilator::run::run_unavailable()
             }
         }
-        RunTarget::Bemu { elf, log_dir, pk } => {
-            crate::simulation::bemu::run::run(crate::simulation::bemu::run::BemuRunConfig { elf, log_dir, pk })
-        }
+        RunTarget::Bemu {
+            elf,
+            log_dir,
+            pk,
+            bank_digest,
+        } => crate::simulation::bemu::run::run(crate::simulation::bemu::run::BemuRunConfig {
+            elf,
+            log_dir,
+            pk,
+            bank_digest,
+        }),
         RunTarget::P2e {
             image,
             bitstream,

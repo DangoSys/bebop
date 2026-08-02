@@ -264,25 +264,20 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         ..
     } = state;
 
-    let before_hashes: Vec<u64> = if btrace {
-        banks.iter().map(|bank| bank_hash(bank)).collect()
-    } else {
-        Vec::new()
-    };
-
-    let result = unsafe {
+    let (result, written_banks) = unsafe {
         with_trace_ptr(trace, || {
             let mut ctx = inst::instruction::ExecContext {
                 memory,
-                banks,
+                banks: inst::instruction::TrackedBanks::new(banks, btrace),
                 cfgs: bank_cfgs,
                 bank_map,
                 mmio_banks,
                 mmio_region_table,
             };
 
-            inst::decode::execute_known(funct7 as u32, xs1, xs2, &mut ctx)
-                .unwrap_or_else(|| panic!("unknown funct7: {}", funct7))
+            let result = inst::decode::execute_known(funct7 as u32, xs1, xs2, &mut ctx)
+                .unwrap_or_else(|| panic!("unknown funct7: {}", funct7));
+            (result, ctx.banks.into_written())
         })
     };
 
@@ -290,11 +285,21 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         let op_type = format!("funct7_{}", funct7);
         unsafe {
             with_trace_ptr(trace, || {
-                for (bank_id, bank) in banks.iter().enumerate() {
-                    let hash = bank_hash(bank);
-                    if before_hashes[bank_id] != hash {
-                        crate::trace::bemu_bank_hash(instruction_id, bank_id as u32, funct7 as u32, &op_type, hash, pc);
-                    }
+                for physical_bank_id in written_banks {
+                    let (vbank_id, group_id) = bank_map
+                        .logical_id(physical_bank_id)
+                        .unwrap_or_else(|| panic!("BEMU wrote unmapped physical bank {physical_bank_id}"));
+                    let digest = bank_hash(&banks[physical_bank_id]);
+                    crate::trace::bemu_bank_digest(
+                        instruction_id,
+                        vbank_id,
+                        group_id,
+                        physical_bank_id as u32,
+                        funct7 as u32,
+                        &op_type,
+                        digest,
+                        pc,
+                    );
                 }
             })
         };

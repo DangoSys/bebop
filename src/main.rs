@@ -112,6 +112,8 @@ pub enum RunTarget {
         log_dir: PathBuf,
         #[arg(long, help = "Run with proxy kernel (Linux mode, starts in S-mode)")]
         pk: bool,
+        #[arg(long, help = "Generate DiffTest-N BEMU Golden Records")]
+        bank_digest: bool,
     },
     /// Run a workload on a P2E simulator artifact.
     P2e {
