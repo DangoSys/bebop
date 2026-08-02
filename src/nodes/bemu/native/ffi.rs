@@ -26,6 +26,7 @@ struct EmuState {
     banks: Vec<Vec<u8>>,
     bank_cfgs: Vec<BankConfig>,
     bank_map: BankMap,
+    bank_scoreboard: inst::instruction::BankScoreboard,
     mmio_banks: Vec<Vec<u8>>,
     mmio_region_table: Vec<crate::inst::instruction::MmioRegion>,
     total_lat: u64,
@@ -47,6 +48,7 @@ impl EmuState {
             banks: vec![vec![0; bank_size()]; bank_num()],
             bank_cfgs: vec![BankConfig::default(); bank_num()],
             bank_map: BankMap::new(bank_num()),
+            bank_scoreboard: inst::instruction::BankScoreboard::new(),
             mmio_banks: vec![vec![0; mmio_bank_size()]; mmio_bank_num()],
             mmio_region_table: vec![crate::inst::instruction::MmioRegion::default(); bank_num()],
             total_lat: 0,
@@ -64,6 +66,7 @@ impl EmuState {
         }
         self.bank_cfgs.fill(BankConfig::default());
         self.bank_map = BankMap::new(bank_num());
+        self.bank_scoreboard.reset();
         for bank in &mut self.mmio_banks {
             bank.fill(0);
         }
@@ -238,6 +241,9 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
     let instruction_id = state.npu_instruction_id;
     let trace = &mut state.trace as *mut TraceState;
     let btrace = state.trace.btrace_enabled();
+    if btrace {
+        state.bank_scoreboard.issue(instruction_id);
+    }
 
     unsafe {
         with_trace_ptr(trace, || {
@@ -255,6 +261,7 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         banks,
         bank_cfgs,
         bank_map,
+        bank_scoreboard,
         mmio_banks,
         mmio_region_table,
         uart: _,
@@ -264,24 +271,24 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         ..
     } = state;
 
-    let (result, written_banks) = unsafe {
+    let result = unsafe {
         with_trace_ptr(trace, || {
             let mut ctx = inst::instruction::ExecContext {
                 memory,
-                banks: inst::instruction::TrackedBanks::new(banks, btrace),
+                banks: inst::instruction::TrackedBanks::new(banks, btrace.then_some(&*bank_scoreboard), instruction_id),
                 cfgs: bank_cfgs,
                 bank_map,
                 mmio_banks,
                 mmio_region_table,
             };
 
-            let result = inst::decode::execute_known(funct7 as u32, xs1, xs2, &mut ctx)
-                .unwrap_or_else(|| panic!("unknown funct7: {}", funct7));
-            (result, ctx.banks.into_written())
+            inst::decode::execute_known(funct7 as u32, xs1, xs2, &mut ctx)
+                .unwrap_or_else(|| panic!("unknown funct7: {}", funct7))
         })
     };
 
     if btrace {
+        let written_banks = bank_scoreboard.complete(instruction_id);
         let op_type = format!("funct7_{}", funct7);
         unsafe {
             with_trace_ptr(trace, || {
