@@ -18,6 +18,7 @@
 //
 //===---------------------------------------------------------------------------===//
 
+use std::collections::HashSet;
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
@@ -89,7 +90,7 @@ fn main() {
     run_verilator(&build_dir, &obj_dir, TOPNAME, &jobs, &vsrcs, &csrcs);
 
     let verilator_root = get_verilator_root(&obj_dir, TOPNAME);
-    let generated_cpps = collect_files(&obj_dir, &["cpp"]);
+    let generated_cpps = collect_verilator_cpps(&obj_dir);
 
     let mut build = cc::Build::new();
     build.cpp(true);
@@ -221,6 +222,43 @@ fn collect_files(root: &Path, exts: &[&str]) -> Vec<PathBuf> {
     collect_files_inner(root, exts, &mut files);
     files.sort();
     files
+}
+
+// Verilator's *_vm_classes*.cpp files aggregate generated implementation
+// files with #include. Compile each aggregate, but exclude its included files
+// from the direct list to avoid duplicate symbols at link time.
+fn collect_verilator_cpps(obj_dir: &Path) -> Vec<PathBuf> {
+    let generated_cpps = collect_files(obj_dir, &["cpp"]);
+    let included_cpps = generated_cpps
+        .iter()
+        .filter(|path| is_verilator_class_aggregate(path))
+        .flat_map(|path| verilator_aggregate_includes(path))
+        .collect::<HashSet<_>>();
+
+    generated_cpps
+        .into_iter()
+        .filter(|path| !included_cpps.contains(path))
+        .collect()
+}
+
+fn is_verilator_class_aggregate(path: &Path) -> bool {
+    path.file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(|name| name.contains("_vm_classes"))
+}
+
+fn verilator_aggregate_includes(path: &Path) -> Vec<PathBuf> {
+    let content =
+        fs::read_to_string(path).unwrap_or_else(|e| panic!("read Verilator aggregate {} failed: {e}", path.display()));
+    let parent = path.parent().expect("Verilator aggregate parent directory");
+
+    content
+        .lines()
+        .filter_map(|line| {
+            let name = line.trim().strip_prefix("#include \"")?.strip_suffix("\"")?;
+            (Path::new(name).extension() == Some(OsStr::new("cpp"))).then(|| parent.join(name))
+        })
+        .collect()
 }
 
 fn collect_files_inner(root: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
