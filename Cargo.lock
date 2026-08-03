@@ -179,6 +179,9 @@ dependencies = [
 [[package]]
 name = "bebop-rtl-trace"
 version = "0.1.0"
+dependencies = [
+ "bebop-bank-hash",
+]
 
 [[package]]
 name = "bebop-syscall"

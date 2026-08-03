@@ -6,5 +6,8 @@ edition = "2021"
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+bebop-bank-hash = { path = "../bank-hash" }
+
 [lints]
 workspace = true

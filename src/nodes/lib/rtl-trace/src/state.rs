@@ -24,6 +24,8 @@ pub struct TraceConfig {
     pub pmctrace: bool,
     pub ctrace: bool,
     pub banktrace: bool,
+    /// Enables the deliberately restricted M2 whole-bank digest monitor.
+    pub bank_digest: Option<crate::bank_digest::BankDigestConfig>,
 }
 
 pub fn init(log_dir: &Path, config: TraceConfig) -> io::Result<()> {
@@ -40,6 +42,7 @@ pub fn init(log_dir: &Path, config: TraceConfig) -> io::Result<()> {
     *enable_pmctrace().lock().unwrap() = config.pmctrace;
     *enable_ctrace().lock().unwrap() = config.ctrace;
     *enable_banktrace().lock().unwrap() = config.banktrace;
+    crate::bank_digest::init(log_dir, config.bank_digest)?;
     ITRACE_CALLBACKS.store(0, Ordering::Relaxed);
     MTRACE_CALLBACKS.store(0, Ordering::Relaxed);
     PMC_BALL_CALLBACKS.store(0, Ordering::Relaxed);

@@ -12,6 +12,8 @@ pub struct ITraceEvent {
 }
 
 pub fn itrace(event: ITraceEvent) {
+    crate::bank_digest::record_instruction(&event);
+
     if !state::itrace_enabled() {
         return;
     }

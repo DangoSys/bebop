@@ -15,6 +15,8 @@ pub struct MTraceEvent {
 }
 
 pub fn mtrace(event: MTraceEvent) {
+    crate::bank_digest::record_memory(&event);
+
     if event.is_write != 0 {
         banktrace(BankTraceEvent {
             event: "backdoor_write",
