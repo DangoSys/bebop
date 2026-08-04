@@ -22,14 +22,17 @@
 
 use snafu::{FromString, Whatever};
 use std::path::PathBuf;
+use std::time::Instant;
 
 #[cfg(feature = "bemu")]
-use bebop_bemu::{BemuInstance, TraceConfig};
+use bebop_bemu::{format_profile_report, print_profile_report, BemuInstance, TraceConfig};
 
 pub struct BemuRunConfig {
     pub elf: PathBuf,
     pub log_dir: PathBuf,
     pub pk: bool,
+    pub disasm: bool,
+    pub tool_profile: bool,
 }
 
 pub fn run(config: BemuRunConfig) -> Result<(), Whatever> {
@@ -41,7 +44,7 @@ pub fn run(config: BemuRunConfig) -> Result<(), Whatever> {
 
         // Step 1: Initialize BEMU
         let trace_config = TraceConfig::new(false, false);
-        let mut bemu = BemuInstance::new(&config.log_dir, trace_config)?;
+        let mut bemu = BemuInstance::new(&config.log_dir, trace_config, config.disasm, config.tool_profile)?;
 
         // Step 2: Load workload
         bemu.load_elf(&config.elf)?;
@@ -50,8 +53,18 @@ pub fn run(config: BemuRunConfig) -> Result<(), Whatever> {
         bemu.init_hart(config.pk)?;
 
         // Step 4: Run bemu in a loop until finished
+        let started = config.tool_profile.then(Instant::now);
         while !bemu.finished() {
             bemu.step()?;
+        }
+        if let Some(started) = started {
+            if let Some(report) = bemu.profile_report(started.elapsed()) {
+                print_profile_report(&report);
+                let profile_path = config.log_dir.join("tool-profile.txt");
+                std::fs::write(&profile_path, format_profile_report(&report)).map_err(|e| {
+                    Whatever::without_source(format!("failed to write tool profile {}: {e}", profile_path.display()))
+                })?;
+            }
         }
         println!("[INFO] BEMU total latency: {}", bemu.total_latency());
 

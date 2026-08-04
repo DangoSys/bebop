@@ -5,7 +5,6 @@ use super::RegressionResult;
 
 const ARTIFACT_ROOT: &str = "test-artifacts";
 const DIR_LOG: &str = "log";
-const DIR_FST: &str = "fst";
 const FILE_STDOUT: &str = "stdout.log";
 const FILE_STDERR: &str = "stderr.log";
 const FILE_WAVEFORM: &str = "waveform.fst";
@@ -36,7 +35,6 @@ impl ArtifactManager {
         let dir_name = format!("{}-{}-{}", backend, timestamp, workload_name);
         let root = workspace_root().join(ARTIFACT_ROOT).join(dir_name);
         fs::create_dir_all(root.join(DIR_LOG))?;
-        fs::create_dir_all(root.join(DIR_FST))?;
         Ok(ArtifactManager { root })
     }
 
@@ -56,12 +54,8 @@ impl ArtifactManager {
         self.root.join(DIR_LOG)
     }
 
-    pub fn fst_dir(&self) -> PathBuf {
-        self.root.join(DIR_FST)
-    }
-
     pub fn fst_waveform_path(&self) -> PathBuf {
-        self.fst_dir().join(FILE_WAVEFORM)
+        self.log_dir().join("waveform").join(FILE_WAVEFORM)
     }
 
     pub fn write_stdout(&self, content: &str) -> std::io::Result<()> {

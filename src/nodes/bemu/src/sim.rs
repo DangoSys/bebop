@@ -21,17 +21,20 @@
 
 use snafu::{OptionExt, ResultExt, Whatever};
 use std::path::Path;
+use std::time::Duration;
 
 use crate::{spike::SpikeInstance, trace::TraceConfig};
+use bebop_bemu_profile::BemuProfileReport;
 
 pub struct BemuInstance {
     spike: SpikeInstance,
 }
 
 impl BemuInstance {
-    pub fn new(log_dir: &Path, trace_config: TraceConfig) -> Result<Self, Whatever> {
+    pub fn new(log_dir: &Path, trace_config: TraceConfig, disasm: bool, profile: bool) -> Result<Self, Whatever> {
         Ok(Self {
-            spike: SpikeInstance::new(log_dir, trace_config).whatever_context("failed to create spike instance")?,
+            spike: SpikeInstance::new(log_dir, trace_config, disasm, profile)
+                .whatever_context("failed to create spike instance")?,
         })
     }
 
@@ -60,5 +63,9 @@ impl BemuInstance {
 
     pub fn total_latency(&self) -> u64 {
         self.spike.total_latency()
+    }
+
+    pub fn profile_report(&self, total: Duration) -> Option<BemuProfileReport> {
+        self.spike.profile_report(total)
     }
 }

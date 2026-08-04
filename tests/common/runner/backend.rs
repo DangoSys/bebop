@@ -30,7 +30,7 @@ pub trait BackendRunner {
         false
     }
 
-    fn needs_fst_dir(&self) -> bool {
+    fn needs_wave(&self) -> bool {
         false
     }
 }
@@ -93,7 +93,6 @@ impl BackendRunner for VerilatorBackend {
         cmd.arg("verilator");
         cmd.arg("--elf").arg(elf_path);
         cmd.arg("--log-dir").arg(artifacts.log_dir());
-        cmd.arg("--fst-dir").arg(artifacts.fst_dir());
     }
 
     fn timeout(&self) -> Duration {
@@ -112,7 +111,7 @@ impl BackendRunner for VerilatorBackend {
         true
     }
 
-    fn needs_fst_dir(&self) -> bool {
+    fn needs_wave(&self) -> bool {
         true
     }
 }

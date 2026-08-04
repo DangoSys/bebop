@@ -47,7 +47,6 @@ use super::console::ConsoleServer;
 pub struct VerilatorRunConfig {
     pub elf: PathBuf,
     pub log_dir: PathBuf,
-    pub fst_dir: Option<PathBuf>,
     pub wave: bool,
     pub diff: bool,
     pub fast: bool,
@@ -93,12 +92,7 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
 
     let stdout_file = config.log_dir.join("stdout.log");
     let stderr_file = config.log_dir.join("stderr.log");
-    let fst_file = config
-        .fst_dir
-        .as_ref()
-        .cloned()
-        .unwrap_or_else(|| config.log_dir.join("fst"))
-        .join("waveform.fst");
+    let fst_file = config.log_dir.join("waveform").join("waveform.fst");
     let trace_config = TraceConfig {
         itrace: config.trace.itrace,
         mtrace: config.trace.mtrace,
@@ -111,8 +105,8 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     println!("Simulator mode: {}", config.mode());
     println!("Trace configuration: {:?}", config.trace);
     println!("Log directory: {}", config.log_dir.display());
-    if let Some(fst_dir) = config.fst_dir.as_ref() {
-        println!("Waveform will be saved to: {}", fst_dir.display());
+    if config.wave {
+        println!("Waveform will be saved to: {}", fst_file.display());
     }
 
     create_output_dirs(&config.log_dir, config.wave.then_some(fst_file.as_path()))?;

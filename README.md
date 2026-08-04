@@ -45,8 +45,7 @@ cargo run --features bemu -- run bemu \
 # Verilator
 cargo run --features verilator -- run verilator \
   --elf="<elf-file-path>" \
-  --log-dir="<log-dir>" \
-  --fst-dir="<fst-dir>"
+  --log-dir="<log-dir>"
 
 # P2E run workload
 cargo run --features p2e -- run p2e \
@@ -54,3 +53,5 @@ cargo run --features p2e -- run p2e \
   --bitstream="<bitstream-file-path>" \
   --log-dir="<p2e-case-dir>"
 ```
+
+Verilator waveforms (when enabled) go to `<log-dir>/waveform/waveform.fst`.
