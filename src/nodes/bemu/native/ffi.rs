@@ -361,9 +361,6 @@ fn map_syscall_result(
             if end > start {
                 pk_vm.alloc_user_pages(memory, start, end - start, 0x2 | 0x4)?;
             }
-            if let Some(first) = pk_vm.maps.first() {
-                crate::bank::set_fast_addr_map(first.virt, first.phys, result.saturating_sub(first.virt));
-            }
         }
         SYS_MMAP => {
             let len = align_up(a1, PAGE_SIZE);
@@ -569,7 +566,6 @@ fn load_elf_memory(state: &mut EmuState, elf_path: &str) -> Result<LoadInfo, Str
 
 fn hart_init(ctx: *mut c_void, state: &mut EmuState, load: LoadInfo, mem_mb: usize, pk: bool) -> Result<(), String> {
     let mem_end = DRAM_BASE + state.memory.len() as u64;
-    crate::bank::clear_addr_cache();
     state.syscall = SyscallState::new();
     state.pk_vm = None;
     set_guest_mappings(&[]);
@@ -589,11 +585,6 @@ fn hart_init(ctx: *mut c_void, state: &mut EmuState, load: LoadInfo, mem_mb: usi
         state
             .syscall
             .set_mem_bounds(load.analysis.min_vaddr, USER_TOP - USER_STACK_SIZE);
-        crate::bank::set_fast_addr_map(
-            load.analysis.min_vaddr,
-            DRAM_BASE,
-            brk_start.saturating_sub(load.analysis.min_vaddr),
-        );
     }
 
     let tp = if pk {
