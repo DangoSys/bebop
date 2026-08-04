@@ -6,12 +6,9 @@ use crate::{state, trace};
 
 pub(crate) fn force_link() {
     let _ = dpi_bdb_set_clk as extern "C" fn(u64);
-    let _ = dpi_itrace as extern "C" fn(
-        u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32,
-    );
-    let _ = dpi_mtrace as extern "C" fn(
-        u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32,
-    );
+    let _ = dpi_itrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
+    let _ = dpi_mtrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
+    let _ = dpi_mtrace_issue as extern "C" fn(u32, u32, u32, u32, u32, u32);
     let _ = dpi_pmctrace as extern "C" fn(u32, u32, u32, u32);
     let _ = dpi_mem_pmctrace as extern "C" fn(u32, u32, u32, u32);
     let _ = dpi_ctrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32);
@@ -65,10 +62,12 @@ pub extern "C" fn dpi_mtrace(
     channel: u32,
     hart_id_lo: u32,
     hart_id_hi: u32,
+    rob_id: u32,
     vbank_id: u32,
     pbank_id: u32,
     group_id: u32,
     addr: u32,
+    write_mask: u32,
     data_lo_lo: u32,
     data_lo_hi: u32,
     data_hi_lo: u32,
@@ -80,12 +79,33 @@ pub extern "C" fn dpi_mtrace(
         is_shared: is_shared as u8,
         channel,
         hart_id: u64_from_words(hart_id_lo, hart_id_hi),
+        rob_id,
         vbank_id,
         pbank_id,
         group_id,
         addr,
+        write_mask,
         data_lo: u64_from_words(data_lo_lo, data_lo_hi),
         data_hi: u64_from_words(data_hi_lo, data_hi_hi),
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn dpi_mtrace_issue(
+    hart_id_lo: u32,
+    hart_id_hi: u32,
+    is_shared: u32,
+    rob_id: u32,
+    vbank_id: u32,
+    group_id: u32,
+) {
+    state::record_mtrace_issue_callback();
+    trace::mtrace_issue(trace::MTraceIssueEvent {
+        is_shared: is_shared as u8,
+        hart_id: u64_from_words(hart_id_lo, hart_id_hi),
+        rob_id,
+        vbank_id,
+        group_id,
     });
 }
 
@@ -98,11 +118,7 @@ pub extern "C" fn dpi_pmctrace(ball_id: u32, rob_id: u32, elapsed_lo: u32, elaps
 #[no_mangle]
 pub extern "C" fn dpi_mem_pmctrace(is_store: u32, rob_id: u32, elapsed_lo: u32, elapsed_hi: u32) {
     state::record_pmc_mem_callback();
-    trace::pmctrace_mem(
-        is_store as u8,
-        rob_id,
-        u64_from_words(elapsed_lo, elapsed_hi),
-    );
+    trace::pmctrace_mem(is_store as u8, rob_id, u64_from_words(elapsed_lo, elapsed_hi));
 }
 
 #[no_mangle]

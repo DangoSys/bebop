@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Mutex, OnceLock};
 use xxhash_rust::xxh64::xxh64;
@@ -132,6 +133,16 @@ impl BankDigestRecord {
 }
 
 static RUNTIME_PACKET_SINK: OnceLock<Mutex<Option<Sender<BankDigestRecord>>>> = OnceLock::new();
+static RUNTIME_PACKETS_SUBMITTED: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_PACKETS_NO_SINK: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_PACKETS_SEND_FAILED: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RuntimePacketStatus {
+    pub submitted: u64,
+    pub no_sink: u64,
+    pub send_failed: u64,
+}
 
 fn get_runtime_packet_sink() -> &'static Mutex<Option<Sender<BankDigestRecord>>> {
     RUNTIME_PACKET_SINK.get_or_init(|| Mutex::new(None))
@@ -140,12 +151,29 @@ fn get_runtime_packet_sink() -> &'static Mutex<Option<Sender<BankDigestRecord>>>
 pub fn init_runtime_packet_channel() -> Receiver<BankDigestRecord> {
     let (sender, receiver) = mpsc::channel::<BankDigestRecord>();
     *get_runtime_packet_sink().lock().unwrap() = Some(sender);
+    RUNTIME_PACKETS_SUBMITTED.store(0, Ordering::Relaxed);
+    RUNTIME_PACKETS_NO_SINK.store(0, Ordering::Relaxed);
+    RUNTIME_PACKETS_SEND_FAILED.store(0, Ordering::Relaxed);
     receiver
 }
 
 pub fn submit_runtime_bank_digest(record: &BankDigestRecord) {
     if let Some(sink) = get_runtime_packet_sink().lock().unwrap().as_ref() {
-        sink.send(record.clone()).ok();
+        if sink.send(record.clone()).is_ok() {
+            RUNTIME_PACKETS_SUBMITTED.fetch_add(1, Ordering::Relaxed);
+        } else {
+            RUNTIME_PACKETS_SEND_FAILED.fetch_add(1, Ordering::Relaxed);
+        }
+    } else {
+        RUNTIME_PACKETS_NO_SINK.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+pub fn runtime_packet_status() -> RuntimePacketStatus {
+    RuntimePacketStatus {
+        submitted: RUNTIME_PACKETS_SUBMITTED.load(Ordering::Relaxed),
+        no_sink: RUNTIME_PACKETS_NO_SINK.load(Ordering::Relaxed),
+        send_failed: RUNTIME_PACKETS_SEND_FAILED.load(Ordering::Relaxed),
     }
 }
 

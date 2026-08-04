@@ -16,8 +16,9 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// M2 supports a single in-flight writer targeting one logical bank. Fast mode
-// and the parallel stable-boundary protocol remain later milestones.
+// M4 tracks concurrent writers per <InstID, LogicalBankID> and emits records
+// only when instruction completion and issued==arrived establish a Bank-Stable
+// Boundary. Fast/checkpoint-parallel execution remains a later milestone.
 //
 //===----------------------------------------------------------------------===//
 use snafu::{FromString, Whatever};
@@ -39,12 +40,14 @@ use std::path::Path;
 use bebop_fd_redirect::FdRedirect;
 
 #[cfg(feature = "verilator")]
-use bebop_verilator::{exit_code, init_trace, setup_ctrlc_handler, should_exit, Simulator, TraceConfig};
+use bebop_verilator::{
+    exit_code, init_trace, setup_ctrlc_handler, should_exit, write_trace_summary, Simulator, TraceConfig,
+};
 
 #[cfg(all(feature = "verilator", feature = "bemu"))]
 use bebop_bank_hash::{
-    init_runtime_packet_channel, run_online_compare_with_summary, shutdown_runtime_packet_channel,
-    BankHashCompareSummary,
+    init_runtime_packet_channel, run_online_compare_with_summary, runtime_packet_status,
+    shutdown_runtime_packet_channel, BankHashCompareSummary,
 };
 #[cfg(all(feature = "verilator", feature = "bemu"))]
 use bebop_bemu::{BemuInstance, TraceConfig as BemuTraceConfig};
@@ -209,23 +212,33 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     drop(stderr_guard);
     drop(stdout_guard);
 
+    write_trace_summary(&config.log_dir)
+        .map_err(|error| Whatever::without_source(format!("failed to write RTL trace summary: {error}")))?;
     write_disasm_log(&stderr_file)?;
 
-    if code != 0 {
-        return Err(Whatever::without_source(format!("Verilator exited with code {code}")));
-    }
     #[cfg(feature = "bemu")]
-    if let Some(summary) = diff_summary {
+    if let Some(summary) = diff_summary.as_ref() {
         println!(
-            "Bank DiffTest M2 summary: pass={} mismatch={} missing_rtl={} unexpected_rtl={}",
+            "Bank DiffTest M4 summary: pass={} mismatch={} missing_rtl={} unexpected_rtl={}",
             summary.pass, summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
         );
-        if !summary.passed() {
+    }
+    if code != 0 {
+        #[cfg(feature = "bemu")]
+        if let Some(summary) = diff_summary.as_ref().filter(|summary| !summary.passed()) {
             return Err(Whatever::without_source(format!(
-                "Bank DiffTest M2 failed: mismatch={} missing_rtl={} unexpected_rtl={}",
+                "Verilator exited with code {code}; Bank DiffTest M4 failed: mismatch={} missing_rtl={} unexpected_rtl={}",
                 summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
             )));
         }
+        return Err(Whatever::without_source(format!("Verilator exited with code {code}")));
+    }
+    #[cfg(feature = "bemu")]
+    if let Some(summary) = diff_summary.filter(|summary| !summary.passed()) {
+        return Err(Whatever::without_source(format!(
+            "Bank DiffTest M4 failed: mismatch={} missing_rtl={} unexpected_rtl={}",
+            summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
+        )));
     }
     Ok(())
 }
@@ -242,11 +255,11 @@ impl DiffSession {
         let receiver = init_runtime_packet_channel();
         let output = log_dir.join("bank_diff.ndjson");
         let worker = std::thread::Builder::new()
-            .name("bank-diff-m2".to_string())
+            .name("bank-diff-m4".to_string())
             .spawn(move || run_online_compare_with_summary(receiver, output).map_err(|error| error.to_string()))
             .map_err(|error| {
                 shutdown_runtime_packet_channel();
-                Whatever::without_source(format!("failed to start Bank DiffTest M2 worker: {error}"))
+                Whatever::without_source(format!("failed to start Bank DiffTest M4 worker: {error}"))
             })?;
 
         let golden_result = (|| {
@@ -295,13 +308,20 @@ impl DiffSession {
     }
 
     fn finish(mut self) -> Result<BankHashCompareSummary, Whatever> {
+        let packet_status = runtime_packet_status();
         shutdown_runtime_packet_channel();
-        self.worker
+        let summary = self
+            .worker
             .take()
             .expect("DiffTest worker exists")
             .join()
-            .map_err(|_| Whatever::without_source("Bank DiffTest M2 worker panicked".to_string()))?
-            .map_err(Whatever::without_source)
+                .map_err(|_| Whatever::without_source("Bank DiffTest M4 worker panicked".to_string()))?
+            .map_err(Whatever::without_source)?;
+        println!(
+            "Bank DiffTest runtime packets: submitted={} no_sink={} send_failed={}",
+            packet_status.submitted, packet_status.no_sink, packet_status.send_failed
+        );
+        Ok(summary)
     }
 }
 

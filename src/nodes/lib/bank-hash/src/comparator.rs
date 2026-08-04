@@ -142,11 +142,22 @@ pub fn run_online_with_summary(
     output: PathBuf,
 ) -> Result<BankHashCompareSummary, Whatever> {
     let mut comparator = StreamingComparator::new(create_compare_writer(&output)?, output.clone());
+    let mut received = 0u64;
+    let mut data_writes = 0u64;
     for record in records {
+        received += 1;
+        if record.event_class == BankHashEventClass::BankDataWrite {
+            data_writes += 1;
+        }
         comparator.ingest(record)?;
     }
     let summary = comparator.finish()?;
-    println!("Online bank digest compare: {}", output.display());
+    println!(
+        "Online bank digest compare: {} (received={} data_writes={})",
+        output.display(),
+        received,
+        data_writes
+    );
     Ok(summary)
 }
 
@@ -210,7 +221,9 @@ impl StreamingComparator {
             BankHashSource::Bemu => self.bemu.insert(key, record),
         };
 
-        if let (Some(rtl), Some(bemu)) = (self.rtl.remove(&key), self.bemu.remove(&key)) {
+        if self.rtl.contains_key(&key) && self.bemu.contains_key(&key) {
+            let rtl = self.rtl.remove(&key).expect("checked RTL key exists");
+            let bemu = self.bemu.remove(&key).expect("checked BEMU key exists");
             let comparison = compare_pair(key, Some(&rtl), Some(&bemu));
             write_comparison(&mut self.writer, &comparison, &self.output_path)?;
             self.summary.add(comparison.result);
@@ -300,5 +313,21 @@ mod tests {
         assert!(comparisons
             .iter()
             .all(|comparison| comparison.result == BankDigestCompareResult::Pass));
+    }
+
+    #[test]
+    fn streaming_compare_keeps_the_first_side_until_its_peer_arrives() {
+        let output = std::env::temp_dir().join(format!("bebop-bank-streaming-{}.ndjson", std::process::id()));
+        let writer = create_compare_writer(&output).unwrap();
+        let mut comparator = StreamingComparator::new(writer, output);
+        comparator
+            .ingest(record(BankHashSource::Rtl, 7, 2, 0, 22, b"same"))
+            .unwrap();
+        comparator
+            .ingest(record(BankHashSource::Bemu, 7, 2, 0, 4, b"same"))
+            .unwrap();
+        let summary = comparator.finish().unwrap();
+        assert_eq!(summary.pass, 1);
+        assert_eq!(summary.total(), 1);
     }
 }

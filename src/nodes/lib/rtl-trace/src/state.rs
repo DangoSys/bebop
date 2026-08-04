@@ -13,6 +13,7 @@ static ENABLE_BANKTRACE: OnceLock<Mutex<bool>> = OnceLock::new();
 static RTL_CLK: OnceLock<Mutex<u64>> = OnceLock::new();
 static ITRACE_CALLBACKS: AtomicU64 = AtomicU64::new(0);
 static MTRACE_CALLBACKS: AtomicU64 = AtomicU64::new(0);
+static MTRACE_ISSUE_CALLBACKS: AtomicU64 = AtomicU64::new(0);
 static PMC_BALL_CALLBACKS: AtomicU64 = AtomicU64::new(0);
 static PMC_MEM_CALLBACKS: AtomicU64 = AtomicU64::new(0);
 static CTRACE_CALLBACKS: AtomicU64 = AtomicU64::new(0);
@@ -24,7 +25,7 @@ pub struct TraceConfig {
     pub pmctrace: bool,
     pub ctrace: bool,
     pub banktrace: bool,
-    /// Enables the deliberately restricted M2 whole-bank digest monitor.
+    /// Enables the M3 Bank-Stable whole-bank digest monitor.
     pub bank_digest: Option<crate::bank_digest::BankDigestConfig>,
 }
 
@@ -45,6 +46,7 @@ pub fn init(log_dir: &Path, config: TraceConfig) -> io::Result<()> {
     crate::bank_digest::init(log_dir, config.bank_digest)?;
     ITRACE_CALLBACKS.store(0, Ordering::Relaxed);
     MTRACE_CALLBACKS.store(0, Ordering::Relaxed);
+    MTRACE_ISSUE_CALLBACKS.store(0, Ordering::Relaxed);
     PMC_BALL_CALLBACKS.store(0, Ordering::Relaxed);
     PMC_MEM_CALLBACKS.store(0, Ordering::Relaxed);
     CTRACE_CALLBACKS.store(0, Ordering::Relaxed);
@@ -95,6 +97,10 @@ pub fn record_mtrace_callback() {
     MTRACE_CALLBACKS.fetch_add(1, Ordering::Relaxed);
 }
 
+pub fn record_mtrace_issue_callback() {
+    MTRACE_ISSUE_CALLBACKS.fetch_add(1, Ordering::Relaxed);
+}
+
 pub fn record_pmc_ball_callback() {
     PMC_BALL_CALLBACKS.fetch_add(1, Ordering::Relaxed);
 }
@@ -110,12 +116,13 @@ pub fn record_ctrace_callback() {
 pub fn write_callback_summary(log_dir: &Path) -> io::Result<()> {
     let json = format!(
         concat!(
-            "{{\"itrace_callbacks\":{},\"mtrace_callbacks\":{},",
+            "{{\"itrace_callbacks\":{},\"mtrace_callbacks\":{},\"mtrace_issue_callbacks\":{},",
             "\"pmctrace_ball_callbacks\":{},\"pmctrace_mem_callbacks\":{},",
             "\"ctrace_callbacks\":{}}}\n"
         ),
         ITRACE_CALLBACKS.load(Ordering::Relaxed),
         MTRACE_CALLBACKS.load(Ordering::Relaxed),
+        MTRACE_ISSUE_CALLBACKS.load(Ordering::Relaxed),
         PMC_BALL_CALLBACKS.load(Ordering::Relaxed),
         PMC_MEM_CALLBACKS.load(Ordering::Relaxed),
         CTRACE_CALLBACKS.load(Ordering::Relaxed),
