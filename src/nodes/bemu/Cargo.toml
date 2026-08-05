@@ -16,6 +16,7 @@ bebop-syscall = { path = "../lib/syscall" }
 bebop-dtb = { path = "../lib/dtb" }
 bebop-uart = { path = "../lib/uart" }
 bebop-bank-hash = { path = "../lib/bank-hash" }
+bebop-bemu-profile = { path = "../lib/bemu-profile" }
 
 [build-dependencies]
 cc = { version = "1", features = ["parallel"] }

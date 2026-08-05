@@ -36,7 +36,6 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
         RunTarget::Verilator {
             elf,
             log_dir,
-            fst_dir,
             no_wave,
             diff,
             fast,
@@ -51,7 +50,6 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
                 crate::simulation::verilator::run::run(crate::simulation::verilator::run::VerilatorRunConfig {
                     elf,
                     log_dir,
-                    fst_dir,
                     wave: !no_wave,
                     diff,
                     fast,
@@ -67,7 +65,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             #[cfg(not(feature = "verilator"))]
             {
                 let _ = (
-                    elf, log_dir, fst_dir, no_wave, diff, fast, itrace, mtrace, pmctrace, ctrace, banktrace,
+                    elf, log_dir, no_wave, diff, fast, itrace, mtrace, pmctrace, ctrace, banktrace,
                 );
                 crate::simulation::verilator::run::run_unavailable()
             }
@@ -77,11 +75,15 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             log_dir,
             pk,
             bank_digest,
+            disasm,
+            tool_profile,
         } => crate::simulation::bemu::run::run(crate::simulation::bemu::run::BemuRunConfig {
             elf,
             log_dir,
             pk,
             bank_digest,
+            disasm,
+            tool_profile,
         }),
         RunTarget::P2e {
             image,

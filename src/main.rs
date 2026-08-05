@@ -85,8 +85,6 @@ pub enum RunTarget {
         elf: PathBuf,
         #[arg(long, value_name = "DIR")]
         log_dir: PathBuf,
-        #[arg(long, value_name = "DIR")]
-        fst_dir: Option<PathBuf>,
         #[arg(long, help = "Disable waveform dump")]
         no_wave: bool,
         #[arg(long, help = "Run with a BEMU difftest instance")]
@@ -114,6 +112,12 @@ pub enum RunTarget {
         pk: bool,
         #[arg(long, help = "Generate DiffTest-N BEMU Golden Records")]
         bank_digest: bool,
+        // For MobileNetV3 on pebble with --pk, a run without disassembly took
+        // 12m30.50s while a run with it exceeded 45m22s: at least 3.6x slower.
+        #[arg(long, help = "Enable per-instruction disassembly logging")]
+        disasm: bool,
+        #[arg(long, help = "Print coarse host-time breakdown for BEMU execution")]
+        tool_profile: bool,
     },
     /// Run a workload on a P2E simulator artifact.
     P2e {

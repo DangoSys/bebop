@@ -35,17 +35,8 @@ impl Instruction for Mvout {
         let groups = cols.max(1) as usize;
 
         if groups > 1 {
-            let rows = if depth > MATRIX_SIZE as u64 {
-                let group_count = groups as u64;
-                if !depth.is_multiple_of(group_count) {
-                    panic!("mvout: acc depth {depth} is not divisible by groups {groups}");
-                }
-                depth / group_count
-            } else {
-                depth
-            } as usize;
-
-            for i in 0..rows {
+            // depth is virtual-bank rows (same contract as mvin groups>1).
+            for i in 0..depth as usize {
                 for group in 0..groups {
                     let p = pbank_group(ctx.bank_map, bank_id, group as u64);
                     let bank_offset = i * 16;

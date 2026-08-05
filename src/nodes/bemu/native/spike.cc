@@ -34,6 +34,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <csignal>
+#include <chrono>
 #include <execinfo.h>
 #include <unistd.h>
 #include <mutex>
@@ -88,6 +89,7 @@ struct spike_context_t {
     uint8_t* mem_ptr = nullptr;
     size_t mem_size = 0;
     uint64_t step_count = 0;
+    uint64_t step_elapsed_ns = 0;
     reg_t prev_pc = 0;
     bool pk_mode = false;
     bool finished = false;
@@ -110,6 +112,9 @@ static void destroy_context(spike_context_t* ctx) {
 // Initialize Stage 1: Initialize a new Spike instance
 //===----------------------------------------------------------------------===//
 static bool init_log(spike_context_t* ctx, const char* log_path) {
+    if (log_path == nullptr) {
+        return true;
+    }
     ctx->log_file = fopen(log_path, "w");
     if (ctx->log_file != nullptr) {
         return true;
@@ -189,7 +194,7 @@ void* spike_create_raw(
         return nullptr;
     }
 
-    ctx->proc->set_debug(true);
+    ctx->proc->set_debug(ctx->log_file != nullptr);
     ctx->state = ctx->proc->get_state();
 
     // Initialize the CSRs for the guest code.
@@ -246,6 +251,7 @@ bool spike_init_hart_raw(
     ctx->finished = false;
     ctx->exit_code = 0;
     ctx->step_count = 0;
+    ctx->step_elapsed_ns = 0;
     ctx->btif->exit_requested = false;
     ctx->btif->exit_code = 0;
     return true;
@@ -387,13 +393,17 @@ static int handle_trap(spike_context_t* ctx, trap_t& trap) {
 }
 
 static int step_one_instruction(spike_context_t* ctx) {
+    const auto started = std::chrono::steady_clock::now();
+    int result = 0;
     try {
         ctx->proc->step(1);
         ctx->step_count++;
-        return 0;
     } catch (trap_t& trap) {
-        return handle_trap(ctx, trap);
+        result = handle_trap(ctx, trap);
     }
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    ctx->step_elapsed_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count();
+    return result;
 }
 
 static bool pc_jumped_to_zero(spike_context_t* ctx) {
@@ -470,6 +480,11 @@ int spike_exit_code_raw(void* raw_ctx) {
         return get_exit_code_ffi(ctx->emu_state);
     }
     return ctx->exit_code;
+}
+
+uint64_t spike_step_elapsed_ns_raw(void* raw_ctx) {
+    auto* ctx = reinterpret_cast<spike_context_t*>(raw_ctx);
+    return ctx == nullptr ? 0 : ctx->step_elapsed_ns;
 }
 
 void spike_destroy_raw(void* raw_ctx) {

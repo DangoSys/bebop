@@ -17,6 +17,7 @@ mod inst;
 
 mod trace;
 
+pub use bebop_bemu_profile::{format_report as format_profile_report, print_report as print_profile_report};
 pub use sim::BemuInstance;
 pub use trace::TraceConfig;
 

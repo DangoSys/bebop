@@ -98,6 +98,7 @@ dependencies = [
  "assert_cmd",
  "bebop-bank-hash",
  "bebop-bemu",
+ "bebop-bemu-profile",
  "bebop-dasm",
  "bebop-fd-redirect",
  "bebop-p2e",
@@ -137,6 +138,7 @@ name = "bebop-bemu"
 version = "0.1.0"
 dependencies = [
  "bebop-bank-hash",
+ "bebop-bemu-profile",
  "bebop-dtb",
  "bebop-elf",
  "bebop-syscall",
@@ -146,6 +148,10 @@ dependencies = [
  "snafu",
  "toml",
 ]
+
+[[package]]
+name = "bebop-bemu-profile"
+version = "0.1.0"
 
 [[package]]
 name = "bebop-dasm"

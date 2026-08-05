@@ -46,7 +46,7 @@ pub fn run_backend_elf_test(
 
     let stdout_path = artifacts.stdout_path();
     let stderr_path = artifacts.stderr_path();
-    let fst_path = if backend.needs_fst_dir() {
+    let fst_path = if backend.needs_wave() {
         Some(artifacts.fst_waveform_path())
     } else {
         None

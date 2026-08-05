@@ -1,6 +1,8 @@
 use crate::ffi::{create_spike, NativeSpike};
 use crate::trace::TraceConfig;
+use bebop_bemu_profile::BemuProfileReport;
 use std::path::Path;
+use std::time::Duration;
 
 pub struct SpikeInstance {
     mem_mb: usize,
@@ -8,14 +10,15 @@ pub struct SpikeInstance {
 }
 
 impl SpikeInstance {
-    pub fn new(log_dir: &Path, trace_config: TraceConfig) -> Result<Self, String> {
+    pub fn new(log_dir: &Path, trace_config: TraceConfig, disasm: bool, profile: bool) -> Result<Self, String> {
         let isa = "rv64gc_xbuckyball_zicclsm_zicntr_zihpm";
         let procs = 1;
-        let disasm_log_file = log_dir.join("disasm.log");
+        let disasm_log_file = disasm.then(|| log_dir.join("disasm.log"));
         let disasm_log_file = disasm_log_file
-            .to_str()
-            .ok_or_else(|| "invalid log_dir path".to_string())?;
-        let native = create_spike(isa, procs, disasm_log_file, log_dir, trace_config)?;
+            .as_deref()
+            .map(|path| path.to_str().ok_or_else(|| "invalid log_dir path".to_string()))
+            .transpose()?;
+        let native = create_spike(isa, procs, disasm_log_file, log_dir, trace_config, profile)?;
 
         Ok(Self { mem_mb: 2048, native })
     }
@@ -42,5 +45,9 @@ impl SpikeInstance {
 
     pub fn total_latency(&self) -> u64 {
         self.native.total_latency()
+    }
+
+    pub fn profile_report(&self, total: Duration) -> Option<BemuProfileReport> {
+        self.native.profile_report(total)
     }
 }

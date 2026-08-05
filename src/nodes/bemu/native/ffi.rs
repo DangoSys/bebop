@@ -1,10 +1,12 @@
 use bebop_bank_hash::bank_hash;
+use bebop_bemu_profile::{BemuProfile, BemuProfileReport};
 use bebop_dtb::DtbBuilder;
 use bebop_elf::{load_elf, LoadInfo, TlsInfo};
 use bebop_syscall::{add_guest_mapping, handle_syscall_with_state, set_guest_mappings, SyscallState};
 use bebop_uart::Uart;
 use std::os::raw::{c_char, c_void};
 use std::path::Path;
+use std::time::Duration;
 
 use crate::bank::{bank_num, bank_size, mmio_bank_num, mmio_bank_size, BankConfig, BankMap};
 use crate::inst;
@@ -35,10 +37,11 @@ struct EmuState {
     syscall: SyscallState,
     pk_vm: Option<PkVm>,
     trace: TraceState,
+    profile: BemuProfile,
 }
 
 impl EmuState {
-    fn new(log_dir: &Path, trace_config: TraceConfig) -> Result<Self, String> {
+    fn new(log_dir: &Path, trace_config: TraceConfig, profile: bool) -> Result<Self, String> {
         // 1GB Here is important, for baremetal mode, when we set this to 4GB,
         // it will running for a long time.
         const MEM_SIZE: usize = 1 << 30;
@@ -57,6 +60,7 @@ impl EmuState {
             syscall: SyscallState::new(),
             pk_vm: None,
             trace: TraceState::new(log_dir, trace_config).map_err(|e| e.to_string())?,
+            profile: BemuProfile::new(profile),
         })
     }
 
@@ -234,6 +238,7 @@ pub extern "C" fn buckyball_reset(state: *mut c_void) {
 #[no_mangle]
 pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: u64, pc: u64) -> u64 {
     let state = unsafe { state_mut(state) };
+    let profile_started = state.profile.begin_npu();
     let lat = inst::decode::cycles_after_issue(funct7 as u32, xs1, xs2);
     state.total_lat += lat;
     state.trace.set_bemu_clk(state.total_lat);
@@ -310,7 +315,31 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
                 }
             })
         };
-    }
+
+        if btrace {
+            let op_type = format!("funct7_{}", funct7);
+            unsafe {
+                with_trace_ptr(trace, || {
+                    for (bank_id, bank) in banks.iter().enumerate() {
+                        let hash = bank_hash(bank);
+                        if before_hashes[bank_id] != hash {
+                            crate::trace::bemu_bank_hash(
+                                instruction_id,
+                                bank_id as u32,
+                                funct7 as u32,
+                                &op_type,
+                                hash,
+                                pc,
+                            );
+                        }
+                    }
+                })
+            };
+        }
+
+        result
+    };
+    state.profile.end_npu(funct7, profile_started);
 
     result
 }
@@ -372,9 +401,6 @@ fn map_syscall_result(
             let end = align_up(result, PAGE_SIZE);
             if end > start {
                 pk_vm.alloc_user_pages(memory, start, end - start, 0x2 | 0x4)?;
-            }
-            if let Some(first) = pk_vm.maps.first() {
-                crate::bank::set_fast_addr_map(first.virt, first.phys, result.saturating_sub(first.virt));
             }
         }
         SYS_MMAP => {
@@ -445,6 +471,7 @@ extern "C" {
     fn spike_step_raw(ctx: *mut c_void) -> i32;
     fn spike_finished_raw(ctx: *mut c_void) -> bool;
     fn spike_exit_code_raw(ctx: *mut c_void) -> i32;
+    fn spike_step_elapsed_ns_raw(ctx: *mut c_void) -> u64;
     fn spike_destroy_raw(ctx: *mut c_void);
 
 }
@@ -491,6 +518,11 @@ impl NativeSpike {
     pub fn total_latency(&self) -> u64 {
         self.state.total_lat
     }
+
+    pub fn profile_report(&self, total: Duration) -> Option<BemuProfileReport> {
+        let spike_step = Duration::from_nanos(unsafe { spike_step_elapsed_ns_raw(self.ctx) });
+        self.state.profile.report(total, spike_step)
+    }
 }
 
 impl Drop for NativeSpike {
@@ -502,21 +534,18 @@ impl Drop for NativeSpike {
 pub fn create_spike(
     isa: &str,
     procs: usize,
-    log_path: &str,
+    log_path: Option<&str>,
     log_dir: &Path,
     trace_config: TraceConfig,
+    profile: bool,
 ) -> Result<NativeSpike, String> {
     use std::ffi::CString;
 
     std::fs::create_dir_all(log_dir)
         .map_err(|e| format!("failed to create BEMU log dir {}: {e}", log_dir.display()))?;
-    if log_path.is_empty() {
-        return Err("Spike log path is empty".to_string());
-    }
-
     let isa_c = CString::new(isa).map_err(|e| e.to_string())?;
-    let log_c = CString::new(log_path).map_err(|e| e.to_string())?;
-    let mut state = Box::new(EmuState::new(log_dir, trace_config)?);
+    let log_c = log_path.map(CString::new).transpose().map_err(|e| e.to_string())?;
+    let mut state = Box::new(EmuState::new(log_dir, trace_config, profile)?);
     let mem_ptr = state.memory.as_mut_ptr();
     let mem_size = state.memory.len();
     let uart_ptr = &mut state.uart as *mut Uart as *mut u8;
@@ -528,7 +557,7 @@ pub fn create_spike(
             procs,
             mem_ptr,
             mem_size,
-            log_c.as_ptr(),
+            log_c.as_ref().map_or(std::ptr::null(), |path| path.as_ptr()),
             uart_ptr,
             state_ptr,
         )
@@ -581,7 +610,6 @@ fn load_elf_memory(state: &mut EmuState, elf_path: &str) -> Result<LoadInfo, Str
 
 fn hart_init(ctx: *mut c_void, state: &mut EmuState, load: LoadInfo, mem_mb: usize, pk: bool) -> Result<(), String> {
     let mem_end = DRAM_BASE + state.memory.len() as u64;
-    crate::bank::clear_addr_cache();
     state.syscall = SyscallState::new();
     state.pk_vm = None;
     set_guest_mappings(&[]);
@@ -601,11 +629,6 @@ fn hart_init(ctx: *mut c_void, state: &mut EmuState, load: LoadInfo, mem_mb: usi
         state
             .syscall
             .set_mem_bounds(load.analysis.min_vaddr, USER_TOP - USER_STACK_SIZE);
-        crate::bank::set_fast_addr_map(
-            load.analysis.min_vaddr,
-            DRAM_BASE,
-            brk_start.saturating_sub(load.analysis.min_vaddr),
-        );
     }
 
     let tp = if pk {

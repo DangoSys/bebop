@@ -2,6 +2,7 @@
 members = [
   ".",
   "src/nodes/lib/bank-hash",
+  "src/nodes/lib/bemu-profile",
   "src/nodes/lib/fd-redirect",
   "src/nodes/lib/rtl-trace",
   "src/nodes/lib/uart",
@@ -56,6 +57,7 @@ bebop-bemu = { path = "src/nodes/bemu", optional = true }
 bebop-p2e = { path = "src/nodes/p2e", optional = true }
 bebop-dasm = { path = "src/nodes/lib/dasm" }
 bebop-bank-hash = { path = "src/nodes/lib/bank-hash" }
+bebop-bemu-profile = { path = "src/nodes/lib/bemu-profile" }
 bebop-fd-redirect = { path = "src/nodes/lib/fd-redirect" }
 bebop-rtl-trace = { path = "src/nodes/lib/rtl-trace" }
 bebop-uart = { path = "src/nodes/lib/uart" }
