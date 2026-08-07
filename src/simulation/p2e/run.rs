@@ -91,6 +91,7 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
             pmctrace: config.trace.pmctrace,
             ctrace: config.trace.ctrace,
             banktrace: config.trace.banktrace,
+            bank_digest: None,
         },
     )
     .map_err(|e| Whatever::without_source(format!("failed to init P2E trace: {e}")))?;

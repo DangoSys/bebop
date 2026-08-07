@@ -5,7 +5,7 @@ use crate::state;
 
 pub use crate::ctrace::ctrace;
 pub use crate::itrace::{itrace, ITraceEvent};
-pub use crate::mtrace::{mtrace, MTraceEvent};
+pub use crate::mtrace::{mtrace, mtrace_issue, MTraceEvent, MTraceIssueEvent};
 pub use crate::pmctrace::{pmctrace_ball, pmctrace_mem};
 pub use crate::state::{set_rtl_clk, TraceConfig};
 

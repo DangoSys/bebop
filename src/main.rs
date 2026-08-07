@@ -110,6 +110,8 @@ pub enum RunTarget {
         log_dir: PathBuf,
         #[arg(long, help = "Run with proxy kernel (Linux mode, starts in S-mode)")]
         pk: bool,
+        #[arg(long, help = "Generate DiffTest-N BEMU Golden Records")]
+        bank_digest: bool,
         // For MobileNetV3 on pebble with --pk, a run without disassembly took
         // 12m30.50s while a run with it exceeded 45m22s: at least 3.6x slower.
         #[arg(long, help = "Enable per-instruction disassembly logging")]

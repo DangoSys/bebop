@@ -17,9 +17,9 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
                 let message = format!("RTL directory does not exist: {}", rtl_dir.display());
                 return Err(Whatever::without_source(message));
             }
-            if diff || fast {
+            if fast {
                 return Err(Whatever::without_source(
-                    "Verilator diff/fast build is not supported yet".to_string(),
+                    "Verilator fast build is not supported yet".to_string(),
                 ));
             }
             let rtl_dir = rtl_dir
@@ -27,7 +27,7 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
                 .whatever_context("failed to canonicalize RTL directory")?;
             std::fs::create_dir_all(&out_dir).whatever_context("failed to create output directory")?;
 
-            let features = "verilator";
+            let features = if diff { "verilator,bemu" } else { "verilator" };
             println!("Building {features}: {} -> {}", rtl_dir.display(), out_dir.display());
             cmd!("cargo", "build", "--bin", "bebop", "--features", features)
                 .env("VSRC_PATH", &rtl_dir)

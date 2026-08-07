@@ -55,6 +55,13 @@ impl BankMap {
             .iter()
             .position(|e| e.valid && e.vbank_id == v && e.group_id == group)
     }
+
+    /// Return the architectural identity currently bound to a physical slot.
+    pub fn logical_id(&self, physical_bank_id: usize) -> Option<(u32, u32)> {
+        self.slots
+            .get(physical_bank_id)
+            .and_then(|entry| entry.valid.then_some((entry.vbank_id, entry.group_id)))
+    }
 }
 
 #[derive(Default, Clone, Copy, Debug)]
