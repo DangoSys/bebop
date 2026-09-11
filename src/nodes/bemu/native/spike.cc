@@ -196,7 +196,7 @@ void* spike_create_raw(
     ctx->proc = new processor_t(final_isa, "MSU", &ctx->btif->get_cfg(), ctx->btif, hart_id, false, ctx->log_file, std::cerr);
     ctx->proc->reset();
 
-    if (!check_buckyball_mounted(ctx)) {
+    if (std::strstr(final_isa, "xbuckyball") != nullptr && !check_buckyball_mounted(ctx)) {
         destroy_context(ctx);
         return nullptr;
     }

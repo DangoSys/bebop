@@ -23,12 +23,6 @@ fn resolve_runner_bin() -> PathBuf {
         .parent()
         .and_then(|p| p.parent())
         .unwrap_or_else(|| panic!("resolve_runner_bin: unexpected exe path: {}", exe.display()));
-    for cand in ["bebop-bemu", "bebop_bemu"] {
-        let bin = profile_dir.join(cand);
-        if bin.is_file() {
-            return bin;
-        }
-    }
     let chip_bins = std::fs::read_dir(profile_dir)
         .unwrap_or_else(|e| panic!("resolve_runner_bin: cannot read {}: {e}", profile_dir.display()))
         .filter_map(Result::ok)
@@ -43,6 +37,12 @@ fn resolve_runner_bin() -> PathBuf {
         .collect::<Vec<_>>();
     if let [bin] = chip_bins.as_slice() {
         return bin.clone();
+    }
+    for cand in ["bebop-bemu", "bebop_bemu"] {
+        let bin = profile_dir.join(cand);
+        if bin.is_file() {
+            return bin;
+        }
     }
     panic!(
         "resolve_runner_bin: expected bebop-bemu or one bebop-chip-* under {} (exe={})",

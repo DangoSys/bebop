@@ -55,12 +55,6 @@ fn mem_of(core: &CoreInstance) -> &MemDomainConfig {
         .unwrap_or_else(|| panic!("core {} missing mem", core.index))
 }
 
-fn ball_of(core: &CoreInstance) -> &BallDomain {
-    core.balldomain
-        .as_ref()
-        .unwrap_or_else(|| panic!("core {} missing balldomain", core.index))
-}
-
 fn to_topology(core: &CoreInstance) -> Topology {
     let mem = mem_of(core);
     let bank = mem
@@ -71,17 +65,8 @@ fn to_topology(core: &CoreInstance) -> Topology {
         .mmio
         .as_ref()
         .unwrap_or_else(|| panic!("core {} missing mmio", core.index));
-    let ball = ball_of(core);
-    let frontend = core
-        .frontend
-        .as_ref()
-        .unwrap_or_else(|| panic!("core {} missing frontend", core.index));
     Topology {
-        vector_len: core
-            .gp_domain
-            .as_ref()
-            .unwrap_or_else(|| panic!("core {} missing gp_domain", core.index))
-            .v_len as usize,
+        vector_len: core.gp_domain.as_ref().map_or(0, |gp_domain| gp_domain.v_len as usize),
         mem_config: MemConfig {
             bank_num: bank.num as usize,
             bank_width: bank.width as usize,
@@ -91,20 +76,26 @@ fn to_topology(core: &CoreInstance) -> Topology {
             mmio_bank_entries: mmio.bank_entries as usize,
             mmio_bank_width: mmio.bank_width as usize,
             mmio_read_width: mmio.read_width as usize,
-            private_vbank_upper_bound: frontend.vbank_id_upper_bound as usize,
-            shared_vbank_base: frontend.shared_bank_id_base as usize,
+            private_vbank_upper_bound: core
+                .frontend
+                .as_ref()
+                .map_or(0, |frontend| frontend.vbank_id_upper_bound as usize),
+            shared_vbank_base: core
+                .frontend
+                .as_ref()
+                .map_or(0, |frontend| frontend.shared_bank_id_base as usize),
         },
         ball_domain: BallDomainConfig {
-            mappings: ball.mappings.iter().cloned().collect(),
-            isa: ball.isa.iter().cloned().collect(),
+            mappings: core
+                .balldomain
+                .as_ref()
+                .map_or_else(Vec::new, |ball| ball.mappings.iter().cloned().collect()),
+            isa: core
+                .balldomain
+                .as_ref()
+                .map_or_else(Vec::new, |ball| ball.isa.iter().cloned().collect()),
         },
     }
-}
-
-pub fn default_core() -> Topology {
-    let c = chip();
-    let core = c.cores.first().unwrap_or_else(|| panic!("chip.pb has no cores"));
-    to_topology(core)
 }
 
 pub fn topology_for_core(core_index: usize) -> Topology {
@@ -116,6 +107,19 @@ pub fn topology_for_core(core_index: usize) -> Topology {
         )
     });
     to_topology(core)
+}
+
+pub fn virtual_bank_count_for_core(core_index: usize) -> usize {
+    let c = chip();
+    let mut count = None;
+    for tile in &c.tiles {
+        if tile.core_indices.iter().any(|&index| index as usize == core_index) {
+            assert!(count.is_none(), "core {core_index} belongs to multiple tiles");
+            assert!(tile.virtual_bank_count > 0, "core {core_index} tile has no virtual banks");
+            count = Some(tile.virtual_bank_count as usize);
+        }
+    }
+    count.unwrap_or_else(|| panic!("core {core_index} belongs to no tile"))
 }
 
 pub fn rushb_endpoint(core_id: u32) -> RushBEndpoint {
