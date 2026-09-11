@@ -81,9 +81,9 @@ impl BackendRunner for BemuBackend {
             panic!("bemu harness got verilator rushB runner: {}", elf_path.display());
         }
 
-        let direct = bebop_bin
-            .file_stem()
-            .is_some_and(|stem| stem == "bebop-bemu" || stem == "bebop_bemu");
+        let direct = bebop_bin.file_stem().is_some_and(|stem| {
+            stem == "bebop-bemu" || stem == "bebop_bemu" || stem.to_string_lossy().starts_with("bebop-chip-")
+        });
         if direct {
             cmd.arg("--elf").arg(elf_path);
             cmd.arg("--log-dir").arg(artifacts.log_dir());
@@ -99,6 +99,8 @@ impl BackendRunner for BemuBackend {
                 cmd.arg("--pk");
             }
         }
+        cmd.arg("--itrace");
+        cmd.arg("--mtrace");
     }
 
     fn timeout(&self) -> Duration {
@@ -157,6 +159,8 @@ impl BackendRunner for VerilatorBackend {
         cmd.arg("--elf").arg(elf_path);
         cmd.arg("--log-dir").arg(artifacts.log_dir());
         cmd.arg("--no-wave");
+        cmd.arg("--itrace");
+        cmd.arg("--mtrace");
         if self.diff {
             cmd.arg("--diff");
         }

@@ -21,14 +21,17 @@ impl SpikeInstance {
         hart_id: usize,
         shared_memory: Option<Arc<SharedMemory>>,
     ) -> Result<Self, String> {
-        let isa = "rv64gc_xbuckyball_zicclsm_zicntr_zihpm";
+        let isa = format!(
+            "rv64gcv_xbuckyball_zicclsm_zicntr_zihpm_zvl{}b",
+            crate::config::vector_len()
+        );
         let disasm_log_file = disasm.then(|| log_dir.join("disasm.log"));
         let disasm_log_file = disasm_log_file
             .as_deref()
             .map(|path| path.to_str().ok_or_else(|| "invalid log_dir path".to_string()))
             .transpose()?;
         let native = create_spike(
-            isa,
+            &isa,
             hart_id,
             shared_memory,
             disasm_log_file,

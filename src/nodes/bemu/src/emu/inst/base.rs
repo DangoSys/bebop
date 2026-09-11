@@ -47,5 +47,6 @@ register_instructions! {
     super::f16_mvout::Mvout,
     super::f32_mset::Mset,
     super::f33_mvin::Mvin,
+    super::f34_mvin_2d::Mvin2d,
     super::f35_mvin_mmio::MvinMmio,
 }

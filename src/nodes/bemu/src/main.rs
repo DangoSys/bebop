@@ -6,6 +6,8 @@ use std::time::Instant;
 #[derive(Parser)]
 #[command(name = "bebop-bemu")]
 struct Args {
+    #[arg(long, default_value_t = 0)]
+    core_index: usize,
     #[arg(long)]
     elf: PathBuf,
     #[arg(long)]
@@ -31,11 +33,12 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let args = Args::parse();
-    let mut bemu = BemuInstance::new(
+    let mut bemu = BemuInstance::new_with_core(
         &args.log_dir,
         TraceConfig::new(args.itrace, args.mtrace),
         args.disasm,
         args.tool_profile,
+        args.core_index,
     )
     .map_err(|e| e.to_string())?;
     bemu.load_elf(&args.elf).map_err(|e| e.to_string())?;

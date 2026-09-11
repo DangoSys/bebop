@@ -1,6 +1,6 @@
 //===- 33_mvin.rs - MVIN instruction (memory to bank) ----------------------===//
 
-use super::super::bank::{bank_num, bank_size, mem_read, MATRIX_SIZE};
+use super::super::bank::{bank_size, mem_read, MATRIX_SIZE};
 use super::decode::{pbank, pbank_group, rs1_b0, rs1_iter, xs2_mem_stride};
 use super::instruction::{ExecContext, Instruction};
 
@@ -14,9 +14,7 @@ impl Instruction for Mvin {
         let depth = rs1_iter(xs1);
         let (mem_addr, stride) = xs2_mem_stride(xs2);
 
-        if bank_id >= bank_num() as u64 {
-            panic!("mvin: invalid bank_id {bank_id}");
-        }
+        crate::config::is_shared_vbank(bank_id);
 
         if depth == 0 {
             panic!("mvin: depth must be > 0");
@@ -26,18 +24,17 @@ impl Instruction for Mvin {
             panic!("mvin: stride must be > 0");
         }
 
-        let bi = bank_id as usize;
-        if !ctx.cfgs[bi].allocated {
+        if !ctx.config(bank_id).allocated {
             panic!("mvin: bank {bank_id} not allocated");
         }
 
-        let cols = ctx.cfgs[bi].cols;
+        let cols = ctx.config(bank_id).cols;
         let groups = cols.max(1) as usize;
 
         if groups > 1 {
             for row in 0..depth as usize {
                 for group in 0..groups {
-                    let p = pbank_group(ctx.bank_map, bank_id, group as u64);
+                    let p = pbank_group(ctx, bank_id, group as u64);
                     let bank_offset = row * 16;
                     if bank_offset + 16 > bank_size() {
                         panic!("mvin: bank range: bank_offset={bank_offset} line_bytes=16 depth={depth}");
@@ -46,24 +43,26 @@ impl Instruction for Mvin {
                     for j in 0..16 {
                         ctx.banks[p][bank_offset + j] = mem_read(ctx.memory, addr + j as u64);
                     }
+                    crate::trace::mtrace(crate::trace::MTraceEvent {
+                        is_write: true,
+                        is_shared: crate::config::is_shared_vbank(bank_id),
+                        channel: 0,
+                        hart_id: ctx.hart_id as u64,
+                        rob_id: ctx.instruction_id as u32,
+                        vbank_id: bank_id as u32,
+                        pbank_id: ctx.reported_physical_bank(bank_id, p),
+                        group_id: group as u32,
+                        addr: row as u32,
+                        write_mask: 0xffff,
+                        data_lo: u64::from_le_bytes(ctx.banks[p][bank_offset..bank_offset + 8].try_into().unwrap()),
+                        data_hi: u64::from_le_bytes(
+                            ctx.banks[p][bank_offset + 8..bank_offset + 16].try_into().unwrap(),
+                        ),
+                    });
                 }
             }
-            let row_stride = groups as u64 * 16 * stride;
-            for group in 0..groups {
-                let p = pbank_group(ctx.bank_map, bank_id, group as u64);
-                crate::trace::mtrace(crate::trace::MTraceEvent {
-                    is_write: false,
-                    addr: mem_addr + group as u64 * 16,
-                    rows: depth,
-                    line_bytes: 16,
-                    row_stride,
-                    vbank_id: bank_id as u32,
-                    pbank_id: p as u32,
-                    group_id: group as u32,
-                });
-            }
         } else {
-            let p = pbank(ctx.bank_map, bank_id);
+            let p = pbank(ctx, bank_id);
             let matrix_mode_acc = cols == 4 && depth <= MATRIX_SIZE as u64;
             let line_bytes = if matrix_mode_acc { 64usize } else { 16usize };
 
@@ -76,19 +75,23 @@ impl Instruction for Mvin {
                 for j in 0..line_bytes {
                     ctx.banks[p][bank_offset + j] = mem_read(ctx.memory, addr + j as u64);
                 }
+                crate::trace::mtrace(crate::trace::MTraceEvent {
+                    is_write: true,
+                    is_shared: crate::config::is_shared_vbank(bank_id),
+                    channel: 0,
+                    hart_id: ctx.hart_id as u64,
+                    rob_id: ctx.instruction_id as u32,
+                    vbank_id: bank_id as u32,
+                    pbank_id: ctx.reported_physical_bank(bank_id, p),
+                    group_id: 0,
+                    addr: i as u32,
+                    write_mask: (1u32 << line_bytes) - 1,
+                    data_lo: u64::from_le_bytes(ctx.banks[p][bank_offset..bank_offset + 8].try_into().unwrap()),
+                    data_hi: u64::from_le_bytes(ctx.banks[p][bank_offset + 8..bank_offset + 16].try_into().unwrap()),
+                });
             }
-            crate::trace::mtrace(crate::trace::MTraceEvent {
-                is_write: false,
-                addr: mem_addr,
-                rows: depth,
-                line_bytes: line_bytes as u32,
-                row_stride: line_bytes as u64 * stride,
-                vbank_id: bank_id as u32,
-                pbank_id: p as u32,
-                group_id: 0,
-            });
         }
-        ctx.cfgs[bi].valid_rows = depth;
+        ctx.config_mut(bank_id).valid_rows = depth;
         0
     }
 

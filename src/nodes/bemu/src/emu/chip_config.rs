@@ -10,6 +10,7 @@ const CHIP_PB: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../c
 pub struct Topology {
     pub mem_config: MemConfig,
     pub ball_domain: BallDomainConfig,
+    pub vector_len: usize,
 }
 
 #[derive(Clone)]
@@ -22,6 +23,8 @@ pub struct MemConfig {
     pub mmio_bank_entries: usize,
     pub mmio_bank_width: usize,
     pub mmio_read_width: usize,
+    pub private_vbank_upper_bound: usize,
+    pub shared_vbank_base: usize,
 }
 
 #[derive(Clone)]
@@ -33,6 +36,8 @@ pub struct BallDomainConfig {
 pub struct TileTopology {
     pub cores: Vec<(String, usize)>,
     pub virtual_bank_count: usize,
+    pub shared_physical_bank_count: usize,
+    pub shared_bank_size: usize,
 }
 
 pub struct RushBEndpoint {
@@ -67,7 +72,16 @@ fn to_topology(core: &CoreInstance) -> Topology {
         .as_ref()
         .unwrap_or_else(|| panic!("core {} missing mmio", core.index));
     let ball = ball_of(core);
+    let frontend = core
+        .frontend
+        .as_ref()
+        .unwrap_or_else(|| panic!("core {} missing frontend", core.index));
     Topology {
+        vector_len: core
+            .gp_domain
+            .as_ref()
+            .unwrap_or_else(|| panic!("core {} missing gp_domain", core.index))
+            .v_len as usize,
         mem_config: MemConfig {
             bank_num: bank.num as usize,
             bank_width: bank.width as usize,
@@ -77,6 +91,8 @@ fn to_topology(core: &CoreInstance) -> Topology {
             mmio_bank_entries: mmio.bank_entries as usize,
             mmio_bank_width: mmio.bank_width as usize,
             mmio_read_width: mmio.read_width as usize,
+            private_vbank_upper_bound: frontend.vbank_id_upper_bound as usize,
+            shared_vbank_base: frontend.shared_bank_id_base as usize,
         },
         ball_domain: BallDomainConfig {
             mappings: ball.mappings.iter().cloned().collect(),
@@ -153,6 +169,41 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
     if tile.virtual_bank_count == 0 {
         panic!("tile {tile_index} virtual_bank_count is 0");
     }
+    let shared = tile
+        .shared_mem
+        .as_ref()
+        .unwrap_or_else(|| panic!("tile {tile_index} missing shared_mem"));
+    let first_core = &c.cores[tile.core_indices[0] as usize];
+    let bank_entries = mem_of(first_core)
+        .bank
+        .as_ref()
+        .unwrap_or_else(|| panic!("core {} missing bank", first_core.index))
+        .entries as usize;
+    let bank_width = mem_of(first_core)
+        .bank
+        .as_ref()
+        .unwrap_or_else(|| panic!("core {} missing bank", first_core.index))
+        .width as usize;
+    assert_eq!(bank_width % 8, 0, "tile {tile_index} bank width is not byte-aligned");
+    for &core_index in &tile.core_indices {
+        let core = &c.cores[core_index as usize];
+        let bank = mem_of(core)
+            .bank
+            .as_ref()
+            .unwrap_or_else(|| panic!("core {} missing bank", core.index));
+        assert_eq!(bank.width as usize, bank_width, "tile {tile_index} cores have different bank widths");
+    }
+    let shared_physical_bank_count = if shared.enable {
+        assert!(shared.entries > 0, "tile {tile_index} shared entries is 0");
+        assert_eq!(
+            shared.entries as usize % bank_entries,
+            0,
+            "tile {tile_index} shared entries must be divisible by bank entries"
+        );
+        shared.entries as usize / bank_entries
+    } else {
+        0
+    };
     let cores = tile
         .core_indices
         .iter()
@@ -165,6 +216,8 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
     TileTopology {
         cores,
         virtual_bank_count: tile.virtual_bank_count as usize,
+        shared_physical_bank_count,
+        shared_bank_size: bank_entries * (bank_width / 8),
     }
 }
 

@@ -46,3 +46,5 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 default = ["bemu"]
 difftest = []
 bemu = []
+p2e = []
+verilator = []

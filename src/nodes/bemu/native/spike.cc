@@ -143,8 +143,11 @@ static void init_csrs(spike_context_t* ctx) {
     // Marking FS Dirty is the simplest functional-model setup for BEMU.
     constexpr reg_t MSTATUS_FS_MASK = 0x6000;
     constexpr reg_t MSTATUS_FS_DIRTY = 0x6000;
+    constexpr reg_t MSTATUS_VS_MASK = 0x600;
+    constexpr reg_t MSTATUS_VS_DIRTY = 0x600;
     reg_t mstatus = ctx->state->csrmap[CSR_MSTATUS]->read();
     mstatus = (mstatus & ~MSTATUS_FS_MASK) | MSTATUS_FS_DIRTY;
+    mstatus = (mstatus & ~MSTATUS_VS_MASK) | MSTATUS_VS_DIRTY;
     ctx->state->csrmap[CSR_MSTATUS]->write(mstatus);
 
     // Allow S-mode/U-mode software to read the architectural counters used by

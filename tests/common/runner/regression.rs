@@ -18,9 +18,7 @@ fn resolve_runner_bin() -> PathBuf {
     // Per-chip bemu crate: test file lives outside the package, so cargo does not
     // inject CARGO_BIN_EXE_bebop_bemu. Resolve the sibling bin from this test exe:
     //   <target>/<profile>/deps/<test-hash>  ->  <target>/<profile>/bebop-bemu
-    let exe = std::env::current_exe().unwrap_or_else(|e| {
-        panic!("resolve_runner_bin: cannot get current_exe: {e}")
-    });
+    let exe = std::env::current_exe().unwrap_or_else(|e| panic!("resolve_runner_bin: cannot get current_exe: {e}"));
     let profile_dir = exe
         .parent()
         .and_then(|p| p.parent())
@@ -31,8 +29,23 @@ fn resolve_runner_bin() -> PathBuf {
             return bin;
         }
     }
+    let chip_bins = std::fs::read_dir(profile_dir)
+        .unwrap_or_else(|e| panic!("resolve_runner_bin: cannot read {}: {e}", profile_dir.display()))
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path.extension().is_none()
+                && path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with("bebop-chip-"))
+        })
+        .collect::<Vec<_>>();
+    if let [bin] = chip_bins.as_slice() {
+        return bin.clone();
+    }
     panic!(
-        "resolve_runner_bin: bebop-bemu not found under {} (exe={})",
+        "resolve_runner_bin: expected bebop-bemu or one bebop-chip-* under {} (exe={})",
         profile_dir.display(),
         exe.display()
     )
@@ -130,6 +143,8 @@ where
         .collect();
 
     let mut libtest_args = vec![harness_binary_name.to_string()];
+    libtest_args.push("--test-threads".to_string());
+    libtest_args.push(args.jobs.to_string());
     libtest_args.extend(args.libtest_forward_flags());
     libtest_args.extend(args.test_args);
     let test_args = Arguments::from_iter(libtest_args);

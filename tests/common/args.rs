@@ -5,6 +5,7 @@ use std::path::PathBuf;
 /// (nextest does not allow custom CLI args after `--`, so we use envs).
 const ENV_WORKLOAD_TOML: &str = "BEBOP_WORKLOAD_TOML";
 const ENV_BB_TESTS_ROOT: &str = "BEBOP_BB_TESTS_ROOT";
+const ENV_RUSHB_BACKEND: &str = "BEBOP_RUSHB_BACKEND";
 #[cfg(feature = "p2e")]
 const ENV_P2E_BITSTREAM: &str = "BEBOP_P2E_BITSTREAM";
 #[cfg(feature = "p2e")]
@@ -60,13 +61,17 @@ impl RegressionArgs {
         std::env::var_os(ENV_WORKLOAD_TOML).map(PathBuf::from)
     }
 
-    /// Root directory that `search_path` in workloads.toml is resolved against.
+    /// Root directory that workload paths are resolved against.
     /// Read from BEBOP_BB_TESTS_ROOT; defaults to `../bb-tests/output` relative
     /// to the bebop crate (compatible with the pre-bbdev developer workflow).
     pub fn bb_tests_root(&self) -> PathBuf {
         std::env::var_os(ENV_BB_TESTS_ROOT)
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("../bb-tests/output"))
+    }
+
+    pub fn rushb_backend(&self) -> Option<String> {
+        std::env::var(ENV_RUSHB_BACKEND).ok()
     }
 
     /// P2E bitstream path read from BEBOP_P2E_BITSTREAM env var.

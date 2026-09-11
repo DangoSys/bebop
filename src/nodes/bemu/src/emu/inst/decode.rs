@@ -5,7 +5,7 @@
 //
 //===-----------------------------------------------------------------===//-----===//
 
-use super::super::bank::{bank_num, BankMap};
+use super::instruction::ExecContext;
 
 pub use super::{cycles_after_issue, execute_known};
 
@@ -47,15 +47,11 @@ pub fn xs2_mset(xs2: u64) -> (u64, u64, u64) {
 
 /// the bank field in the instruction is **vbank_id**; parse it to physical slot index before accessing `banks`.
 #[inline]
-pub fn pbank(bm: &BankMap, vbank: u64) -> usize {
-    pbank_group(bm, vbank, 0)
+pub fn pbank(ctx: &ExecContext, vbank: u64) -> usize {
+    pbank_group(ctx, vbank, 0)
 }
 
 #[inline]
-pub fn pbank_group(bm: &BankMap, vbank: u64, group: u64) -> usize {
-    if vbank >= bank_num() as u64 {
-        panic!("pbank: invalid vbank_id {vbank}");
-    }
-    bm.resolve_group(vbank as u32, group as u32)
-        .unwrap_or_else(|| panic!("pbank: vbank {vbank} group {group} not mapped"))
+pub fn pbank_group(ctx: &ExecContext, vbank: u64, group: u64) -> usize {
+    ctx.physical_bank(vbank, group)
 }

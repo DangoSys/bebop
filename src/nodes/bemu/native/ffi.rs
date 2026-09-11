@@ -14,8 +14,8 @@ use std::thread;
 use std::time::Duration;
 
 use crate::bank::{
-    bank_num, bank_row_bytes, bank_size, mmio_bank_num, mmio_bank_size, mmio_total_size, BankConfig, BankMap,
-    MATRIX_SIZE,
+    bank_num, bank_row_bytes, bank_size, mmio_bank_num, mmio_bank_size, mmio_total_size, virtual_bank_num, BankConfig,
+    BankMap, MATRIX_SIZE,
 };
 use crate::inst;
 use crate::trace::{with_trace_ptr, TraceConfig, TraceState};
@@ -36,16 +36,36 @@ const SYS_MMAP: u64 = 222;
 
 pub struct SharedMemory {
     data: std::cell::UnsafeCell<Vec<u8>>,
+    banks: std::cell::UnsafeCell<SharedBankState>,
     barrier: TileBarrier,
+}
+
+struct SharedBankState {
+    storage: Vec<Vec<u8>>,
+    cfgs: Vec<BankConfig>,
+    map: BankMap,
+    virtual_bank_count: usize,
 }
 
 unsafe impl Send for SharedMemory {}
 unsafe impl Sync for SharedMemory {}
 
 impl SharedMemory {
-    pub fn new(size: usize, core_count: usize) -> Arc<Self> {
+    pub fn new(
+        size: usize,
+        core_count: usize,
+        shared_physical_bank_count: usize,
+        shared_bank_size: usize,
+        virtual_bank_count: usize,
+    ) -> Arc<Self> {
         Arc::new(Self {
             data: std::cell::UnsafeCell::new(vec![0; size]),
+            banks: std::cell::UnsafeCell::new(SharedBankState {
+                storage: vec![vec![0; shared_bank_size]; shared_physical_bank_count],
+                cfgs: vec![BankConfig::default(); core_count * virtual_bank_count],
+                map: BankMap::new(shared_physical_bank_count),
+                virtual_bank_count,
+            }),
             barrier: TileBarrier::new(core_count),
         })
     }
@@ -56,6 +76,10 @@ impl SharedMemory {
 
     fn as_mut_slice(&self) -> &mut [u8] {
         unsafe { &mut *self.data.get() }
+    }
+
+    fn banks_mut(&self) -> &mut SharedBankState {
+        unsafe { &mut *self.banks.get() }
     }
 
     pub fn wait_barrier(&self, hart_id: usize) {
@@ -155,6 +179,8 @@ struct EmuState {
     banks: Vec<Vec<u8>>,
     bank_cfgs: Vec<BankConfig>,
     bank_map: BankMap,
+    shared_memory: Option<Arc<SharedMemory>>,
+    hart_id: usize,
     bank_scoreboard: inst::instruction::BankScoreboard,
     deferred_bank_frees: Vec<u32>,
     mmio_banks: Vec<Vec<u8>>,
@@ -174,6 +200,7 @@ impl EmuState {
         log_dir: &Path,
         trace_config: TraceConfig,
         profile: bool,
+        hart_id: usize,
         shared_memory: Option<Arc<SharedMemory>>,
     ) -> Result<Self, String> {
         // 1GB Here is important, for baremetal mode, when we set this to 4GB,
@@ -181,10 +208,14 @@ impl EmuState {
         const MEM_SIZE: usize = 3 * (1 << 30);
         Ok(Self {
             // memory is maintained by bemu not spike
-            memory: shared_memory.map_or_else(|| GuestMemory::Owned(vec![0; MEM_SIZE]), GuestMemory::Shared),
+            memory: shared_memory
+                .clone()
+                .map_or_else(|| GuestMemory::Owned(vec![0; MEM_SIZE]), GuestMemory::Shared),
             banks: vec![vec![0; bank_size()]; bank_num()],
-            bank_cfgs: vec![BankConfig::default(); bank_num()],
+            bank_cfgs: vec![BankConfig::default(); virtual_bank_num()],
             bank_map: BankMap::new(bank_num()),
+            shared_memory,
+            hart_id,
             bank_scoreboard: inst::instruction::BankScoreboard::new(),
             deferred_bank_frees: Vec::new(),
             mmio_banks: vec![vec![0; mmio_bank_size()]; mmio_bank_num()],
@@ -223,8 +254,10 @@ impl EmuState {
         Self {
             memory: GuestMemory::Owned(Vec::new()),
             banks: vec![vec![0; bank_size()]; bank_num()],
-            bank_cfgs: vec![BankConfig::default(); bank_num()],
+            bank_cfgs: vec![BankConfig::default(); virtual_bank_num()],
             bank_map: BankMap::new(bank_num()),
+            shared_memory: None,
+            hart_id: 0,
             bank_scoreboard: inst::instruction::BankScoreboard::new(),
             deferred_bank_frees: Vec::new(),
             mmio_banks: vec![vec![0; mmio_bank_size()]; mmio_bank_num()],
@@ -374,10 +407,13 @@ fn host_execute(state: &mut EmuState, funct7: u32, xs1: u64, xs2: u64) -> u64 {
     let instruction_id = state.npu_instruction_id;
     state.bank_scoreboard.issue(instruction_id);
     let mut ctx = inst::instruction::ExecContext {
+        hart_id: state.hart_id,
+        instruction_id,
         memory: &mut state.memory,
         banks: inst::instruction::TrackedBanks::new(&mut state.banks, Some(&state.bank_scoreboard), instruction_id),
         cfgs: &mut state.bank_cfgs,
         bank_map: &mut state.bank_map,
+        shared: None,
         deferred_bank_frees: &mut state.deferred_bank_frees,
         mmio_banks: &mut state.mmio_banks,
         barrier_hit: &mut state.barrier_hit,
@@ -389,6 +425,8 @@ fn host_execute(state: &mut EmuState, funct7: u32, xs1: u64, xs2: u64) -> u64 {
     finish_deferred_bank_frees(
         &mut state.bank_cfgs,
         &mut state.bank_map,
+        None,
+        0,
         &mut state.deferred_bank_frees,
     );
     result
@@ -397,24 +435,35 @@ fn host_execute(state: &mut EmuState, funct7: u32, xs1: u64, xs2: u64) -> u64 {
 fn finish_deferred_bank_frees(
     bank_cfgs: &mut [BankConfig],
     bank_map: &mut BankMap,
+    shared_memory: Option<&Arc<SharedMemory>>,
+    hart_id: usize,
     deferred_bank_frees: &mut Vec<u32>,
 ) {
     for bank_id in deferred_bank_frees.drain(..) {
-        let index = bank_id as usize;
-        assert!(index < bank_cfgs.len(), "deferred free: invalid bank_id {bank_id}");
-        bank_map.delete_vbank(bank_id);
-        bank_cfgs[index] = BankConfig::default();
+        if crate::config::is_shared_vbank(bank_id as u64) {
+            let shared = shared_memory.expect("shared bank storage is unavailable").banks_mut();
+            shared.map.delete_hart_vbank(hart_id, bank_id);
+            let core_count = shared.cfgs.len() / shared.virtual_bank_count;
+            let core = hart_id % core_count;
+            shared.cfgs[core * shared.virtual_bank_count + bank_id as usize] = BankConfig::default();
+        } else {
+            bank_map.delete_vbank(bank_id);
+            bank_cfgs[bank_id as usize] = BankConfig::default();
+        }
     }
 }
 
 fn host_mvin(state: &mut EmuState, xs1: u64, packed_xs2: u64, host_ptr: *const u8) {
-    use crate::inst::decode::{pbank, pbank_group, rs1_b0, rs1_iter, xs2_mem_stride};
+    use crate::inst::decode::{rs1_b0, rs1_iter, xs2_mem_stride};
 
     assert!(!host_ptr.is_null(), "mvin: null host pointer");
     let bank_id = rs1_b0(xs1);
     let depth = rs1_iter(xs1);
     let (_, stride) = xs2_mem_stride(packed_xs2);
-    assert!(bank_id < bank_num() as u64, "mvin: invalid bank_id {bank_id}");
+    assert!(
+        !crate::config::is_shared_vbank(bank_id),
+        "rushB mvin does not support shared banks"
+    );
     assert!(depth > 0, "mvin: depth must be > 0");
     assert!(stride > 0, "mvin: stride must be > 0");
 
@@ -427,7 +476,10 @@ fn host_mvin(state: &mut EmuState, xs1: u64, packed_xs2: u64, host_ptr: *const u
         if groups > 1 {
             for row in 0..depth as usize {
                 for group in 0..groups {
-                    let p = pbank_group(&state.bank_map, bank_id, group as u64);
+                    let p = state
+                        .bank_map
+                        .resolve_group(bank_id as u32, group as u32)
+                        .unwrap_or_else(|| panic!("mvin: bank {bank_id} group {group} not mapped"));
                     let bank_offset = row * 16;
                     assert!(bank_offset + 16 <= bank_size(), "mvin: bank range");
                     let offset = row * groups * 16 * stride as usize + group * 16;
@@ -436,7 +488,10 @@ fn host_mvin(state: &mut EmuState, xs1: u64, packed_xs2: u64, host_ptr: *const u
                 }
             }
         } else {
-            let p = pbank(&state.bank_map, bank_id);
+            let p = state
+                .bank_map
+                .resolve(bank_id as u32)
+                .unwrap_or_else(|| panic!("mvin: bank {bank_id} not mapped"));
             let matrix_mode_acc = cols == 4 && depth <= MATRIX_SIZE as u64;
             let line_bytes = if matrix_mode_acc { 64usize } else { 16usize };
             for row in 0..depth as usize {
@@ -483,13 +538,16 @@ fn host_mvin_mmio(state: &mut EmuState, xs1: u64, packed_xs2: u64, host_ptr: *co
 }
 
 fn host_mvout(state: &mut EmuState, xs1: u64, packed_xs2: u64, host_ptr: *mut u8) {
-    use crate::inst::decode::{pbank, pbank_group, rs1_b0, rs1_iter, xs2_mem_stride};
+    use crate::inst::decode::{rs1_b0, rs1_iter, xs2_mem_stride};
 
     assert!(!host_ptr.is_null(), "mvout: null host pointer");
     let bank_id = rs1_b0(xs1);
     let depth = rs1_iter(xs1);
     let (_, stride) = xs2_mem_stride(packed_xs2);
-    assert!(bank_id < bank_num() as u64, "mvout: invalid bank_id {bank_id}");
+    assert!(
+        !crate::config::is_shared_vbank(bank_id),
+        "rushB mvout does not support shared banks"
+    );
     assert!(depth > 0, "mvout: depth must be > 0");
     assert!(stride > 0, "mvout: stride must be > 0");
 
@@ -502,7 +560,10 @@ fn host_mvout(state: &mut EmuState, xs1: u64, packed_xs2: u64, host_ptr: *mut u8
         if groups > 1 {
             for row in 0..depth as usize {
                 for group in 0..groups {
-                    let p = pbank_group(&state.bank_map, bank_id, group as u64);
+                    let p = state
+                        .bank_map
+                        .resolve_group(bank_id as u32, group as u32)
+                        .unwrap_or_else(|| panic!("mvout: bank {bank_id} group {group} not mapped"));
                     let bank_offset = row * 16;
                     assert!(bank_offset + 16 <= bank_size(), "mvout: bank range");
                     let offset = row * groups * 16 * stride as usize + group * 16;
@@ -511,7 +572,10 @@ fn host_mvout(state: &mut EmuState, xs1: u64, packed_xs2: u64, host_ptr: *mut u8
                 }
             }
         } else {
-            let p = pbank(&state.bank_map, bank_id);
+            let p = state
+                .bank_map
+                .resolve(bank_id as u32)
+                .unwrap_or_else(|| panic!("mvout: bank {bank_id} not mapped"));
             let matrix_mode_acc = cols == 4 && depth <= MATRIX_SIZE as u64;
             let line_bytes = if matrix_mode_acc { 64usize } else { 16usize };
             for row in 0..depth as usize {
@@ -850,6 +914,8 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         banks,
         bank_cfgs,
         bank_map,
+        shared_memory,
+        hart_id,
         bank_scoreboard,
         deferred_bank_frees,
         mmio_banks,
@@ -863,11 +929,40 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
 
     let result = unsafe {
         with_trace_ptr(trace, || {
+            let shared_state = shared_memory.as_ref().map(|memory| memory.banks_mut());
+            let (tracked_banks, shared) = match shared_state {
+                Some(SharedBankState {
+                    storage,
+                    cfgs,
+                    map,
+                    virtual_bank_count,
+                }) => (
+                    inst::instruction::TrackedBanks::with_shared(
+                        banks,
+                        storage,
+                        btrace.then_some(&*bank_scoreboard),
+                        instruction_id,
+                    ),
+                    Some(inst::instruction::SharedBankContext {
+                        cfgs,
+                        bank_map: map,
+                        hart_id: *hart_id,
+                        virtual_bank_count: *virtual_bank_count,
+                    }),
+                ),
+                None => (
+                    inst::instruction::TrackedBanks::new(banks, btrace.then_some(&*bank_scoreboard), instruction_id),
+                    None,
+                ),
+            };
             let mut ctx = inst::instruction::ExecContext {
+                hart_id: *hart_id,
+                instruction_id,
                 memory,
-                banks: inst::instruction::TrackedBanks::new(banks, btrace.then_some(&*bank_scoreboard), instruction_id),
+                banks: tracked_banks,
                 cfgs: bank_cfgs,
                 bank_map,
+                shared,
                 deferred_bank_frees,
                 mmio_banks,
                 barrier_hit,
@@ -884,15 +979,38 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
         unsafe {
             with_trace_ptr(trace, || {
                 for physical_bank_id in written_banks {
-                    let (vbank_id, group_id) = bank_map
-                        .logical_id(physical_bank_id)
-                        .unwrap_or_else(|| panic!("BEMU wrote unmapped physical bank {physical_bank_id}"));
-                    let digest = bank_hash(&banks[physical_bank_id]);
+                    let (vbank_id, group_id, reported_pbank, digest) = if physical_bank_id < banks.len() {
+                        let (vbank_id, group_id) = bank_map
+                            .logical_id(physical_bank_id)
+                            .unwrap_or_else(|| panic!("BEMU wrote unmapped private physical bank {physical_bank_id}"));
+                        (
+                            vbank_id,
+                            group_id,
+                            physical_bank_id,
+                            bank_hash(&banks[physical_bank_id]),
+                        )
+                    } else {
+                        let shared = shared_memory
+                            .as_ref()
+                            .expect("shared bank storage is unavailable")
+                            .banks_mut();
+                        let shared_pbank = physical_bank_id - banks.len();
+                        let (vbank_id, group_id) = shared
+                            .map
+                            .logical_id(shared_pbank)
+                            .unwrap_or_else(|| panic!("BEMU wrote unmapped shared physical bank {shared_pbank}"));
+                        (
+                            vbank_id,
+                            group_id,
+                            shared_pbank,
+                            bank_hash(&shared.storage[shared_pbank]),
+                        )
+                    };
                     crate::trace::bemu_bank_digest(
                         instruction_id,
                         vbank_id,
                         group_id,
-                        physical_bank_id as u32,
+                        reported_pbank as u32,
                         funct7 as u32,
                         &op_type,
                         digest,
@@ -902,7 +1020,13 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
             })
         };
     }
-    finish_deferred_bank_frees(bank_cfgs, bank_map, deferred_bank_frees);
+    finish_deferred_bank_frees(
+        bank_cfgs,
+        bank_map,
+        shared_memory.as_ref(),
+        *hart_id,
+        deferred_bank_frees,
+    );
     state.profile.end_npu(funct7, profile_started);
 
     result
@@ -1131,7 +1255,7 @@ pub fn create_spike(
         .map_err(|e| format!("failed to create BEMU log dir {}: {e}", log_dir.display()))?;
     let isa_c = CString::new(isa).map_err(|e| e.to_string())?;
     let log_c = log_path.map(CString::new).transpose().map_err(|e| e.to_string())?;
-    let mut state = Box::new(EmuState::new(log_dir, trace_config, profile, shared_memory)?);
+    let mut state = Box::new(EmuState::new(log_dir, trace_config, profile, hart_id, shared_memory)?);
     let mem_ptr = state.memory.as_mut_ptr();
     let mem_size = state.memory.len();
     let uart_ptr = &mut state.uart as *mut Uart as *mut u8;

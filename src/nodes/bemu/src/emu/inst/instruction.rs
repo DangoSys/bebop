@@ -78,6 +78,7 @@ impl BankScoreboard {
 /// Bank storage wrapper that reports mutable bank access to the scoreboard.
 pub struct TrackedBanks<'a> {
     banks: &'a mut [Vec<u8>],
+    shared_banks: Option<&'a mut [Vec<u8>]>,
     scoreboard: Option<&'a BankScoreboard>,
     instruction_id: u64,
 }
@@ -86,9 +87,28 @@ impl<'a> TrackedBanks<'a> {
     pub fn new(banks: &'a mut [Vec<u8>], scoreboard: Option<&'a BankScoreboard>, instruction_id: u64) -> Self {
         Self {
             banks,
+            shared_banks: None,
             scoreboard,
             instruction_id,
         }
+    }
+
+    pub fn with_shared(
+        banks: &'a mut [Vec<u8>],
+        shared_banks: &'a mut [Vec<u8>],
+        scoreboard: Option<&'a BankScoreboard>,
+        instruction_id: u64,
+    ) -> Self {
+        Self {
+            banks,
+            shared_banks: Some(shared_banks),
+            scoreboard,
+            instruction_id,
+        }
+    }
+
+    pub fn shared_index(&self, physical_bank_id: usize) -> usize {
+        self.banks.len() + physical_bank_id
     }
 
     fn record_write(&self, physical_bank_id: usize) {
@@ -102,19 +122,55 @@ impl<'a> TrackedBanks<'a> {
     pub fn read_write(&mut self, read_bank: usize, write_bank: usize) -> (&[u8], &mut [u8]) {
         assert_ne!(read_bank, write_bank, "bank read/write pair must be distinct");
         self.record_write(write_bank);
-        if read_bank < write_bank {
-            let (left, right) = self.banks.split_at_mut(write_bank);
-            (&left[read_bank], &mut right[0])
-        } else {
-            let (left, right) = self.banks.split_at_mut(read_bank);
-            (&right[0], &mut left[write_bank])
+        let private_count = self.banks.len();
+        match (read_bank < private_count, write_bank < private_count) {
+            (true, true) => split_read_write(self.banks, read_bank, write_bank),
+            (false, false) => split_read_write(
+                self.shared_banks
+                    .as_deref_mut()
+                    .expect("shared bank storage is unavailable"),
+                read_bank - private_count,
+                write_bank - private_count,
+            ),
+            (true, false) => (
+                &self.banks[read_bank],
+                &mut self
+                    .shared_banks
+                    .as_deref_mut()
+                    .expect("shared bank storage is unavailable")[write_bank - private_count],
+            ),
+            (false, true) => (
+                &self
+                    .shared_banks
+                    .as_deref()
+                    .expect("shared bank storage is unavailable")[read_bank - private_count],
+                &mut self.banks[write_bank],
+            ),
         }
     }
 
     /// Storage clearing performed while allocating a bank is configuration
     /// initialization and does not produce a BankDataWrite record.
     pub fn initialize(&mut self, physical_bank_id: usize, value: u8) {
-        self.banks[physical_bank_id].fill(value);
+        if physical_bank_id < self.banks.len() {
+            self.banks[physical_bank_id].fill(value);
+        } else {
+            let private_count = self.banks.len();
+            self.shared_banks
+                .as_deref_mut()
+                .expect("shared bank storage is unavailable")[physical_bank_id - private_count]
+                .fill(value);
+        }
+    }
+}
+
+fn split_read_write(banks: &mut [Vec<u8>], read_bank: usize, write_bank: usize) -> (&[u8], &mut [u8]) {
+    if read_bank < write_bank {
+        let (left, right) = banks.split_at_mut(write_bank);
+        (&left[read_bank], &mut right[0])
+    } else {
+        let (left, right) = banks.split_at_mut(read_bank);
+        (&right[0], &mut left[write_bank])
     }
 }
 
@@ -122,23 +178,48 @@ impl Index<usize> for TrackedBanks<'_> {
     type Output = Vec<u8>;
 
     fn index(&self, index: usize) -> &Self::Output {
-        &self.banks[index]
+        if index < self.banks.len() {
+            &self.banks[index]
+        } else {
+            &self
+                .shared_banks
+                .as_deref()
+                .expect("shared bank storage is unavailable")[index - self.banks.len()]
+        }
     }
 }
 
 impl IndexMut<usize> for TrackedBanks<'_> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         self.record_write(index);
-        &mut self.banks[index]
+        if index < self.banks.len() {
+            &mut self.banks[index]
+        } else {
+            let private_count = self.banks.len();
+            &mut self
+                .shared_banks
+                .as_deref_mut()
+                .expect("shared bank storage is unavailable")[index - private_count]
+        }
     }
+}
+
+pub struct SharedBankContext<'a> {
+    pub cfgs: &'a mut [BankConfig],
+    pub bank_map: &'a mut BankMap,
+    pub hart_id: usize,
+    pub virtual_bank_count: usize,
 }
 
 /// Execution context passed to all instructions
 pub struct ExecContext<'a> {
+    pub hart_id: usize,
+    pub instruction_id: u64,
     pub memory: &'a mut [u8],
     pub banks: TrackedBanks<'a>,
     pub cfgs: &'a mut [BankConfig],
     pub bank_map: &'a mut BankMap,
+    pub shared: Option<SharedBankContext<'a>>,
     /// Virtual banks released by a CISC instruction after its bank digest is
     /// sampled. Keeping the mapping alive until then preserves the logical
     /// identity of every physical bank written by the instruction.
@@ -148,12 +229,55 @@ pub struct ExecContext<'a> {
 }
 
 impl ExecContext<'_> {
+    pub fn config(&self, bank_id: u64) -> &BankConfig {
+        let index = usize::try_from(bank_id).expect("bank id exceeds usize");
+        if crate::config::is_shared_vbank(bank_id) {
+            let shared = self.shared.as_ref().expect("shared bank storage is unavailable");
+            &shared.cfgs
+                [shared.hart_id % (shared.cfgs.len() / shared.virtual_bank_count) * shared.virtual_bank_count + index]
+        } else {
+            &self.cfgs[index]
+        }
+    }
+
+    pub fn config_mut(&mut self, bank_id: u64) -> &mut BankConfig {
+        let index = usize::try_from(bank_id).expect("bank id exceeds usize");
+        if crate::config::is_shared_vbank(bank_id) {
+            let shared = self.shared.as_mut().expect("shared bank storage is unavailable");
+            let core = shared.hart_id % (shared.cfgs.len() / shared.virtual_bank_count);
+            &mut shared.cfgs[core * shared.virtual_bank_count + index]
+        } else {
+            &mut self.cfgs[index]
+        }
+    }
+
+    pub fn physical_bank(&self, bank_id: u64, group: u64) -> usize {
+        if crate::config::is_shared_vbank(bank_id) {
+            let shared = self.shared.as_ref().expect("shared bank storage is unavailable");
+            let physical = shared
+                .bank_map
+                .resolve_hart_group(shared.hart_id, bank_id as u32, group as u32)
+                .unwrap_or_else(|| panic!("shared vbank {bank_id} group {group} not mapped"));
+            self.banks.banks.len() + physical
+        } else {
+            self.bank_map
+                .resolve_group(bank_id as u32, group as u32)
+                .unwrap_or_else(|| panic!("vbank {bank_id} group {group} not mapped"))
+        }
+    }
+
+    pub fn reported_physical_bank(&self, bank_id: u64, encoded: usize) -> u32 {
+        if crate::config::is_shared_vbank(bank_id) {
+            (encoded - self.banks.banks.len()) as u32
+        } else {
+            encoded as u32
+        }
+    }
+
     pub fn defer_bank_free(&mut self, bank_id: u64) {
         let bank_id = u32::try_from(bank_id).expect("deferred bank id exceeds u32");
-        let index = bank_id as usize;
-        assert!(index < self.cfgs.len(), "deferred free: invalid bank_id {bank_id}");
         assert!(
-            self.cfgs[index].allocated,
+            self.config(bank_id as u64).allocated,
             "deferred free: bank {bank_id} is not allocated"
         );
         assert!(

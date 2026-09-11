@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -10,13 +11,11 @@ struct WorkloadsConfig {
 
 #[derive(Debug, Deserialize)]
 struct Workloads {
-    search_path: Option<String>,
     tests: Vec<String>,
 }
 
 #[derive(Debug)]
 pub struct WorkloadSpec {
-    pub search_path: Option<PathBuf>,
     pub tests: Vec<String>,
 }
 
@@ -34,10 +33,24 @@ pub fn load_workload_spec(toml_path: &Path) -> Result<WorkloadSpec, WorkloadToml
             path: toml_path.to_path_buf(),
         });
     }
-    Ok(WorkloadSpec {
-        search_path: config.workloads.search_path.map(PathBuf::from),
-        tests: config.workloads.tests,
-    })
+    let mut seen = BTreeSet::new();
+    let mut tests = Vec::with_capacity(config.workloads.tests.len());
+    for test in config.workloads.tests {
+        if test.is_empty() || Path::new(&test).file_name().and_then(|name| name.to_str()) != Some(test.as_str()) {
+            return Err(WorkloadTomlError::InvalidName {
+                path: toml_path.to_path_buf(),
+                workload: test,
+            });
+        }
+        if !seen.insert(test.clone()) {
+            return Err(WorkloadTomlError::Duplicate {
+                path: toml_path.to_path_buf(),
+                workload: test,
+            });
+        }
+        tests.push(test);
+    }
+    Ok(WorkloadSpec { tests })
 }
 
 #[derive(Debug)]
@@ -45,6 +58,8 @@ pub enum WorkloadTomlError {
     Read { path: PathBuf, source: std::io::Error },
     Parse { path: PathBuf, source: toml::de::Error },
     Empty { path: PathBuf },
+    InvalidName { path: PathBuf, workload: String },
+    Duplicate { path: PathBuf, workload: String },
 }
 
 impl std::fmt::Display for WorkloadTomlError {
@@ -59,6 +74,18 @@ impl std::fmt::Display for WorkloadTomlError {
             WorkloadTomlError::Empty { path } => {
                 write!(f, "Workload TOML {} has no tests under [workloads]", path.display())
             }
+            WorkloadTomlError::InvalidName { path, workload } => write!(
+                f,
+                "Workload TOML {} has invalid workload file name {}",
+                path.display(),
+                workload
+            ),
+            WorkloadTomlError::Duplicate { path, workload } => write!(
+                f,
+                "Workload TOML {} repeats workload file name {}",
+                path.display(),
+                workload
+            ),
         }
     }
 }

@@ -11,6 +11,8 @@ pub mod f16_mvout;
 pub mod f32_mset;
 #[path = "33_mvin.rs"]
 pub mod f33_mvin;
+#[path = "34_mvin_2d.rs"]
+pub mod f34_mvin_2d;
 #[path = "35_mvin_mmio.rs"]
 pub mod f35_mvin_mmio;
 pub mod instruction;

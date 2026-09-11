@@ -96,6 +96,54 @@ pub fn scan_elf_files_by_stems(
     (selected, missing, duplicates)
 }
 
+/// Walk `root` and collect test cases whose complete file name is in `names`.
+/// A regression manifest identifies a workload by this file name, which must
+/// be unique under the output root.
+pub fn scan_elf_files_by_names(
+    root: &Path,
+    extension: Option<&str>,
+    names: &[String],
+) -> (Vec<ElfTestCase>, Vec<String>, Vec<(String, Vec<std::path::PathBuf>)>) {
+    use std::collections::BTreeMap;
+
+    let requested: std::collections::HashSet<_> = names.iter().cloned().collect();
+    let mut found: BTreeMap<String, Vec<ElfTestCase>> = BTreeMap::new();
+
+    for entry in WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
+        let path = entry.path();
+        if !path.is_file() || extension.is_some_and(|ext| path.extension() != Some(OsStr::new(ext))) {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if requested.contains(name) {
+            let test_case =
+                ElfTestCase::from_path(path.to_path_buf()).expect("workload file name disappeared during scan");
+            found.entry(name.to_string()).or_default().push(test_case);
+        }
+    }
+
+    let duplicates = found
+        .iter()
+        .filter(|(_, cases)| cases.len() > 1)
+        .map(|(name, cases)| (name.clone(), cases.iter().map(|case| case.path.clone()).collect()))
+        .collect();
+    let mut selected = Vec::new();
+    let mut missing = Vec::new();
+    for name in names {
+        match found.get(name) {
+            Some(cases) => selected.push(cases[0].clone()),
+            None => missing.push(name.clone()),
+        }
+    }
+    (selected, missing, duplicates)
+}
+
 pub fn filter_tests(
     tests: Vec<ElfTestCase>,
     filter: Option<&str>,

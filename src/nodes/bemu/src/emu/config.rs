@@ -21,6 +21,14 @@ pub fn configure_default() {
 
 pub fn configure_core_with_virtual_bank_count(core_index: usize, virtual_bank_count: usize) {
     configure_core(core_index);
+    assert!(
+        shared_vbank_base() > private_vbank_upper_bound(),
+        "shared virtual bank range overlaps private virtual banks"
+    );
+    assert!(
+        virtual_bank_count >= shared_vbank_base(),
+        "virtual bank count ends before the shared bank base"
+    );
     VIRTUAL_BANK_COUNT.with(|slot| *slot.borrow_mut() = Some(virtual_bank_count));
 }
 
@@ -33,8 +41,29 @@ fn with_topology<R>(f: impl FnOnce(&Topology) -> R) -> R {
 }
 
 pub fn bank_num() -> usize {
-    let private_bank_count = with_topology(|t| t.mem_config.bank_num);
-    VIRTUAL_BANK_COUNT.with(|slot| slot.borrow().unwrap_or(private_bank_count).max(private_bank_count))
+    with_topology(|t| t.mem_config.bank_num)
+}
+pub fn vector_len() -> usize {
+    with_topology(|t| t.vector_len)
+}
+pub fn virtual_bank_num() -> usize {
+    VIRTUAL_BANK_COUNT.with(|slot| slot.borrow().unwrap_or_else(|| bank_num()))
+}
+pub fn private_vbank_upper_bound() -> usize {
+    with_topology(|t| t.mem_config.private_vbank_upper_bound)
+}
+pub fn shared_vbank_base() -> usize {
+    with_topology(|t| t.mem_config.shared_vbank_base)
+}
+pub fn is_shared_vbank(vbank: u64) -> bool {
+    let vbank = usize::try_from(vbank).expect("vbank id exceeds usize");
+    if vbank <= private_vbank_upper_bound() {
+        return false;
+    }
+    if vbank >= shared_vbank_base() && vbank < virtual_bank_num() {
+        return true;
+    }
+    panic!("invalid virtual bank id {vbank}");
 }
 pub fn bank_width() -> usize {
     with_topology(|t| t.mem_config.bank_width)
