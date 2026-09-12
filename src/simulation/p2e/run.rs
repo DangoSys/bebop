@@ -165,8 +165,8 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let _ = std::fs::remove_file(&host_init_flag);
     let _ = std::fs::remove_file(&sim_exit_flag);
 
-    let vdbg = bebop_p2e::start_vdbg_background(&main_tcl_path).whatever_context("failed to start P2E vdbg")?;
-    bebop_p2e::wait_for_flash(&flash_done_flag, || {
+    let mut vdbg = bebop_p2e::start_vdbg_background(&main_tcl_path).whatever_context("failed to start P2E vdbg")?;
+    bebop_p2e::wait_for_flash(&flash_done_flag, &mut vdbg, || {
         if SHOULD_EXIT.load(Ordering::SeqCst) {
             return Err("P2E interrupted".to_string());
         }
