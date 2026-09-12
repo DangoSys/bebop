@@ -1,6 +1,7 @@
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::fs::File;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 pub static SYSCALL_STATE: Lazy<Mutex<SyscallState>> = Lazy::new(|| Mutex::new(SyscallState::new()));
@@ -13,6 +14,7 @@ pub struct SyscallState {
     pub mmap_base: u64,
     pub mem_low: u64,
     pub mem_high: u64,
+    pub working_dir: PathBuf,
 }
 
 impl SyscallState {
@@ -25,6 +27,7 @@ impl SyscallState {
             mmap_base: 0,
             mem_low: crate::constants::GUEST_MEM_BASE,
             mem_high: 0,
+            working_dir: PathBuf::new(),
         }
     }
 

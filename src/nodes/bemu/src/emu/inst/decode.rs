@@ -38,11 +38,12 @@ pub fn xs2_mem_stride(xs2: u64) -> (u64, u64) {
 }
 
 #[inline]
-pub fn xs2_mset(xs2: u64) -> (u64, u64, u64) {
+pub fn xs2_mset(xs2: u64) -> (u64, u64, u64, bool) {
     let row = xs2 & 0x1f;
     let col = (xs2 >> 5) & 0x1f;
     let alloc = (xs2 >> 10) & 1;
-    (row, col, alloc)
+    let clear = (xs2 >> 11) & 1 != 0;
+    (row, col, alloc, clear)
 }
 
 /// the bank field in the instruction is **vbank_id**; parse it to physical slot index before accessing `banks`.
