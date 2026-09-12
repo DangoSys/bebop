@@ -25,7 +25,7 @@
 use super::super::bank::{BankConfig, BankMap};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::ops::{Index, IndexMut};
+use std::ops::{Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
 
 /// Per-instruction bank access scoreboard used by BEMU Golden Record
 /// generation. Mutable bank access records an architectural write before the
@@ -75,16 +75,104 @@ impl BankScoreboard {
     }
 }
 
+pub struct PrivateBank {
+    bytes: Vec<u8>,
+    initialized: Vec<bool>,
+}
+
+impl PrivateBank {
+    pub fn new(size: usize) -> Self {
+        Self {
+            bytes: vec![0; size],
+            initialized: vec![true; size],
+        }
+    }
+
+    pub fn allocate(&mut self, clear: bool) {
+        if clear {
+            self.bytes.fill(0);
+        }
+        self.initialized.fill(clear);
+    }
+
+    pub fn initialize(&mut self, value: u8) {
+        self.bytes.fill(value);
+        self.initialized.fill(true);
+    }
+
+    pub fn reset(&mut self) {
+        self.bytes.fill(0);
+        self.initialized.fill(true);
+    }
+
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        self.bytes
+            .iter()
+            .zip(&self.initialized)
+            .map(|(&byte, &initialized)| if initialized { byte } else { 0 })
+            .collect()
+    }
+}
+
+impl std::ops::Deref for PrivateBank {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.bytes
+    }
+}
+
+impl Index<usize> for PrivateBank {
+    type Output = u8;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.bytes[index]
+    }
+}
+
+impl IndexMut<usize> for PrivateBank {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.initialized[index] = true;
+        &mut self.bytes[index]
+    }
+}
+
+macro_rules! impl_range_index {
+    ($range:ty) => {
+        impl Index<$range> for PrivateBank {
+            type Output = [u8];
+
+            fn index(&self, index: $range) -> &Self::Output {
+                &self.bytes[index]
+            }
+        }
+
+        impl IndexMut<$range> for PrivateBank {
+            fn index_mut(&mut self, index: $range) -> &mut Self::Output {
+                self.initialized[index.clone()].fill(true);
+                &mut self.bytes[index]
+            }
+        }
+    };
+}
+
+impl_range_index!(Range<usize>);
+impl_range_index!(RangeFrom<usize>);
+impl_range_index!(RangeFull);
+impl_range_index!(RangeInclusive<usize>);
+impl_range_index!(RangeTo<usize>);
+impl_range_index!(RangeToInclusive<usize>);
+
 /// Bank storage wrapper that reports mutable bank access to the scoreboard.
 pub struct TrackedBanks<'a> {
-    banks: &'a mut [Vec<u8>],
-    shared_banks: Option<&'a mut [Vec<u8>]>,
+    banks: &'a mut [PrivateBank],
+    shared_banks: Option<&'a mut [PrivateBank]>,
     scoreboard: Option<&'a BankScoreboard>,
     instruction_id: u64,
 }
 
 impl<'a> TrackedBanks<'a> {
-    pub fn new(banks: &'a mut [Vec<u8>], scoreboard: Option<&'a BankScoreboard>, instruction_id: u64) -> Self {
+    pub fn new(banks: &'a mut [PrivateBank], scoreboard: Option<&'a BankScoreboard>, instruction_id: u64) -> Self {
         Self {
             banks,
             shared_banks: None,
@@ -94,8 +182,8 @@ impl<'a> TrackedBanks<'a> {
     }
 
     pub fn with_shared(
-        banks: &'a mut [Vec<u8>],
-        shared_banks: &'a mut [Vec<u8>],
+        banks: &'a mut [PrivateBank],
+        shared_banks: &'a mut [PrivateBank],
         scoreboard: Option<&'a BankScoreboard>,
         instruction_id: u64,
     ) -> Self {
@@ -117,9 +205,13 @@ impl<'a> TrackedBanks<'a> {
         }
     }
 
+    pub fn allocate(&mut self, physical_bank_id: usize, clear: bool) {
+        self.banks[physical_bank_id].allocate(clear);
+    }
+
     /// Alias-safe access for instructions that read one bank and write a
     /// different bank.
-    pub fn read_write(&mut self, read_bank: usize, write_bank: usize) -> (&[u8], &mut [u8]) {
+    pub fn read_write(&mut self, read_bank: usize, write_bank: usize) -> (&PrivateBank, &mut PrivateBank) {
         assert_ne!(read_bank, write_bank, "bank read/write pair must be distinct");
         self.record_write(write_bank);
         let private_count = self.banks.len();
@@ -148,23 +240,22 @@ impl<'a> TrackedBanks<'a> {
             ),
         }
     }
-
     /// Storage clearing performed while allocating a bank is configuration
     /// initialization and does not produce a BankDataWrite record.
     pub fn initialize(&mut self, physical_bank_id: usize, value: u8) {
         if physical_bank_id < self.banks.len() {
-            self.banks[physical_bank_id].fill(value);
+            self.banks[physical_bank_id].initialize(value);
         } else {
             let private_count = self.banks.len();
             self.shared_banks
                 .as_deref_mut()
                 .expect("shared bank storage is unavailable")[physical_bank_id - private_count]
-                .fill(value);
+                .initialize(value);
         }
     }
 }
 
-fn split_read_write(banks: &mut [Vec<u8>], read_bank: usize, write_bank: usize) -> (&[u8], &mut [u8]) {
+fn split_read_write(banks: &mut [PrivateBank], read_bank: usize, write_bank: usize) -> (&PrivateBank, &mut PrivateBank) {
     if read_bank < write_bank {
         let (left, right) = banks.split_at_mut(write_bank);
         (&left[read_bank], &mut right[0])
@@ -175,7 +266,7 @@ fn split_read_write(banks: &mut [Vec<u8>], read_bank: usize, write_bank: usize) 
 }
 
 impl Index<usize> for TrackedBanks<'_> {
-    type Output = Vec<u8>;
+    type Output = PrivateBank;
 
     fn index(&self, index: usize) -> &Self::Output {
         if index < self.banks.len() {
@@ -290,12 +381,12 @@ impl ExecContext<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{BankScoreboard, TrackedBanks};
+    use super::{BankScoreboard, PrivateBank, TrackedBanks};
     use std::collections::BTreeSet;
 
     #[test]
     fn scoreboard_records_idempotent_mutable_access() {
-        let mut storage = vec![vec![0u8; 4]; 2];
+        let mut storage = vec![PrivateBank::new(4), PrivateBank::new(4)];
         let scoreboard = BankScoreboard::new();
         scoreboard.issue(7);
         let mut banks = TrackedBanks::new(&mut storage, Some(&scoreboard), 7);
@@ -305,15 +396,25 @@ mod tests {
     }
 
     #[test]
-    fn reads_and_allocation_initialization_do_not_record_writes() {
-        let mut storage = vec![vec![1u8; 4]; 2];
+    fn reads_do_not_record_writes() {
+        let mut storage = vec![PrivateBank::new(4), PrivateBank::new(4)];
         let scoreboard = BankScoreboard::new();
         scoreboard.issue(8);
-        let mut banks = TrackedBanks::new(&mut storage, Some(&scoreboard), 8);
+        let banks = TrackedBanks::new(&mut storage, Some(&scoreboard), 8);
         let _ = banks[1][0];
-        banks.initialize(0, 0);
         drop(banks);
         assert!(scoreboard.complete(8).is_empty());
+    }
+
+    #[test]
+    fn canonicalization_does_not_modify_uncleared_bank_storage() {
+        let mut bank = PrivateBank::new(4);
+        bank[..].copy_from_slice(&[0x5a, 0x6b, 0x7c, 0x8d]);
+        bank.allocate(false);
+        bank[0] = 0x5a;
+
+        assert_eq!(bank.bytes, [0x5a, 0x6b, 0x7c, 0x8d]);
+        assert_eq!(bank.canonical_bytes(), [0x5a, 0, 0, 0]);
     }
 }
 

@@ -13,6 +13,7 @@ bebop-rtl-trace = { path = "../lib/rtl-trace" }
 bebop-uart = { path = "../lib/uart" }
 log = "0.4"
 duct = "0.13"
+libc = "0.2"
 
 [build-dependencies]
 duct = "0.13"

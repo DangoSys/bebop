@@ -6,6 +6,7 @@ members = [
   "src/nodes/lib/rushB",
   "src/nodes/lib/fd-redirect",
   "src/nodes/lib/rtl-trace",
+  "src/nodes/lib/syscall",
   "src/nodes/lib/uart",
   "src/nodes/verilator",
   "src/nodes/p2e",
