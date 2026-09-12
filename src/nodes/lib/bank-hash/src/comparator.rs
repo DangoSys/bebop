@@ -330,4 +330,27 @@ mod tests {
         assert_eq!(summary.pass, 1);
         assert_eq!(summary.total(), 1);
     }
+
+    #[test]
+    fn streaming_summary_reports_every_result() {
+        let output = std::env::temp_dir().join(format!("bebop-bank-summary-{}.ndjson", std::process::id()));
+        let writer = create_compare_writer(&output).unwrap();
+        let mut comparator = StreamingComparator::new(writer, output);
+        for item in [
+            record(BankHashSource::Bemu, 1, 1, 0, 1, b"same"),
+            record(BankHashSource::Rtl, 1, 1, 0, 9, b"same"),
+            record(BankHashSource::Bemu, 2, 2, 0, 2, b"golden"),
+            record(BankHashSource::Rtl, 2, 2, 0, 8, b"rtl"),
+            record(BankHashSource::Bemu, 3, 3, 0, 3, b"missing"),
+            record(BankHashSource::Rtl, 4, 4, 0, 7, b"unexpected"),
+        ] {
+            comparator.ingest(item).unwrap();
+        }
+        let summary = comparator.finish().unwrap();
+        assert_eq!(summary.pass, 1);
+        assert_eq!(summary.mismatch, 1);
+        assert_eq!(summary.missing_rtl, 1);
+        assert_eq!(summary.unexpected_rtl, 1);
+        assert!(!summary.passed());
+    }
 }

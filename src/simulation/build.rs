@@ -40,7 +40,7 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
             println!("Built executable: {}", dest.display());
             Ok(())
         }
-        BuildTarget::P2e { rtl_dir, out_dir } => {
+        BuildTarget::P2e { rtl_dir, out_dir, diff } => {
             if !rtl_dir.is_dir() {
                 let message = format!("RTL directory does not exist: {}", rtl_dir.display());
                 return Err(Whatever::without_source(message));
@@ -50,7 +50,7 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
                 .whatever_context("failed to canonicalize RTL directory")?;
             std::fs::create_dir_all(&out_dir).whatever_context("failed to create output directory")?;
             println!("Building p2e: {} -> {}", rtl_dir.display(), out_dir.display());
-            let features = "p2e";
+            let features = if diff { "p2e,bemu,difftest" } else { "p2e" };
             cmd!("cargo", "build", "--release", "--bin", "bebop", "--features", features)
                 .env("VSRC_PATH", &rtl_dir)
                 .env("OUT_PATH", &out_dir)
@@ -71,7 +71,21 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
 
                 // copy the built executable to the output directory
                 let dest = out_dir.join("bebop-p2e");
-                std::fs::copy("target/release/bebop", &dest).whatever_context("failed to copy built executable")?;
+                let staged = out_dir.join(".bebop-p2e.new");
+                #[cfg(feature = "bemu")]
+                if diff {
+                    std::fs::copy(
+                        bebop_bemu::spike_library_dir().join("libriscv.so"),
+                        out_dir.join("libriscv.so"),
+                    )
+                    .whatever_context("failed to install libriscv.so")?;
+                }
+                let executable = std::path::PathBuf::from(
+                    std::env::var_os("CARGO_TARGET_DIR").expect("CARGO_TARGET_DIR must be set for P2E builds"),
+                )
+                .join("release/bebop");
+                std::fs::copy(executable, &staged).whatever_context("failed to stage built executable")?;
+                std::fs::rename(staged, &dest).whatever_context("failed to install built executable")?;
                 println!("Built P2E runtime: {}", dest.display());
                 Ok(())
             }

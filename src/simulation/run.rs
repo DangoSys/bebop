@@ -96,6 +96,9 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             multi_fpga,
             wave,
             wave_start,
+            diff,
+            golden_elf,
+            golden_pk,
             itrace,
             mtrace,
             pmctrace,
@@ -111,6 +114,9 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
                     multi_fpga,
                     wave,
                     wave_start,
+                    diff,
+                    golden_elf,
+                    golden_pk,
                     trace: crate::simulation::p2e::run::P2eTraceConfig {
                         itrace,
                         mtrace,
@@ -123,8 +129,8 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             #[cfg(not(feature = "p2e"))]
             {
                 let _ = (
-                    image, bitstream, log_dir, multi_fpga, wave, wave_start, itrace, mtrace, pmctrace, ctrace,
-                    banktrace,
+                    image, bitstream, log_dir, multi_fpga, wave, wave_start, diff, golden_elf, golden_pk, itrace,
+                    mtrace, pmctrace, ctrace, banktrace,
                 );
                 crate::simulation::p2e::run::run_unavailable()
             }
