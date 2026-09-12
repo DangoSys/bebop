@@ -5,6 +5,8 @@ use snafu::Whatever;
 use std::path::PathBuf;
 #[cfg(feature = "p2e")]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(feature = "p2e")]
+use std::time::Instant;
 
 #[cfg(feature = "p2e")]
 use bebop_p2e::{self};
@@ -53,6 +55,7 @@ pub struct P2eTraceConfig {
 #[cfg(feature = "p2e")]
 pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).try_init();
+    let command_started = Instant::now();
 
     if config.diff && config.golden_elf.is_none() {
         return Err(Whatever::without_source(
@@ -177,6 +180,8 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let _ctb = bebop_p2e::init_ctb(&case_home, &rtcfg_path).whatever_context("failed to initialize P2E CTB")?;
     let _vdbg = vdbg.exit_on_drop(sim_exit_flag.clone());
     #[cfg(feature = "bemu")]
+    let diff_started = config.diff.then(Instant::now);
+    #[cfg(feature = "bemu")]
     let mut diff_session = config
         .diff
         .then(|| {
@@ -204,18 +209,25 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
         Ok(())
     })
     .map_err(|error| Whatever::without_source(format!("P2E simulation failed: {error}")))?;
+    let executable_timing = bebop_p2e::ffi::executable_timing();
     drop(console);
 
     bebop_p2e::ffi::finish_cycle_trace()
         .map_err(|e| Whatever::without_source(format!("failed to finalize P2E cycle trace: {e}")))?;
+    let simulation_finished = Instant::now();
     #[cfg(feature = "bemu")]
-    let diff_summary = if let Some(mut diff) = diff_session {
+    let (diff_summary, diff_elapsed) = if let Some(mut diff) = diff_session {
         finish_bank_digest().map_err(Whatever::without_source)?;
         diff.finish_golden()?;
-        Some(diff.finish()?)
+        let summary = diff.finish()?;
+        (
+            Some(summary),
+            Some(diff_started.expect("diff session start exists").elapsed()),
+        )
     } else {
-        None
+        (None, None)
     };
+    let diff_finished = Instant::now();
     write_trace_summary(&config.log_dir).whatever_context("failed to write P2E RTL trace summary")?;
 
     std::fs::write(&uart_log_path, &result.uart_log).whatever_context("failed to write P2E UART log")?;
@@ -238,6 +250,55 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
             summary.pass, summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
         );
     }
+
+    let command_finished = Instant::now();
+    let mut timing_summary = String::from("P2E timing summary (host wall-clock, additive phases):\n");
+    if let Some((name, executable_started, executable_finished)) = executable_timing {
+        let before_executable = executable_started.duration_since(command_started);
+        let executable_elapsed = executable_finished.duration_since(executable_started);
+        let after_executable = simulation_finished.duration_since(executable_finished);
+        let diff_finalize = diff_finished.duration_since(simulation_finished);
+        let output_cleanup = command_finished.duration_since(diff_finished);
+        timing_summary.push_str(&format!(
+            "  P2E setup/Linux boot: {:.3} s\n  Linux executable {name}: {:.3} s\n  FPGA completion: {:.3} s\n",
+            before_executable.as_secs_f64(),
+            executable_elapsed.as_secs_f64(),
+            after_executable.as_secs_f64()
+        ));
+        #[cfg(feature = "bemu")]
+        if config.diff {
+            timing_summary.push_str(&format!(
+                "  Bank DiffTest finalization: {:.3} s\n",
+                diff_finalize.as_secs_f64()
+            ));
+        } else {
+            timing_summary.push_str(&format!("  Trace finalization: {:.3} s\n", diff_finalize.as_secs_f64()));
+        }
+        #[cfg(not(feature = "bemu"))]
+        timing_summary.push_str(&format!("  Trace finalization: {:.3} s\n", diff_finalize.as_secs_f64()));
+        timing_summary.push_str(&format!(
+            "  Output cleanup: {:.3} s\n  Total P2E command: {:.3} s\n",
+            output_cleanup.as_secs_f64(),
+            command_finished.duration_since(command_started).as_secs_f64()
+        ));
+    } else {
+        timing_summary.push_str(&format!(
+            "  Linux executable timing unavailable: RUN/PASS markers not observed\n  FPGA workload: {:.3} s\n  Total P2E command: {:.3} s\n",
+            result.elapsed.as_secs_f64(),
+            command_finished.duration_since(command_started).as_secs_f64()
+        ));
+    }
+    #[cfg(feature = "bemu")]
+    if let Some(elapsed) = diff_elapsed {
+        timing_summary.push_str(&format!(
+            "  Bank DiffTest full session (parallel reference, excluded from total): {:.3} s\n",
+            elapsed.as_secs_f64()
+        ));
+    }
+    print!("{timing_summary}");
+    let timing_log_path = config.log_dir.join("p2e_timing.log");
+    std::fs::write(&timing_log_path, timing_summary).whatever_context("failed to write P2E timing log")?;
+    println!("  Timing log: {}", timing_log_path.display());
 
     if result.exit_code != 0 {
         #[cfg(feature = "bemu")]

@@ -14,8 +14,21 @@ impl Instruction for Mset {
         let (_rows, col, alloc, clear) = xs2_mset(xs2);
 
         let v = bank_id as u32;
-        let groups = col.max(1);
         let shared_bank = is_shared_vbank(bank_id);
+        let groups = if alloc == 1 && col == 0 {
+            if shared_bank {
+                ctx.shared
+                    .as_ref()
+                    .expect("shared bank storage is unavailable")
+                    .bank_map
+                    .slots
+                    .len() as u64
+            } else {
+                crate::config::bank_num() as u64
+            }
+        } else {
+            col.max(1)
+        };
 
         if alloc == 1 {
             let mut allocated = Vec::with_capacity(groups as usize);
@@ -50,7 +63,7 @@ impl Instruction for Mset {
             }
             *ctx.config_mut(bank_id) = BankConfig {
                 allocated: true,
-                cols: col,
+                cols: groups,
                 valid_rows: 0,
             };
         } else {
@@ -111,5 +124,43 @@ mod tests {
         Mset::exec(1, 0xc21, &mut context);
         assert_eq!(context.bank_map.resolve(1), Some(1));
         assert_eq!(context.banks[1][0], 0);
+    }
+
+    #[test]
+    fn zero_column_allocation_uses_all_banks_and_reallocates() {
+        crate::config::configure_default();
+        let mut memory = Vec::new();
+        let mut storage = (0..bank_num())
+            .map(|_| PrivateBank::new(bank_size()))
+            .collect::<Vec<_>>();
+        let mut configs = vec![BankConfig::default(); bank_num()];
+        let mut bank_map = BankMap::new(bank_num());
+        let mut deferred = Vec::new();
+        let mut mmio = Vec::new();
+        let mut barrier = false;
+        let mut context = ExecContext {
+            hart_id: 0,
+            instruction_id: 0,
+            memory: &mut memory,
+            banks: TrackedBanks::new(&mut storage, None, 0),
+            cfgs: &mut configs,
+            bank_map: &mut bank_map,
+            shared: None,
+            deferred_bank_frees: &mut deferred,
+            mmio_banks: &mut mmio,
+            barrier_hit: &mut barrier,
+        };
+
+        let alloc_all = 0x401;
+        Mset::exec(0, alloc_all, &mut context);
+        assert_eq!(context.config(0).cols, bank_num() as u64);
+        for group in 0..bank_num() {
+            assert_eq!(context.bank_map.resolve_group(0, group as u32), Some(group));
+        }
+
+        Mset::exec(0, alloc_all, &mut context);
+        for group in 0..bank_num() {
+            assert_eq!(context.bank_map.resolve_group(0, group as u32), Some(group));
+        }
     }
 }
