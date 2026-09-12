@@ -22,12 +22,51 @@ pub fn align_down(value: u64, align: u64) -> u64 {
 pub fn guest_range(addr: u64, len: usize, mem_len: usize) -> Option<usize> {
     let end = addr.checked_add(len as u64)?;
     let mappings = GUEST_MAPPINGS.lock().ok()?;
-    for mapping in mappings.iter().rev() {
-        let map_end = mapping.virt.checked_add(mapping.len)?;
-        if addr < mapping.virt || end > map_end {
-            continue;
+    if len == 0 {
+        if let Some(mapping) = mappings.iter().rev().find(|mapping| {
+            mapping
+                .virt
+                .checked_add(mapping.len)
+                .is_some_and(|map_end| addr >= mapping.virt && addr < map_end)
+        }) {
+            let phys = mapping.phys.checked_add(addr.checked_sub(mapping.virt)?)?;
+            if phys < GUEST_MEM_BASE {
+                return None;
+            }
+            let offset = phys.checked_sub(GUEST_MEM_BASE)? as usize;
+            return (offset <= mem_len).then_some(offset);
         }
-        let phys = mapping.phys.checked_add(addr - mapping.virt)?;
+    }
+    if mappings.iter().rev().any(|mapping| {
+        mapping
+            .virt
+            .checked_add(mapping.len)
+            .is_some_and(|map_end| addr >= mapping.virt && addr < map_end)
+    }) {
+        let mut cursor = addr;
+        let mut remaining = len as u64;
+        let mut phys_start: Option<u64> = None;
+        while remaining != 0 {
+            let mapping = mappings.iter().rev().find(|mapping| {
+                mapping
+                    .virt
+                    .checked_add(mapping.len)
+                    .is_some_and(|map_end| cursor >= mapping.virt && cursor < map_end)
+            })?;
+            let map_offset = cursor.checked_sub(mapping.virt)?;
+            let phys = mapping.phys.checked_add(map_offset)?;
+            if let Some(start) = phys_start {
+                if phys != start.checked_add(cursor.checked_sub(addr)?)? {
+                    return None;
+                }
+            } else {
+                phys_start = Some(phys);
+            }
+            let chunk = remaining.min(mapping.len.checked_sub(map_offset)?);
+            cursor = cursor.checked_add(chunk)?;
+            remaining -= chunk;
+        }
+        let phys = phys_start?;
         if phys < GUEST_MEM_BASE {
             return None;
         }
