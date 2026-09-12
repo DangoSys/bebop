@@ -219,17 +219,30 @@ pub fn configure_vvac_environment() {
     log::info!("Running P2E in onboard mode");
 }
 
-pub fn wait_for_flash(flash_done_flag: &Path, mut poll: impl FnMut() -> Result<(), String>) -> Result<(), String> {
-    while !flash_done_flag.exists() {
+pub fn wait_for_flash(
+    flash_done_flag: &Path,
+    vdbg: &mut VdbgProcess,
+    mut poll: impl FnMut() -> Result<(), String>,
+) -> Result<(), String> {
+    loop {
         poll()?;
+        if flash_done_flag.exists() {
+            return Ok(());
+        }
+        if let Some(status) = vdbg
+            .child
+            .try_wait()
+            .map_err(|error| format!("failed to query vdbg status: {error}"))?
+        {
+            return Err(format!("vdbg exited before flash completed: {status}"));
+        }
         std::thread::sleep(Duration::from_millis(100));
     }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::VdbgProcess;
+    use super::{wait_for_flash, VdbgProcess};
     use std::os::unix::process::CommandExt;
     use std::process::Command;
 
@@ -259,5 +272,17 @@ mod tests {
 
         assert!(exit_flag.is_file());
         std::fs::remove_file(exit_flag).unwrap();
+    }
+
+    #[test]
+    fn flash_wait_fails_when_vdbg_exits() {
+        let flash_done = std::env::temp_dir().join(format!("bebop-p2e-flash-{}", std::process::id()));
+        let _ = std::fs::remove_file(&flash_done);
+        let child = Command::new("false").spawn().unwrap();
+        let mut vdbg = VdbgProcess { child, exit_flag: None };
+
+        let error = wait_for_flash(&flash_done, &mut vdbg, || Ok(())).unwrap_err();
+
+        assert!(error.starts_with("vdbg exited before flash completed:"));
     }
 }
