@@ -158,4 +158,20 @@ pub mod ball_domain {
                 .out_bw as usize
         })
     }
+
+    pub fn param(ball_class: &str, name: &str) -> usize {
+        with_topology(|topology| {
+            topology
+                .ball_domain
+                .mappings
+                .iter()
+                .find(|mapping| mapping.ball_class == ball_class)
+                .unwrap_or_else(|| panic!("missing Ball mapping for {ball_class}"))
+                .ball_params
+                .get(name)
+                .unwrap_or_else(|| panic!("missing {name} parameter for {ball_class}"))
+                .parse()
+                .unwrap_or_else(|_| panic!("{name} parameter for {ball_class} is not an integer"))
+        })
+    }
 }
