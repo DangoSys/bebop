@@ -7,8 +7,7 @@ use common::{run_elf_regression, RegressionArgs, VerilatorBackend};
 
 fn main() -> ExitCode {
     let args = RegressionArgs::parse();
-    let diff =
-        std::env::var("BEBOP_VERILATOR_DIFF").is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"));
+    let diff = cfg!(feature = "difftest");
     let test_prefix = if diff { "difftest" } else { "verilator" };
     run_elf_regression(
         args,
