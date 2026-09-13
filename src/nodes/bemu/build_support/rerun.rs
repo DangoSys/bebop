@@ -10,15 +10,26 @@ pub fn emit_engine(engine_dir: &Path, native_dir: &Path) {
     ] {
         println!("cargo:rerun-if-changed={}", engine_dir.join(path).display());
     }
-    println!("cargo:rerun-if-changed={}", engine_dir.join("Cargo.toml").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        engine_dir.join("Cargo.toml").display()
+    );
     for path in ["rocc.cc", "spike.cc", "btif.cc", "btif.h"] {
         println!("cargo:rerun-if-changed={}", native_dir.join(path).display());
     }
-    println!("cargo:rerun-if-changed={}", native_dir.join("spike").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        native_dir.join("spike").display()
+    );
 }
 
 #[allow(dead_code)]
-pub fn emit(manifest_dir: &Path, native_dir: &Path, topology_files: Vec<PathBuf>, chip_ball_files: Vec<PathBuf>) {
+pub fn emit(
+    manifest_dir: &Path,
+    native_dir: &Path,
+    topology_files: Vec<PathBuf>,
+    chip_ball_files: Vec<PathBuf>,
+) {
     emit_engine(manifest_dir, native_dir);
     for path in topology_files {
         println!("cargo:rerun-if-changed={}", path.display());

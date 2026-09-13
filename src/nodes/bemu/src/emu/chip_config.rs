@@ -100,12 +100,10 @@ fn to_topology(core: &CoreInstance) -> Topology {
 
 pub fn topology_for_core(core_index: usize) -> Topology {
     let c = chip();
-    let core = c.cores.get(core_index).unwrap_or_else(|| {
-        panic!(
-            "core index {core_index} out of range (n={})",
-            c.cores.len()
-        )
-    });
+    let core = c
+        .cores
+        .get(core_index)
+        .unwrap_or_else(|| panic!("core index {core_index} out of range (n={})", c.cores.len()));
     to_topology(core)
 }
 
@@ -115,7 +113,10 @@ pub fn virtual_bank_count_for_core(core_index: usize) -> usize {
     for tile in &c.tiles {
         if tile.core_indices.iter().any(|&index| index as usize == core_index) {
             assert!(count.is_none(), "core {core_index} belongs to multiple tiles");
-            assert!(tile.virtual_bank_count > 0, "core {core_index} tile has no virtual banks");
+            assert!(
+                tile.virtual_bank_count > 0,
+                "core {core_index} tile has no virtual banks"
+            );
             count = Some(tile.virtual_bank_count as usize);
         }
     }
@@ -143,11 +144,7 @@ pub fn rushb_endpoint(core_id: u32) -> RushBEndpoint {
             c.cores.len()
         )
     });
-    if core
-        .balldomain
-        .as_ref()
-        .map_or(true, |ball| ball.mappings.is_empty())
-    {
+    if core.balldomain.as_ref().map_or(true, |ball| ball.mappings.is_empty()) {
         panic!("rushB Core {core_id}: config index {core_index} has no Buckyball mappings");
     }
     if tile.virtual_bank_count == 0 {
@@ -161,12 +158,10 @@ pub fn rushb_endpoint(core_id: u32) -> RushBEndpoint {
 
 pub fn tile_topology(tile_index: usize) -> TileTopology {
     let c = chip();
-    let tile = c.tiles.get(tile_index).unwrap_or_else(|| {
-        panic!(
-            "tile index {tile_index} out of range (n={})",
-            c.tiles.len()
-        )
-    });
+    let tile = c
+        .tiles
+        .get(tile_index)
+        .unwrap_or_else(|| panic!("tile index {tile_index} out of range (n={})", c.tiles.len()));
     if tile.core_indices.is_empty() {
         panic!("tile {tile_index} has no cores");
     }
@@ -195,7 +190,10 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
             .bank
             .as_ref()
             .unwrap_or_else(|| panic!("core {} missing bank", core.index));
-        assert_eq!(bank.width as usize, bank_width, "tile {tile_index} cores have different bank widths");
+        assert_eq!(
+            bank.width as usize, bank_width,
+            "tile {tile_index} cores have different bank widths"
+        );
     }
     let shared_physical_bank_count = if shared.enable {
         assert!(shared.entries > 0, "tile {tile_index} shared entries is 0");
