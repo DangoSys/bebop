@@ -12,7 +12,9 @@ pub fn read_i8_nn(banks: &TrackedBanks<'_>, p: usize, n: usize) -> Vec<Vec<i8>> 
 }
 
 pub fn read_i8_nn_at(banks: &TrackedBanks<'_>, p: usize, base: usize, n: usize) -> Vec<Vec<i8>> {
-    (0..n).map(|i| (0..n).map(|j| banks[p][(base + i) * I8_ROW_STRIDE + j] as i8).collect()).collect()
+    (0..n)
+        .map(|i| (0..n).map(|j| banks[p][(base + i) * I8_ROW_STRIDE + j] as i8).collect())
+        .collect()
 }
 
 pub fn read_i8_k_rows(banks: &TrackedBanks<'_>, p: usize, rows: usize, width: usize) -> Vec<Vec<i8>> {
@@ -35,10 +37,16 @@ pub fn read_i32_nn(banks: &TrackedBanks<'_>, p: usize, n: usize) -> Vec<Vec<i32>
 }
 
 pub fn read_i32_nn_at(banks: &TrackedBanks<'_>, p: usize, base: usize, n: usize) -> Vec<Vec<i32>> {
-    (0..n).map(|i| (0..n).map(|j| {
-        let off = (base + i) * I32_ROW_STRIDE + j * 4;
-        i32::from_le_bytes(banks[p][off..off + 4].try_into().unwrap())
-    }).collect()).collect()
+    (0..n)
+        .map(|i| {
+            (0..n)
+                .map(|j| {
+                    let off = (base + i) * I32_ROW_STRIDE + j * 4;
+                    i32::from_le_bytes(banks[p][off..off + 4].try_into().unwrap())
+                })
+                .collect()
+        })
+        .collect()
 }
 
 pub fn write_i32_nn(banks: &mut TrackedBanks<'_>, p: usize, mat: &[Vec<i32>], n: usize) {
@@ -66,10 +74,16 @@ pub fn read_i32_nn_groups(banks: &TrackedBanks<'_>, ps: &[usize], n: usize) -> V
 }
 
 pub fn read_i32_nn_groups_at(banks: &TrackedBanks<'_>, ps: &[usize], base: usize, n: usize) -> Vec<Vec<i32>> {
-    (0..n).map(|i| (0..n).map(|j| {
-        let off = (base + i) * I8_ROW_STRIDE + (j % 4) * 4;
-        i32::from_le_bytes(banks[ps[j / 4]][off..off + 4].try_into().unwrap())
-    }).collect()).collect()
+    (0..n)
+        .map(|i| {
+            (0..n)
+                .map(|j| {
+                    let off = (base + i) * I8_ROW_STRIDE + (j % 4) * 4;
+                    i32::from_le_bytes(banks[ps[j / 4]][off..off + 4].try_into().unwrap())
+                })
+                .collect()
+        })
+        .collect()
 }
 
 pub fn write_i32_nn_groups(banks: &mut TrackedBanks<'_>, ps: &[usize], mat: &[Vec<i32>], n: usize) {

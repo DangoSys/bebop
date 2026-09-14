@@ -11,9 +11,7 @@ thread_local! {
 
 pub fn configure_core(core_index: usize) {
     TOPOLOGY.with(|slot| *slot.borrow_mut() = Some(chip_config::topology_for_core(core_index)));
-    VIRTUAL_BANK_COUNT.with(|slot| {
-        *slot.borrow_mut() = Some(chip_config::virtual_bank_count_for_core(core_index))
-    });
+    VIRTUAL_BANK_COUNT.with(|slot| *slot.borrow_mut() = Some(chip_config::virtual_bank_count_for_core(core_index)));
 }
 
 pub fn configure_default() {
@@ -36,7 +34,9 @@ pub fn configure_core_with_virtual_bank_count(core_index: usize, virtual_bank_co
 fn with_topology<R>(f: impl FnOnce(&Topology) -> R) -> R {
     TOPOLOGY.with(|slot| {
         let borrow = slot.borrow();
-        let topology = borrow.as_ref().unwrap_or_else(|| panic!("BEMU topology is not configured"));
+        let topology = borrow
+            .as_ref()
+            .unwrap_or_else(|| panic!("BEMU topology is not configured"));
         f(topology)
     })
 }
@@ -156,6 +156,22 @@ pub mod ball_domain {
                 .find(|mapping| mapping.ball_class == ball_class)
                 .unwrap_or_else(|| panic!("missing Ball mapping for {ball_class}"))
                 .out_bw as usize
+        })
+    }
+
+    pub fn param(ball_class: &str, name: &str) -> usize {
+        with_topology(|topology| {
+            topology
+                .ball_domain
+                .mappings
+                .iter()
+                .find(|mapping| mapping.ball_class == ball_class)
+                .unwrap_or_else(|| panic!("missing Ball mapping for {ball_class}"))
+                .ball_params
+                .get(name)
+                .unwrap_or_else(|| panic!("missing {name} parameter for {ball_class}"))
+                .parse()
+                .unwrap_or_else(|_| panic!("{name} parameter for {ball_class} is not an integer"))
         })
     }
 }

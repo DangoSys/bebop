@@ -3,16 +3,13 @@ use std::path::{Path, PathBuf};
 
 use super::RegressionResult;
 
-const ARTIFACT_ROOT: &str = "test-artifacts";
 const DIR_LOG: &str = "log";
 const FILE_STDOUT: &str = "stdout.log";
 const FILE_STDERR: &str = "stderr.log";
 const FILE_WAVEFORM: &str = "waveform.fst";
 
-fn workspace_root() -> PathBuf {
-    std::env::var("CARGO_MANIFEST_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."))
+fn artifact_root() -> PathBuf {
+    PathBuf::from(std::env::var("CARGO_TARGET_DIR").expect("CARGO_TARGET_DIR must be set")).join("test-artifacts")
 }
 
 pub struct ArtifactManager {
@@ -21,7 +18,7 @@ pub struct ArtifactManager {
 
 impl ArtifactManager {
     pub fn clean_all() -> std::io::Result<()> {
-        let root = workspace_root().join(ARTIFACT_ROOT);
+        let root = artifact_root();
         if root.exists() {
             fs::remove_dir_all(root)?;
         }
@@ -33,7 +30,7 @@ impl ArtifactManager {
     pub fn create_with_backend(backend: &str, workload_name: &str) -> std::io::Result<Self> {
         let timestamp = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S");
         let dir_name = format!("{}-{}-{}", backend, timestamp, workload_name);
-        let root = workspace_root().join(ARTIFACT_ROOT).join(dir_name);
+        let root = artifact_root().join(dir_name);
         fs::create_dir_all(root.join(DIR_LOG))?;
         Ok(ArtifactManager { root })
     }

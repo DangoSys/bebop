@@ -183,11 +183,6 @@ impl BackendRunner for VerilatorBackend {
         let arch_config = std::env::var_os("BEBOP_ARCH_CONFIG")
             .unwrap_or_else(|| "sims.verilator.BuckyballToyVerilatorConfig".into());
         cmd.env("ARCH_CONFIG", arch_config);
-        if self.diff {
-            if let Some(preload) = std::env::var_os("BEBOP_DIFF_LD_PRELOAD") {
-                cmd.env("LD_PRELOAD", preload);
-            }
-        }
     }
 
     fn configure_command_dir(&self, cmd: &mut Command, elf_path: &Path) {
@@ -198,9 +193,7 @@ impl BackendRunner for VerilatorBackend {
             return;
         }
         if self.diff {
-            if let Some(dir) = std::env::var_os("BEBOP_DIFF_RUN_DIR") {
-                cmd.current_dir(dir);
-            }
+            cmd.current_dir(env!("CARGO_MANIFEST_DIR"));
         }
     }
 
