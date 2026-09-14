@@ -63,6 +63,7 @@ struct BankUpdate {
 #[derive(Clone, Debug)]
 struct Producer {
     meta: InstructionMeta,
+    logical_generations: BTreeMap<u32, u64>,
     completed_at_poll: Option<u64>,
     updates: BTreeMap<LogicalBankId, BankUpdate>,
 }
@@ -70,6 +71,8 @@ struct Producer {
 struct M4Monitor {
     config: BankDigestConfig,
     physical_banks: BTreeMap<u32, Vec<u8>>,
+    logical_generations: BTreeMap<u32, u64>,
+    physical_generations: BTreeMap<u32, (u32, u64)>,
     producers: BTreeMap<u32, Producer>,
     // Verilator may invoke the combinational issue DPI before the sequential
     // instruction-allocation DPI in the same eval. Keep those real write
@@ -106,6 +109,8 @@ impl M4Monitor {
         Ok(Self {
             config,
             physical_banks: BTreeMap::new(),
+            logical_generations: BTreeMap::new(),
+            physical_generations: BTreeMap::new(),
             producers: BTreeMap::new(),
             pending_issues: BTreeMap::new(),
             pending_arrivals: BTreeMap::new(),
@@ -147,6 +152,26 @@ impl M4Monitor {
     }
 
     fn allocate(&mut self, event: &ITraceEvent) {
+        if self.producers.contains_key(&event.rob_id) {
+            if let Err(error) = self.emit_stable_updates(true) {
+                self.fail(error);
+                return;
+            }
+            self.retire_drained_producers(true);
+            if self.producers.contains_key(&event.rob_id) {
+                self.fail(format!(
+                    "ROB {} was reused before its Bank-Stable updates drained",
+                    event.rob_id
+                ));
+                return;
+            }
+        }
+
+        if event.funct == 32 {
+            let vbank_id = event.rs1 as u32 & 0x3ff;
+            *self.logical_generations.entry(vbank_id).or_default() += 1;
+        }
+
         self.next_instruction_id = self.next_instruction_id.wrapping_add(1);
         let mut producer = Producer {
             meta: InstructionMeta {
@@ -154,6 +179,7 @@ impl M4Monitor {
                 funct7: event.funct,
                 pc: event.pc,
             },
+            logical_generations: self.logical_generations.clone(),
             completed_at_poll: None,
             updates: BTreeMap::new(),
         };
@@ -164,12 +190,7 @@ impl M4Monitor {
             }
         }
 
-        if self.producers.insert(event.rob_id, producer).is_some() {
-            self.fail(format!(
-                "ROB {} was reused before its Bank-Stable updates drained",
-                event.rob_id
-            ));
-        }
+        self.producers.insert(event.rob_id, producer);
         if let Some(pending) = self.pending_arrivals.remove(&event.rob_id) {
             for arrival in pending {
                 self.record_arrival(&arrival);
@@ -188,7 +209,6 @@ impl M4Monitor {
     }
 
     fn record_issue(&mut self, event: &MTraceIssueEvent) {
-        let _hart_id = event.hart_id;
         if event.is_shared != 0 || self.boot_robs.contains(&event.rob_id) {
             return;
         }
@@ -202,7 +222,8 @@ impl M4Monitor {
                 .or_default() += 1;
             return;
         };
-        if producer.updates.entry(bank_id).or_default().emitted {
+        let update = producer.updates.entry(bank_id).or_default();
+        if update.emitted {
             if self.error.is_none() {
                 self.error = Some(format!(
                     "M4 attribution error: write issue arrived after Stable record for instruction {} bank ({},{})",
@@ -211,13 +232,34 @@ impl M4Monitor {
             }
             return;
         }
-        producer.updates.get_mut(&bank_id).expect("update exists").issued += 1;
+        update.issued += 1;
     }
 
     fn record_arrival(&mut self, event: &MTraceEvent) {
         if event.is_write == 0 || event.is_shared != 0 || self.boot_robs.contains(&event.rob_id) {
             return;
         }
+        let ready = self
+            .producers
+            .iter()
+            .filter(|(rob_id, producer)| **rob_id != event.rob_id && producer.completed_at_poll.is_some())
+            .flat_map(|(&rob_id, producer)| {
+                producer.updates.iter().filter_map(move |(&bank_id, update)| {
+                    (!update.emitted
+                        && update.issued != 0
+                        && update.issued == update.arrived
+                        && update.physical_bank_id == Some(event.pbank_id))
+                    .then_some((rob_id, bank_id))
+                })
+            })
+            .collect::<Vec<_>>();
+        for (rob_id, bank_id) in ready {
+            if let Err(error) = self.emit_update(rob_id, bank_id) {
+                self.fail(error);
+                return;
+            }
+        }
+
         let bank_id = LogicalBankId::new(event.vbank_id, event.group_id);
         let instruction_id;
         {
@@ -259,10 +301,25 @@ impl M4Monitor {
             ));
             return;
         }
-        // Shadow the physical SRAM, not the logical mapping. Reallocating a
-        // logical bank does not itself prove that RTL cleared the underlying
-        // storage; preserving the physical contents lets full-bank DiffTest
-        // expose such initialization bugs and preserves masked-off bytes.
+        let generation = {
+            let producer = self.producers.get(&event.rob_id).expect("producer exists");
+            producer
+                .logical_generations
+                .get(&event.vbank_id)
+                .copied()
+                .unwrap_or_default()
+        };
+        let assignment = (event.vbank_id, generation);
+        if self.physical_generations.get(&event.pbank_id) != Some(&assignment) {
+            self.physical_banks
+                .entry(event.pbank_id)
+                .or_insert_with(|| vec![0; self.config.bank_size])
+                .fill(0);
+            self.physical_generations.insert(event.pbank_id, assignment);
+        }
+        // Shadow the physical SRAM, not the logical mapping.  A new logical
+        // assignment starts from canonical zero; later rows in the same
+        // write transaction preserve masked-off bytes.
         let bank = self
             .physical_banks
             .entry(event.pbank_id)
@@ -308,43 +365,47 @@ impl M4Monitor {
         }
 
         for (rob_id, bank_id) in ready {
-            let producer = self.producers.get(&rob_id).expect("ready producer exists");
-            let update = producer.updates.get(&bank_id).expect("ready update exists");
-            let meta = producer.meta.clone();
-            let physical_bank_id = update.physical_bank_id;
-            let physical_bank_id = physical_bank_id.expect("arrived update has a physical bank id");
-            let bytes = self
-                .physical_banks
-                .get(&physical_bank_id)
-                .expect("arrived update has a physical shadow bank");
-            self.next_line = self.next_line.wrapping_add(1);
-            let record = BankDigestRecord::new(
-                BankHashSource::Rtl,
-                meta.instruction_id,
-                bank_id,
-                Some(physical_bank_id),
-                bank_hash(bytes),
-                meta.funct7,
-                format!("funct7_{}", meta.funct7),
-                BankHashEventClass::BankDataWrite,
-                BankHashTime::Cycle(state::rtl_clk()),
-                Some(meta.pc),
-                Some(format!("{RTL_RECORD_FILE}:{}", self.next_line)),
-            );
-            let line = record.to_ndjson().map_err(|error| error.to_string())?;
-            self.output
-                .write_all(line.as_bytes())
-                .map_err(|error| error.to_string())?;
-            self.output.flush().map_err(|error| error.to_string())?;
-            submit_runtime_bank_digest(&record);
-            self.producers
-                .get_mut(&rob_id)
-                .expect("ready producer exists")
-                .updates
-                .get_mut(&bank_id)
-                .expect("ready update exists")
-                .emitted = true;
+            self.emit_update(rob_id, bank_id)?;
         }
+        Ok(())
+    }
+
+    fn emit_update(&mut self, rob_id: u32, bank_id: LogicalBankId) -> Result<(), String> {
+        let producer = self.producers.get(&rob_id).expect("ready producer exists");
+        let update = producer.updates.get(&bank_id).expect("ready update exists");
+        let meta = producer.meta.clone();
+        let physical_bank_id = update.physical_bank_id.expect("arrived update has a physical bank id");
+        let bytes = self
+            .physical_banks
+            .get(&physical_bank_id)
+            .expect("arrived update has a physical shadow bank");
+        self.next_line = self.next_line.wrapping_add(1);
+        let record = BankDigestRecord::new(
+            BankHashSource::Rtl,
+            meta.instruction_id,
+            bank_id,
+            Some(physical_bank_id),
+            bank_hash(bytes),
+            meta.funct7,
+            format!("funct7_{}", meta.funct7),
+            BankHashEventClass::BankDataWrite,
+            BankHashTime::Cycle(state::rtl_clk()),
+            Some(meta.pc),
+            Some(format!("{RTL_RECORD_FILE}:{}", self.next_line)),
+        );
+        let line = record.to_ndjson().map_err(|error| error.to_string())?;
+        self.output
+            .write_all(line.as_bytes())
+            .map_err(|error| error.to_string())?;
+        self.output.flush().map_err(|error| error.to_string())?;
+        submit_runtime_bank_digest(&record);
+        self.producers
+            .get_mut(&rob_id)
+            .expect("ready producer exists")
+            .updates
+            .get_mut(&bank_id)
+            .expect("ready update exists")
+            .emitted = true;
         Ok(())
     }
 
@@ -387,6 +448,7 @@ impl M4Monitor {
                     .pending_issues
                     .values()
                     .flat_map(|updates| updates.values())
+                    .copied()
                     .sum::<u64>(),
             arrived_writes: self
                 .producers
@@ -412,10 +474,10 @@ impl M4Monitor {
                 .pending_issues
                 .iter()
                 .flat_map(|(rob_id, updates)| {
-                    updates.iter().map(move |(bank_id, issued)| {
+                    updates.iter().map(move |(bank_id, update)| {
                         format!(
                             "rob={} bank=({},{}) issued={}",
-                            rob_id, bank_id.vbank_id, bank_id.group_id, issued
+                            rob_id, bank_id.vbank_id, bank_id.group_id, update
                         )
                     })
                 })
@@ -603,6 +665,33 @@ mod tests {
     }
 
     #[test]
+    fn physical_bank_overwrite_emits_completed_producer_before_new_write() {
+        let id = TEST_ID.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("bebop-m3-overwrite-{}-{id}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut monitor = M4Monitor::new(&dir, BankDigestConfig::new(64, 16)).unwrap();
+
+        monitor.record_instruction(&instruction(2, 1, 33));
+        monitor.record_issue(&issue(1, 0, 0));
+        monitor.record_arrival(&arrival(1, 0, 0, 0, 11));
+        monitor.record_instruction(&instruction(0, 1, 33));
+
+        monitor.record_instruction(&instruction(2, 2, 33));
+        monitor.record_issue(&issue(2, 0, 0));
+        monitor.record_arrival(&arrival(2, 0, 0, 0, 22));
+
+        assert_eq!(monitor.next_line, 1);
+        let mut first_bank = vec![0; 64];
+        first_bank[..8].copy_from_slice(&11u64.to_le_bytes());
+        let output = std::fs::read_to_string(dir.join(RTL_RECORD_FILE)).unwrap();
+        assert!(output.contains(&format!("\"digest_u64\":{}", bank_hash(&first_bank))));
+
+        monitor.record_instruction(&instruction(0, 2, 33));
+        monitor.finish().unwrap();
+        assert_eq!(monitor.next_line, 2);
+    }
+
+    #[test]
     fn boot_rom_writes_do_not_enter_guest_scoreboard() {
         let mut monitor = test_monitor();
         monitor.record_issue(&issue(1, 0, 0));
@@ -644,6 +733,114 @@ mod tests {
         monitor.poll(false).unwrap();
         assert_eq!(monitor.next_line, 1);
         assert!(monitor.status().is_drained());
+    }
+
+    #[test]
+    fn rob_reuse_flushes_completed_producer_without_host_poll() {
+        let mut monitor = test_monitor();
+        monitor.record_instruction(&instruction(2, 1, 64));
+        monitor.record_issue(&issue(1, 5, 0));
+        monitor.record_arrival(&arrival(1, 5, 0, 0, 9));
+        monitor.record_instruction(&instruction(0, 1, 64));
+
+        monitor.record_instruction(&instruction(2, 1, 65));
+
+        assert!(monitor.error.is_none());
+        assert_eq!(monitor.next_line, 1);
+        monitor.record_instruction(&instruction(0, 1, 65));
+        monitor.finish().unwrap();
+        assert!(monitor.status().is_drained());
+    }
+
+    #[test]
+    fn rob_reuse_with_pending_write_is_an_error() {
+        let mut monitor = test_monitor();
+        monitor.record_instruction(&instruction(2, 1, 64));
+        monitor.record_issue(&issue(1, 5, 0));
+        monitor.record_instruction(&instruction(0, 1, 64));
+
+        monitor.record_instruction(&instruction(2, 1, 65));
+
+        assert_eq!(
+            monitor.error.as_deref(),
+            Some("M4 attribution error: ROB 1 was reused before its Bank-Stable updates drained")
+        );
+    }
+
+    #[test]
+    fn write_issue_generation_survives_later_mset() {
+        let mut monitor = test_monitor();
+        monitor.record_instruction(&instruction(2, 1, 64));
+        monitor.record_issue(&issue(1, 5, 0));
+
+        let mut first = arrival(1, 5, 0, 0, 0x0807_0605_0403_0201);
+        first.pbank_id = 5;
+        monitor.record_arrival(&first);
+
+        let mut mset = instruction(2, 2, 32);
+        mset.rs1 = 5;
+        monitor.record_instruction(&mset);
+
+        monitor.record_issue(&issue(1, 5, 0));
+        let mut second = arrival(1, 5, 0, 1, 0x1817_1615_1413_1211);
+        second.pbank_id = 5;
+        monitor.record_arrival(&second);
+
+        assert_eq!(
+            &monitor.physical_banks[&5][..16],
+            &[1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            &monitor.physical_banks[&5][16..32],
+            &[17, 18, 19, 20, 21, 22, 23, 24, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+
+        monitor.record_instruction(&instruction(0, 1, 64));
+        monitor.record_instruction(&instruction(0, 2, 32));
+        monitor.finish().unwrap();
+    }
+
+    #[test]
+    fn pending_write_callbacks_use_producer_generation() {
+        let id = TEST_ID.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("bebop-m3-arrival-generation-{}-{id}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut monitor = M4Monitor::new(&dir, BankDigestConfig::new(64, 16)).unwrap();
+
+        monitor.record_instruction(&instruction(2, 9, 64));
+        monitor.record_issue(&issue(9, 5, 0));
+        let mut stale = arrival(9, 5, 0, 2, 0x2827_2625_2423_2221);
+        stale.pbank_id = 5;
+        monitor.record_arrival(&stale);
+        monitor.record_instruction(&instruction(0, 9, 64));
+        monitor.poll(false).unwrap();
+
+        monitor.record_issue(&issue(1, 5, 0));
+        let mut first = arrival(1, 5, 0, 0, 0x0807_0605_0403_0201);
+        first.pbank_id = 5;
+        monitor.record_arrival(&first);
+
+        let mut mset = instruction(2, 2, 32);
+        mset.rs1 = 5;
+        monitor.record_instruction(&mset);
+
+        monitor.record_instruction(&instruction(2, 1, 64));
+        monitor.record_issue(&issue(1, 5, 0));
+        let mut second = arrival(1, 5, 0, 1, 0x1817_1615_1413_1211);
+        second.pbank_id = 5;
+        monitor.record_arrival(&second);
+
+        assert_eq!(monitor.physical_generations[&5], (5, 1));
+        assert_eq!(&monitor.physical_banks[&5][32..40], &[0; 8]);
+        monitor.record_instruction(&instruction(0, 1, 64));
+        monitor.record_instruction(&instruction(0, 2, 32));
+        monitor.finish().unwrap();
+
+        let mut expected = vec![0; 64];
+        expected[..8].copy_from_slice(&0x0807_0605_0403_0201u64.to_le_bytes());
+        expected[16..24].copy_from_slice(&0x1817_1615_1413_1211u64.to_le_bytes());
+        let output = std::fs::read_to_string(dir.join(RTL_RECORD_FILE)).unwrap();
+        assert!(output.contains(&format!("\"digest_u64\":{}", bank_hash(&expected))));
     }
 
     #[test]
@@ -690,7 +887,7 @@ mod tests {
     }
 
     #[test]
-    fn physical_bank_reuse_preserves_unwritten_bytes() {
+    fn physical_bank_reuse_canonicalizes_unwritten_bytes() {
         let mut monitor = test_monitor();
         monitor.record_instruction(&instruction(2, 11, 64));
         monitor.record_issue(&issue(11, 5, 0));
@@ -705,6 +902,6 @@ mod tests {
         reused.write_mask = 0x0001;
         monitor.record_arrival(&reused);
 
-        assert_eq!(&monitor.physical_banks[&3][..8], &[0xff, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(&monitor.physical_banks[&3][..8], &[0xff, 0, 0, 0, 0, 0, 0, 0]);
     }
 }

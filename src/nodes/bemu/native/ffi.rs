@@ -41,7 +41,7 @@ pub struct SharedMemory {
 }
 
 struct SharedBankState {
-    storage: Vec<Vec<u8>>,
+    storage: Vec<inst::instruction::PrivateBank>,
     cfgs: Vec<BankConfig>,
     map: BankMap,
     virtual_bank_count: usize,
@@ -61,7 +61,9 @@ impl SharedMemory {
         Arc::new(Self {
             data: std::cell::UnsafeCell::new(vec![0; size]),
             banks: std::cell::UnsafeCell::new(SharedBankState {
-                storage: vec![vec![0; shared_bank_size]; shared_physical_bank_count],
+                storage: (0..shared_physical_bank_count)
+                    .map(|_| inst::instruction::PrivateBank::new(shared_bank_size))
+                    .collect(),
                 cfgs: vec![BankConfig::default(); core_count * virtual_bank_count],
                 map: BankMap::new(shared_physical_bank_count),
                 virtual_bank_count,
@@ -176,7 +178,7 @@ impl std::ops::DerefMut for GuestMemory {
 
 struct EmuState {
     memory: GuestMemory,
-    banks: Vec<Vec<u8>>,
+    banks: Vec<inst::instruction::PrivateBank>,
     bank_cfgs: Vec<BankConfig>,
     bank_map: BankMap,
     shared_memory: Option<Arc<SharedMemory>>,
@@ -211,7 +213,9 @@ impl EmuState {
             memory: shared_memory
                 .clone()
                 .map_or_else(|| GuestMemory::Owned(vec![0; MEM_SIZE]), GuestMemory::Shared),
-            banks: vec![vec![0; bank_size()]; bank_num()],
+            banks: (0..bank_num())
+                .map(|_| inst::instruction::PrivateBank::new(bank_size()))
+                .collect(),
             bank_cfgs: vec![BankConfig::default(); virtual_bank_num()],
             bank_map: BankMap::new(bank_num()),
             shared_memory,
@@ -233,7 +237,7 @@ impl EmuState {
 
     fn reset_accel(&mut self) {
         for b in &mut self.banks {
-            b.fill(0);
+            b.reset();
         }
         self.bank_cfgs.fill(BankConfig::default());
         self.bank_map = BankMap::new(bank_num());
@@ -253,7 +257,9 @@ impl EmuState {
     fn new_host() -> Self {
         Self {
             memory: GuestMemory::Owned(Vec::new()),
-            banks: vec![vec![0; bank_size()]; bank_num()],
+            banks: (0..bank_num())
+                .map(|_| inst::instruction::PrivateBank::new(bank_size()))
+                .collect(),
             bank_cfgs: vec![BankConfig::default(); virtual_bank_num()],
             bank_map: BankMap::new(bank_num()),
             shared_memory: None,
@@ -987,7 +993,7 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
                             vbank_id,
                             group_id,
                             physical_bank_id,
-                            bank_hash(&banks[physical_bank_id]),
+                            bank_hash(&banks[physical_bank_id].canonical_bytes()),
                         )
                     } else {
                         let shared = shared_memory
@@ -1295,6 +1301,10 @@ struct HartInit {
 }
 
 fn load_elf_memory(state: &mut EmuState, elf_path: &str) -> Result<LoadInfo, String> {
+    state.syscall.working_dir = Path::new(elf_path)
+        .parent()
+        .expect("BEMU ELF must have a parent directory")
+        .to_path_buf();
     let load = load_elf(elf_path, &mut state.memory, DRAM_BASE)?;
     let entry = load.entry;
     let mem_end = DRAM_BASE + state.memory.len() as u64;
@@ -1322,7 +1332,9 @@ fn load_elf_memory(state: &mut EmuState, elf_path: &str) -> Result<LoadInfo, Str
 
 fn hart_init(ctx: *mut c_void, state: &mut EmuState, load: LoadInfo, mem_mb: usize, pk: bool) -> Result<(), String> {
     let mem_end = DRAM_BASE + state.memory.len() as u64;
+    let working_dir = state.syscall.working_dir.clone();
     state.syscall = SyscallState::new();
+    state.syscall.working_dir = working_dir;
     state.pk_vm = None;
     set_guest_mappings(&[]);
 

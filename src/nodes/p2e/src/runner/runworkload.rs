@@ -1,5 +1,6 @@
 use crate::ffi::{self, CtbManager};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Child;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -35,11 +36,12 @@ pub fn init_ctb(case_home: &Path, rtcfg_path: &Path) -> Result<CtbManager, Strin
     Ok(ctb)
 }
 
-pub fn wait_for_completion() -> Result<SimulationResult, String> {
+pub fn wait_for_completion(mut poll: impl FnMut() -> Result<(), String>) -> Result<SimulationResult, String> {
     let started = Instant::now();
     let poll_interval = Duration::from_millis(100);
 
     loop {
+        poll()?;
         if ffi::check_exit() {
             let exit_code = ffi::exit_code();
             let uart_log = ffi::uart_log();
@@ -126,7 +128,34 @@ exit
     Ok(tcl)
 }
 
-pub fn start_vdbg_background(tcl_path: &Path) -> Result<(), String> {
+pub struct VdbgProcess {
+    child: Child,
+    exit_flag: Option<PathBuf>,
+}
+
+impl Drop for VdbgProcess {
+    fn drop(&mut self) {
+        if let Some(exit_flag) = &self.exit_flag {
+            std::fs::write(exit_flag, "").expect("failed to signal vdbg exit");
+            return;
+        }
+        let process_group = i32::try_from(self.child.id()).expect("vdbg PID must fit pid_t");
+        unsafe {
+            libc::kill(-process_group, libc::SIGKILL);
+        }
+        let _ = self.child.wait();
+    }
+}
+
+impl VdbgProcess {
+    pub fn exit_on_drop(mut self, exit_flag: PathBuf) -> Self {
+        self.exit_flag = Some(exit_flag);
+        self
+    }
+}
+
+pub fn start_vdbg_background(tcl_path: &Path) -> Result<VdbgProcess, String> {
+    use std::os::unix::process::CommandExt;
     use std::process::Command;
 
     let sourceme = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
@@ -134,18 +163,20 @@ pub fn start_vdbg_background(tcl_path: &Path) -> Result<(), String> {
         return Err(format!("sourceme.sh not found: {}", sourceme.display()));
     }
 
-    let command = format!("source {} && vdbg {} &", sourceme.display(), tcl_path.display());
+    log::info!("Starting vdbg: {}", tcl_path.display());
 
-    log::info!("Starting vdbg in background: {}", command);
-
-    Command::new("bash")
+    let child = Command::new("bash")
         .arg("-c")
-        .arg(&command)
+        .arg("source \"$1\" && exec vdbg \"$2\"")
+        .arg("bash")
+        .arg(&sourceme)
+        .arg(tcl_path)
         .env_remove("LD_PRELOAD")
+        .process_group(0)
         .spawn()
         .map_err(|e| format!("Failed to start vdbg: {}", e))?;
 
-    Ok(())
+    Ok(VdbgProcess { child, exit_flag: None })
 }
 
 pub fn source_environment() -> Result<(), String> {
@@ -188,8 +219,70 @@ pub fn configure_vvac_environment() {
     log::info!("Running P2E in onboard mode");
 }
 
-pub fn wait_for_flash(flash_done_flag: &Path) {
-    while !flash_done_flag.exists() {
+pub fn wait_for_flash(
+    flash_done_flag: &Path,
+    vdbg: &mut VdbgProcess,
+    mut poll: impl FnMut() -> Result<(), String>,
+) -> Result<(), String> {
+    loop {
+        poll()?;
+        if flash_done_flag.exists() {
+            return Ok(());
+        }
+        if let Some(status) = vdbg
+            .child
+            .try_wait()
+            .map_err(|error| format!("failed to query vdbg status: {error}"))?
+        {
+            return Err(format!("vdbg exited before flash completed: {status}"));
+        }
         std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{wait_for_flash, VdbgProcess};
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+
+    #[test]
+    fn vdbg_process_drop_kills_its_process_group() {
+        let child = Command::new("bash")
+            .arg("-c")
+            .arg("sleep 30 & wait")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let process_group = i32::try_from(child.id()).unwrap();
+
+        drop(VdbgProcess { child, exit_flag: None });
+
+        assert_eq!(unsafe { libc::kill(-process_group, 0) }, -1);
+        assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
+    }
+
+    #[test]
+    fn vdbg_process_after_ctb_signals_tcl_exit() {
+        let exit_flag = std::env::temp_dir().join(format!("bebop-p2e-exit-{}", std::process::id()));
+        let _ = std::fs::remove_file(&exit_flag);
+        let child = Command::new("true").spawn().unwrap();
+
+        drop(VdbgProcess { child, exit_flag: None }.exit_on_drop(exit_flag.clone()));
+
+        assert!(exit_flag.is_file());
+        std::fs::remove_file(exit_flag).unwrap();
+    }
+
+    #[test]
+    fn flash_wait_fails_when_vdbg_exits() {
+        let flash_done = std::env::temp_dir().join(format!("bebop-p2e-flash-{}", std::process::id()));
+        let _ = std::fs::remove_file(&flash_done);
+        let child = Command::new("false").spawn().unwrap();
+        let mut vdbg = VdbgProcess { child, exit_flag: None };
+
+        let error = wait_for_flash(&flash_done, &mut vdbg, || Ok(())).unwrap_err();
+
+        assert!(error.starts_with("vdbg exited before flash completed:"));
     }
 }

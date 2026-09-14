@@ -154,6 +154,7 @@ dependencies = [
  "bebop-rtl-trace",
  "bebop-uart",
  "duct",
+ "libc",
  "log",
 ]
 
@@ -167,6 +168,13 @@ dependencies = [
 [[package]]
 name = "bebop-rushb"
 version = "0.1.0"
+
+[[package]]
+name = "bebop-syscall"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+]
 
 [[package]]
 name = "bebop-uart"
