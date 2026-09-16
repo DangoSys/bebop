@@ -36,10 +36,9 @@ proc init_fpga {fpga_location} {
     }
 
     if {$calib_done == "'b0"} {
-        puts "ERROR: DDR calibration failed after 100 iterations"
+        puts "ERROR: DDR calibration failed after 100000 iterations"
         exit 1
     }
 
     puts "DDR calibration complete after $i iterations!"
 }
-

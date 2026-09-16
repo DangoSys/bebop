@@ -106,7 +106,7 @@ load_image $fpga_location 0 $image
 
 # Step 4: Run workload
 puts "\n========== Step 4: Running Workload =========="
-run_workload 20000 $wave $wave_start
+run_workload 10000000 $wave $wave_start
 
 puts "\n=========================================="
 puts "P2E Simulation Completed"

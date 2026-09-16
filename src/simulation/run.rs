@@ -93,6 +93,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             image,
             bitstream,
             log_dir,
+            fpga_location,
             multi_fpga,
             wave,
             wave_start,
@@ -108,6 +109,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
                     image,
                     bitstream,
                     log_dir,
+                    fpga_location,
                     multi_fpga,
                     wave,
                     wave_start,
@@ -123,7 +125,17 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             #[cfg(not(feature = "p2e"))]
             {
                 let _ = (
-                    image, bitstream, log_dir, multi_fpga, wave, wave_start, itrace, mtrace, pmctrace, ctrace,
+                    image,
+                    bitstream,
+                    log_dir,
+                    fpga_location,
+                    multi_fpga,
+                    wave,
+                    wave_start,
+                    itrace,
+                    mtrace,
+                    pmctrace,
+                    ctrace,
                     banktrace,
                 );
                 crate::simulation::p2e::run::run_unavailable()

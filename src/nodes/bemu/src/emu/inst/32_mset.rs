@@ -11,7 +11,8 @@ impl Instruction for Mset {
 
     fn exec(xs1: u64, xs2: u64, ctx: &mut ExecContext) -> u64 {
         let bank_id = rs1_b0(xs1);
-        let (_rows, col, alloc) = xs2_mset(xs2);
+        let (_rows, col, alloc, clear) = xs2_mset(xs2);
+        assert!(!clear || alloc == 1, "mset: clear requires allocation");
 
         let v = bank_id as u32;
         let groups = col.max(1);
@@ -41,8 +42,10 @@ impl Instruction for Mset {
                     allocated.push(p);
                 }
             }
-            for p in allocated {
-                ctx.banks.initialize(p, 0);
+            if clear {
+                for p in allocated {
+                    ctx.banks.initialize(p, 0);
+                }
             }
             *ctx.config_mut(bank_id) = BankConfig {
                 allocated: true,

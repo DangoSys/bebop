@@ -71,7 +71,10 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
 
                 // copy the built executable to the output directory
                 let dest = out_dir.join("bebop-p2e");
-                let source = std::path::PathBuf::from(std::env::var("CARGO_TARGET_DIR").unwrap()).join("release/bebop");
+                let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| std::path::PathBuf::from("target"));
+                let source = target_dir.join("release/bebop");
                 std::fs::copy(source, &dest).whatever_context("failed to copy built executable")?;
                 println!("Built P2E runtime: {}", dest.display());
                 Ok(())

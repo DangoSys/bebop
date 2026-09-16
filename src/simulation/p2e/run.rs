@@ -12,13 +12,11 @@ use bebop_uart::{ConsoleConfig, ConsoleServer};
 use snafu::ResultExt;
 
 #[cfg(feature = "p2e")]
-const FPGA_LOCATION: &str = "0.A";
-
-#[cfg(feature = "p2e")]
 pub struct P2eRunConfig {
     pub image: PathBuf,
     pub bitstream: PathBuf,
     pub log_dir: PathBuf,
+    pub fpga_location: String,
     pub multi_fpga: bool,
     pub wave: bool,
     pub wave_start: Option<u64>,
@@ -68,7 +66,7 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     log::info!("P2E Simulation Starting");
     log::info!("  Image: {}", config.image.display());
     log::info!("  Bitstream: {}", bitstream.display());
-    log::info!("  FPGA: {}", FPGA_LOCATION);
+    log::info!("  FPGA: {}", config.fpga_location);
     log::info!("  Runtime case: {}", case_home.display());
     log::info!("  Log directory: {}", config.log_dir.display());
     log::info!("  UART Log: {}", uart_log_path.display());
@@ -103,7 +101,7 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     std::env::set_current_dir(&case_home).whatever_context("failed to enter P2E case directory")?;
 
     let main_tcl = bebop_p2e::generate_main_tcl(
-        FPGA_LOCATION,
+        &config.fpga_location,
         &config.image,
         &bitstream,
         config.multi_fpga,

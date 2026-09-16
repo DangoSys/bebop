@@ -131,6 +131,8 @@ pub enum RunTarget {
         bitstream: PathBuf,
         #[arg(long, value_name = "DIR")]
         log_dir: PathBuf,
+        #[arg(long, default_value = "0.A", value_name = "LOCATION")]
+        fpga_location: String,
         #[arg(long, help = "Use multi-FPGA hw_server connection without a location selector")]
         multi_fpga: bool,
         #[arg(long, help = "Enable waveform dump")]
