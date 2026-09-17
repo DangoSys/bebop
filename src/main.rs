@@ -24,6 +24,7 @@
 //===----------------------------------------------------------------------===//
 
 use clap::{Args, Parser, Subcommand};
+use std::io::Write;
 use std::path::PathBuf;
 
 mod simulation;
@@ -166,14 +167,33 @@ pub enum RunTarget {
 
 fn main() {
     let cli = Cli::parse();
+    let p2e_build = matches!(
+        &cli.command,
+        Commands::Build(BuildCommand {
+            target: BuildTarget::P2e { .. },
+        })
+    );
     let result = match cli.command {
         Commands::Build(command) => simulation::build(command),
         Commands::Run(command) => simulation::run(command),
     };
 
-    if let Err(e) = result {
-        eprintln!("Error: {}", e);
-        std::process::exit(1);
+    let exit_code = match result {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            1
+        }
+    };
+
+    if p2e_build {
+        std::io::stdout().flush().expect("failed to flush stdout");
+        std::io::stderr().flush().expect("failed to flush stderr");
+        unsafe { libc::_exit(exit_code) };
+    }
+
+    if exit_code != 0 {
+        std::process::exit(exit_code);
     }
 }
 
