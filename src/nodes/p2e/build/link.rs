@@ -60,11 +60,10 @@ pub fn link_vvac(libctb: &Path) {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let target_lib = out_dir.join("../../../libvCtb.so");
-    if let Err(e) = fs::copy(libctb, &target_lib) {
-        println!("cargo:warning=Failed to copy libvCtb.so to target: {}", e);
-    } else {
-        println!("cargo:warning=Copied libvCtb.so to {}", target_lib.display());
-    }
+    let staged_lib = target_lib.with_file_name(format!("libvCtb.so.{}.new", std::process::id()));
+    fs::copy(libctb, &staged_lib).expect("failed to stage libvCtb.so");
+    fs::rename(&staged_lib, &target_lib).expect("failed to install libvCtb.so");
+    println!("cargo:warning=Installed libvCtb.so to {}", target_lib.display());
 
     println!("cargo:rustc-link-search=native={}", lib_dir_str);
     println!("cargo:rustc-link-lib=dylib=vCtb");
