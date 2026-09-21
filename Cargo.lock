@@ -135,6 +135,10 @@ name = "bebop-bemu-profile"
 version = "0.1.0"
 
 [[package]]
+name = "bebop-clint"
+version = "0.1.0"
+
+[[package]]
 name = "bebop-dasm"
 version = "0.1.0"
 
@@ -155,6 +159,10 @@ dependencies = [
  "libc",
  "log",
 ]
+
+[[package]]
+name = "bebop-plic"
+version = "0.1.0"
 
 [[package]]
 name = "bebop-rtl-trace"
