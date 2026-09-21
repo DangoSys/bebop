@@ -59,15 +59,9 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
 
             #[cfg(feature = "p2e")]
             {
-                // bbdev's P2E runworkload flow rebuilds the host runtime in the
-                // bitstream case before every run.  It sets this internal flag so
-                // the existing bitstream is never regenerated.
-                let runtime_only = std::env::var_os("BEBOP_P2E_RUNTIME_ONLY").is_some();
-                if !runtime_only {
-                    BitstreamBuilder::new(out_dir.clone())
-                        .build()
-                        .map_err(Whatever::without_source)?;
-                }
+                BitstreamBuilder::new(out_dir.clone())
+                    .build()
+                    .map_err(Whatever::without_source)?;
 
                 // copy the built executable to the output directory
                 let dest = out_dir.join("bebop-p2e");

@@ -12,15 +12,11 @@ pub fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path) {
 
     let include_dir = out_dir.join("vvacDir/runtimeDir/include");
     let include_arg = format!("-I{}", include_dir.display());
-
-    // Why: must use VVAC's libstdc++ for ABI compatibility
     let vvac_lib_dir = out_dir.join("vvacDir/runtimeDir/lib/lib_arm");
-    let vvac_libstdcxx = vvac_lib_dir.join("libstdc++.so.6");
 
     println!("cargo:warning=Compiling C++ wrapper include: {}", include_dir.display());
     println!("cargo:warning=Wrapper source: {}", wrapper_src.display());
     println!("cargo:warning=Output object: {}", wrapper_obj.display());
-    println!("cargo:warning=Using VVAC's libstdc++: {}", vvac_libstdcxx.display());
 
     cmd!(
         "g++",
