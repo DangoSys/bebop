@@ -210,19 +210,24 @@ impl BackendRunner for VerilatorBackend {
 #[derive(Clone, Debug)]
 pub struct P2eBackend {
     bitstream: PathBuf,
+    diff: bool,
 }
 
 #[cfg(feature = "p2e")]
 impl P2eBackend {
-    pub fn new(bitstream: PathBuf) -> Self {
-        Self { bitstream }
+    pub fn new(bitstream: PathBuf, diff: bool) -> Self {
+        Self { bitstream, diff }
     }
 }
 
 #[cfg(feature = "p2e")]
 impl BackendRunner for P2eBackend {
     fn backend_name(&self) -> &'static str {
-        "p2e"
+        if self.diff {
+            "p2e-difftest"
+        } else {
+            "p2e"
+        }
     }
 
     fn verbose_run_kind(&self) -> &'static str {
@@ -238,6 +243,23 @@ impl BackendRunner for P2eBackend {
         cmd.arg("--image").arg(elf_path);
         cmd.arg("--bitstream").arg(&self.bitstream);
         cmd.arg("--log-dir").arg(artifacts.log_dir());
+        if self.diff {
+            let reference = if elf_path
+                .file_stem()
+                .is_some_and(|stem| stem.to_string_lossy().ends_with("-pk"))
+            {
+                elf_path.with_extension("elf")
+            } else {
+                elf_path.with_extension("")
+            };
+            cmd.arg("--diff");
+            assert!(
+                reference.is_file(),
+                "P2E DiffTest workload ELF not found: {}",
+                reference.display()
+            );
+            cmd.arg("--image-elf").arg(reference);
+        }
     }
 
     fn timeout(&self) -> Duration {

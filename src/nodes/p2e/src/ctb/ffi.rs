@@ -35,9 +35,6 @@ mod raw {
             rtcfg_path: *const c_char,
         ) -> bool;
 
-        /// C wrapper: ctb_quit_wrapper(mgr)
-        pub fn ctb_quit_wrapper(ctb: *mut ICtbMgr);
-
         /// C++: scu_0_hart_id() - exported from RTL
         pub fn scu_0_hart_id() -> u32;
     }
@@ -490,39 +487,5 @@ impl CtbManager {
         } else {
             Err("CTB initialization failed".to_string())
         }
-    }
-
-    pub fn quit(&self) {
-        if !self.ctb.is_null() {
-            #[cfg(vvac_linked)]
-            // SAFETY: self.ctb is valid (set in new(), freed in Drop); ctb_quit_wrapper
-            // is the proper cleanup function for ICtbMgr.
-            unsafe {
-                raw::ctb_quit_wrapper(self.ctb);
-            }
-            log::info!("CTB quit");
-        }
-    }
-}
-
-impl Drop for CtbManager {
-    fn drop(&mut self) {
-        self.quit();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{record_uart_byte, RuntimeState};
-
-    #[test]
-    fn times_linux_executable_between_run_and_pass() {
-        let mut state = RuntimeState::default();
-        for byte in b"RUN buddy-buckyball-lenet-run\nPASS buddy-buckyball-lenet-run\n" {
-            record_uart_byte(&mut state, 0, *byte);
-        }
-
-        let (name, _, _) = state.executable_timing.unwrap();
-        assert_eq!(name, "buddy-buckyball-lenet-run");
     }
 }

@@ -16,7 +16,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// M4 tracks concurrent writers per <InstID, LogicalBankID> and emits records
+// Track concurrent writers per <InstID, LogicalBankID> and emit records
 // only when instruction completion and issued==arrived establish a Bank-Stable
 // Boundary. Fast/checkpoint-parallel execution remains a later milestone.
 //
@@ -40,15 +40,11 @@ use std::path::Path;
 use bebop_fd_redirect::FdRedirect;
 
 #[cfg(feature = "verilator")]
-use bebop_verilator::{
-    exit_code, init_trace, setup_ctrlc_handler, should_exit, write_trace_summary, Simulator, TraceConfig,
-};
+use bebop_verilator::{exit_code, init_trace, write_trace_summary, Simulator, TraceConfig};
 
 #[cfg(all(feature = "verilator", feature = "bemu"))]
-use bebop_verilator::{finish_bank_digest, poll_bank_digest, BankDigestConfig};
-
 #[cfg(all(feature = "verilator", feature = "bemu"))]
-use crate::simulation::difftest::DiffSession;
+use crate::simulation::lib::difftest::DiffSession;
 
 #[cfg(feature = "verilator")]
 use super::console::ConsoleServer;
@@ -93,7 +89,6 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     //===----------------------------------------------------------------------===//
     // Configuration Checks
     //===----------------------------------------------------------------------===//
-    setup_ctrlc_handler();
     if config.fast {
         return Err(Whatever::without_source(
             "Verilator fast run is not supported yet".to_string(),
@@ -110,21 +105,12 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     let stderr_file = config.log_dir.join("stderr.log");
     let fst_file = config.log_dir.join("waveform").join("waveform.fst");
 
-    #[cfg(feature = "bemu")]
-    let bank_digest = config.diff.then(|| {
-        let (bank_size, row_bytes) = bebop_bemu::private_bank_geometry();
-        BankDigestConfig::new(bank_size, row_bytes)
-    });
-
-    #[cfg(not(feature = "bemu"))]
-    let bank_digest = None;
     let trace_config = TraceConfig {
         itrace: config.trace.itrace,
         mtrace: config.trace.mtrace,
         pmctrace: config.trace.pmctrace,
         ctrace: config.trace.ctrace,
-        banktrace: config.trace.banktrace || config.diff,
-        bank_digest,
+        banktrace: config.trace.banktrace,
     };
 
     println!("ELF file: {}", config.elf.display());
@@ -158,7 +144,7 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     #[cfg(feature = "bemu")]
     let mut diff_session = config
         .diff
-        .then(|| DiffSession::new(&config.elf, &config.log_dir, false))
+        .then(|| DiffSession::new(&config.elf, &config.log_dir))
         .transpose()?;
 
     //===----------------------------------------------------------------------===//
@@ -170,15 +156,8 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
             break;
         }
         #[cfg(feature = "bemu")]
-        if config.diff {
-            poll_bank_digest().map_err(Whatever::without_source)?;
-        }
-        #[cfg(feature = "bemu")]
         if let Some(diff) = diff_session.as_mut() {
-            diff.step_golden()?;
-        }
-        if should_exit() {
-            break;
+            diff.sync_golden()?;
         }
     }
     console.poll_tx();
@@ -190,12 +169,12 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     simulator.finalize();
 
     #[cfg(feature = "bemu")]
-    let diff_summary = if let Some(mut diff) = diff_session {
-        finish_bank_digest().map_err(Whatever::without_source)?;
-        diff.finish_golden()?;
-        Some(diff.finish()?)
+    let diff_passed = if let Some(mut diff) = diff_session {
+        diff.sync_golden()?;
+        diff.finish()?;
+        true
     } else {
-        None
+        false
     };
 
     drop(console);
@@ -207,28 +186,11 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     write_disasm_log(&stderr_file)?;
 
     #[cfg(feature = "bemu")]
-    if let Some(summary) = diff_summary.as_ref() {
-        println!(
-            "Bank DiffTest M4 summary: pass={} mismatch={} missing_rtl={} unexpected_rtl={}",
-            summary.pass, summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
-        );
+    if diff_passed {
+        println!("Bank DiffTest passed");
     }
     if code != 0 {
-        #[cfg(feature = "bemu")]
-        if let Some(summary) = diff_summary.as_ref().filter(|summary| !summary.passed()) {
-            return Err(Whatever::without_source(format!(
-                "Verilator exited with code {code}; Bank DiffTest M4 failed: mismatch={} missing_rtl={} unexpected_rtl={}",
-                summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
-            )));
-        }
         return Err(Whatever::without_source(format!("Verilator exited with code {code}")));
-    }
-    #[cfg(feature = "bemu")]
-    if let Some(summary) = diff_summary.filter(|summary| !summary.passed()) {
-        return Err(Whatever::without_source(format!(
-            "Bank DiffTest M4 failed: mismatch={} missing_rtl={} unexpected_rtl={}",
-            summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
-        )));
     }
     Ok(())
 }

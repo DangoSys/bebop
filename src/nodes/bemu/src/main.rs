@@ -45,7 +45,7 @@ fn run() -> Result<(), String> {
     bemu.init_hart(args.pk).map_err(|e| e.to_string())?;
     let started = args.tool_profile.then(Instant::now);
     while !bemu.finished() {
-        bemu.step().map_err(|e| e.to_string())?;
+        bemu.step(10_000).map_err(|e| e.to_string())?;
     }
     if let Some(started) = started {
         let report = bemu

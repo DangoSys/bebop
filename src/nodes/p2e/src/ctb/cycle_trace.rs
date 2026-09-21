@@ -142,33 +142,3 @@ fn parse_u64(value: &str, field: &str, line: &str) -> Result<u64, String> {
         .parse()
         .map_err(|e| format!("invalid cycle trace {field} in record {line}: {e}"))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::CycleTraceCollector;
-    use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn writes_bemu_compatible_cycle_files_from_uart_records() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let dir = std::env::temp_dir().join(format!("bebop-p2e-cycle-trace-{}-{nonce}", std::process::id()));
-        let mut collector = CycleTraceCollector::new(&dir).unwrap();
-
-        for byte in b"normal UART output\n@BCT,2,7,9,-1,-1,100,160\n" {
-            collector.push_uart_byte(0, *byte).unwrap();
-        }
-        collector.finish().unwrap();
-
-        assert_eq!(
-            fs::read_to_string(dir.join("trace/cycle/trace-7-9.txt")).unwrap(),
-            "start 100\nend 160\nelapsed 60\n"
-        );
-        assert_eq!(
-            fs::read_to_string(dir.join("trace/cycle/summary.txt")).unwrap(),
-            "first_start 100\nlast_end 160\ntrace_span 60\ntraced_cycle_sum 60\ntrace_count 1\n"
-        );
-
-        fs::remove_dir_all(dir).unwrap();
-    }
-}

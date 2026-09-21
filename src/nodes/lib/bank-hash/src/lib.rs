@@ -1,83 +1,53 @@
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use snafu::{FromString, ResultExt, Whatever};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
-use xxhash_rust::xxh64::xxh64;
 
 mod comparator;
 
-pub use comparator::{
-    compare_offline, run_online_with_summary as run_online_compare_with_summary, BankDigestCompareResult,
-    BankDigestComparison, BankHashCompareSummary,
-};
-
-/// DiffTest-N uses XXH64 with a fixed seed on both sides of the interface.
-pub const BANK_DIGEST_SEED: u64 = 0;
+pub use comparator::{compare_offline, CompareResult, Comparison};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum BankHashSource {
+pub enum BTraceSource {
     Rtl,
     Bemu,
 }
 
-/// Architectural bank identity shared by BEMU and RTL.
-///
-/// Physical SRAM slots are intentionally excluded: an mset operation may bind
-/// the same virtual bank group to a different physical slot on either side.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-pub struct LogicalBankId {
+pub const INVALID_VBANK: u32 = u32::MAX;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct BTraceBank {
     pub vbank_id: u32,
-    pub group_id: u32,
-}
-
-impl LogicalBankId {
-    pub const fn new(vbank_id: u32, group_id: u32) -> Self {
-        Self { vbank_id, group_id }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BankHashRecordType {
-    BankDigest,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BankHashEventClass {
-    BootInit,
-    ControlOnly,
-    ConfigOnly,
-    MemoryOnly,
-    BankDataWrite,
-    Unknown,
+    #[serde(rename = "hash_u32")]
+    pub hash: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BankHashTime {
+pub enum BTraceTime {
     Cycle(u64),
     VerilatorTime(u64),
 }
 
-/// comparison record: <InstID, LogicalBankID, Digest>.
+/// comparison record: <InstID, LogicalBankID, Hash>.
 ///
 /// The remaining fields are diagnostic metadata and never participate in
 /// record alignment.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct BankDigestRecord {
+pub struct BTraceRecord {
     #[serde(rename = "type")]
-    pub record_type: BankHashRecordType,
-    pub source: BankHashSource,
-    pub instruction_id: u64,
-    pub bank_id: LogicalBankId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub physical_bank_id: Option<u32>,
-    #[serde(rename = "digest_u64")]
-    pub digest: u64,
+    pub record_type: String,
+    pub source: BTraceSource,
+    pub inst_id: u64,
+    pub hart_id: u64,
+    pub r0: BTraceBank,
+    pub r1: BTraceBank,
+    pub w0: BTraceBank,
     pub funct7: u32,
     pub op_type: String,
-    pub event_class: BankHashEventClass,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cycle: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -88,36 +58,36 @@ pub struct BankDigestRecord {
     pub original_record_ref: Option<String>,
 }
 
-impl BankDigestRecord {
+impl BTraceRecord {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        source: BankHashSource,
-        instruction_id: u64,
-        bank_id: LogicalBankId,
-        physical_bank_id: Option<u32>,
-        digest: u64,
+        source: BTraceSource,
+        inst_id: u64,
+        hart_id: u64,
+        r0: BTraceBank,
+        r1: BTraceBank,
+        w0: BTraceBank,
         funct7: u32,
         op_type: impl Into<String>,
-        event_class: BankHashEventClass,
-        time: BankHashTime,
+        time: BTraceTime,
         pc: Option<u64>,
         original_record_ref: Option<String>,
     ) -> Self {
         let (cycle, verilator_time) = match time {
-            BankHashTime::Cycle(cycle) => (Some(cycle), None),
-            BankHashTime::VerilatorTime(time) => (None, Some(time)),
+            BTraceTime::Cycle(cycle) => (Some(cycle), None),
+            BTraceTime::VerilatorTime(time) => (None, Some(time)),
         };
 
         Self {
-            record_type: BankHashRecordType::BankDigest,
+            record_type: "btrace".to_string(),
             source,
-            instruction_id,
-            bank_id,
-            physical_bank_id,
-            digest,
+            inst_id,
+            hart_id,
+            r0,
+            r1,
+            w0,
             funct7,
             op_type: op_type.into(),
-            event_class,
             cycle,
             verilator_time,
             pc,
@@ -132,105 +102,187 @@ impl BankDigestRecord {
     }
 }
 
-static RUNTIME_PACKET_SINK: OnceLock<Mutex<Option<Sender<BankDigestRecord>>>> = OnceLock::new();
-static RUNTIME_PACKETS_SUBMITTED: AtomicU64 = AtomicU64::new(0);
-static RUNTIME_PACKETS_NO_SINK: AtomicU64 = AtomicU64::new(0);
-static RUNTIME_PACKETS_SEND_FAILED: AtomicU64 = AtomicU64::new(0);
-
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct RuntimePacketStatus {
-    pub submitted: u64,
-    pub no_sink: u64,
-    pub send_failed: u64,
+pub struct Progress {
+    pub subject: u64,
+    pub golden: u64,
 }
 
-fn get_runtime_packet_sink() -> &'static Mutex<Option<Sender<BankDigestRecord>>> {
-    RUNTIME_PACKET_SINK.get_or_init(|| Mutex::new(None))
+struct Session {
+    subject: BTreeMap<comparator::CompareKey, BTraceRecord>,
+    golden: BTreeMap<comparator::CompareKey, BTraceRecord>,
+    compared: BTreeSet<comparator::CompareKey>,
+    writer: BufWriter<File>,
+    output: PathBuf,
+    progress: Progress,
+    failure: Option<String>,
 }
 
-pub fn init_runtime_packet_channel() -> Receiver<BankDigestRecord> {
-    let (sender, receiver) = mpsc::channel::<BankDigestRecord>();
-    *get_runtime_packet_sink().lock().unwrap() = Some(sender);
-    RUNTIME_PACKETS_SUBMITTED.store(0, Ordering::Relaxed);
-    RUNTIME_PACKETS_NO_SINK.store(0, Ordering::Relaxed);
-    RUNTIME_PACKETS_SEND_FAILED.store(0, Ordering::Relaxed);
-    receiver
+static SESSION: OnceLock<Mutex<Option<Session>>> = OnceLock::new();
+
+fn session() -> &'static Mutex<Option<Session>> {
+    SESSION.get_or_init(|| Mutex::new(None))
 }
 
-pub fn submit_runtime_bank_digest(record: &BankDigestRecord) {
-    if let Some(sink) = get_runtime_packet_sink().lock().unwrap().as_ref() {
-        if sink.send(record.clone()).is_ok() {
-            RUNTIME_PACKETS_SUBMITTED.fetch_add(1, Ordering::Relaxed);
-        } else {
-            RUNTIME_PACKETS_SEND_FAILED.fetch_add(1, Ordering::Relaxed);
+pub fn start(output: PathBuf) -> Result<(), Whatever> {
+    let mut slot = session().lock().unwrap();
+    assert!(slot.is_none(), "DiffTest session is already active");
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)
+            .whatever_context(format!("failed to create output directory {}", parent.display()))?;
+    }
+    let writer = File::create(&output)
+        .map(BufWriter::new)
+        .whatever_context(format!("failed to create {}", output.display()))?;
+    *slot = Some(Session {
+        subject: BTreeMap::new(),
+        golden: BTreeMap::new(),
+        compared: BTreeSet::new(),
+        writer,
+        output,
+        progress: Progress::default(),
+        failure: None,
+    });
+    Ok(())
+}
+
+pub fn observe(record: &BTraceRecord) {
+    let mut slot = session().lock().unwrap();
+    let Some(state) = slot.as_mut() else {
+        return;
+    };
+    let key = comparator::CompareKey::from(record);
+    if state.compared.contains(&key) {
+        state.failure = Some("duplicate BTrace record after comparison".to_string());
+        return;
+    }
+    let pair = match record.source {
+        BTraceSource::Rtl => {
+            state.progress.subject += 1;
+            if let Some(golden) = state.golden.remove(&key) {
+                Some((record.clone(), golden))
+            } else {
+                if state.subject.insert(key, record.clone()).is_some() {
+                    state.failure = Some("duplicate subject BTrace record".to_string());
+                }
+                None
+            }
         }
-    } else {
-        RUNTIME_PACKETS_NO_SINK.fetch_add(1, Ordering::Relaxed);
+        BTraceSource::Bemu => {
+            state.progress.golden += 1;
+            if let Some(subject) = state.subject.remove(&key) {
+                Some((subject, record.clone()))
+            } else {
+                if state.golden.insert(key, record.clone()).is_some() {
+                    state.failure = Some("duplicate golden BTrace record".to_string());
+                }
+                None
+            }
+        }
+    };
+    if let Some((subject, golden)) = pair {
+        let comparison = comparator::compare(key, Some(&subject), Some(&golden));
+        if let Err(error) = write(&mut state.writer, &state.output, &comparison) {
+            state.failure = Some(error.to_string());
+            return;
+        }
+        state.compared.insert(key);
+        if comparison.result == CompareResult::Mismatch {
+            state.failure = Some(format!(
+                "Bank DiffTest mismatch: hart={} inst={}",
+                key.hart_id, key.inst_id
+            ));
+        }
     }
 }
 
-pub fn runtime_packet_status() -> RuntimePacketStatus {
-    RuntimePacketStatus {
-        submitted: RUNTIME_PACKETS_SUBMITTED.load(Ordering::Relaxed),
-        no_sink: RUNTIME_PACKETS_NO_SINK.load(Ordering::Relaxed),
-        send_failed: RUNTIME_PACKETS_SEND_FAILED.load(Ordering::Relaxed),
-    }
+pub fn progress() -> Progress {
+    session()
+        .lock()
+        .unwrap()
+        .as_ref()
+        .expect("DiffTest session is active")
+        .progress
 }
 
-pub fn shutdown_runtime_packet_channel() {
-    get_runtime_packet_sink().lock().unwrap().take();
+pub fn failure() -> Option<String> {
+    session()
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.failure.clone())
 }
 
-/// Hashes the complete canonical bank byte sequence using XXH64(seed = 0).
-pub fn bank_hash(bytes: &[u8]) -> u64 {
-    xxh64(bytes, BANK_DIGEST_SEED)
+pub fn finish() -> Result<(), Whatever> {
+    let mut state = session().lock().unwrap().take().expect("DiffTest session is active");
+    if let Some(message) = state.failure {
+        return Err(Whatever::without_source(message));
+    }
+    let remaining = compare_offline(state.subject.into_values(), state.golden.into_values());
+    for comparison in &remaining {
+        write(&mut state.writer, &state.output, comparison)?;
+    }
+    state
+        .writer
+        .flush()
+        .whatever_context("failed to flush bank hash comparison output")?;
+    if let Some(comparison) = remaining.first() {
+        return Err(Whatever::without_source(format!(
+            "unmatched BTrace record: hart={} inst={}",
+            comparison.hart_id, comparison.inst_id
+        )));
+    }
+    Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::Value;
+pub fn cancel() {
+    session().lock().unwrap().take();
+}
 
-    #[test]
-    fn xxh64_matches_known_vectors() {
-        assert_eq!(bank_hash(b""), 0xef46_db37_51d8_e999);
-        assert_eq!(bank_hash(b"hello"), 0x26c7_827d_889f_6da3);
+fn write(writer: &mut BufWriter<File>, output: &PathBuf, comparison: &Comparison) -> Result<(), Whatever> {
+    serde_json::to_writer(&mut *writer, comparison)
+        .whatever_context(format!("failed to write {}", output.display()))?;
+    writer
+        .write_all(b"\n")
+        .whatever_context(format!("failed to write {}", output.display()))?;
+    writer
+        .flush()
+        .whatever_context(format!("failed to flush {}", output.display()))?;
+    Ok(())
+}
+
+fn rotate_left(value: u32, amount: u32) -> u32 {
+    value.rotate_left(amount)
+}
+
+pub fn bank_row_hash(addr: u32, row: &[u8]) -> u32 {
+    assert_eq!(row.len(), 16, "bank hash requires 16-byte rows");
+    let word0 = u32::from_le_bytes(row[..4].try_into().expect("row word 0"));
+    let word1 = u32::from_le_bytes(row[4..8].try_into().expect("row word 1"));
+    let word2 = u32::from_le_bytes(row[8..12].try_into().expect("row word 2"));
+    let word3 = u32::from_le_bytes(row[12..].try_into().expect("row word 3"));
+    if word0 == 0 && word1 == 0 && word2 == 0 && word3 == 0 {
+        return 0;
     }
+    word0 ^ rotate_left(word1, 7) ^ rotate_left(word2, 13) ^ rotate_left(word3, 21) ^ rotate_left(addr, 11)
+}
 
-    #[test]
-    fn changing_one_byte_changes_digest() {
-        let before = b"bebop-bank-hash";
-        let mut after = *before;
-        after[0] ^= 0x01;
+pub fn bank_hash(bytes: &[u8], row_bytes: usize) -> u32 {
+    assert_eq!(row_bytes, 16, "bank hash requires 16-byte rows");
+    assert_eq!(bytes.len() % row_bytes, 0, "bank must contain complete rows");
+    bytes
+        .chunks_exact(row_bytes)
+        .enumerate()
+        .fold(0u32, |hash, (addr, row)| {
+            hash.wrapping_add(bank_row_hash(
+                u32::try_from(addr).expect("bank row address exceeds u32"),
+                row,
+            ))
+        })
+}
 
-        assert_ne!(bank_hash(before), bank_hash(&after));
-    }
-
-    #[test]
-    fn bank_digest_record_serializes_canonical_identity() {
-        let record = BankDigestRecord::new(
-            BankHashSource::Bemu,
-            42,
-            LogicalBankId::new(7, 2),
-            Some(11),
-            bank_hash(b"payload"),
-            64,
-            "funct7_64",
-            BankHashEventClass::BankDataWrite,
-            BankHashTime::Cycle(1234),
-            Some(0x8000_1000),
-            Some("bemu_bank_digest.ndjson:1".into()),
-        );
-
-        let line = record.to_ndjson().expect("record should serialize");
-        assert!(line.ends_with('\n'));
-        let value: Value = serde_json::from_str(line.trim_end()).unwrap();
-        assert_eq!(value["type"], "bank_digest");
-        assert_eq!(value["source"], "BEMU");
-        assert_eq!(value["instruction_id"], 42);
-        assert_eq!(value["bank_id"]["vbank_id"], 7);
-        assert_eq!(value["bank_id"]["group_id"], 2);
-        assert_eq!(value["physical_bank_id"], 11);
-        assert_eq!(value["digest_u64"], record.digest);
-    }
+pub fn combine_bank_hash(status_hash: u32, group_id: u32, pbank_id: u32, physical_hash: u32) -> u32 {
+    let mapping = group_id.rotate_left(7) ^ pbank_id.rotate_left(17);
+    let mixed = physical_hash ^ mapping ^ 0x9e37_79b9;
+    status_hash.rotate_left(5) ^ mixed ^ mixed.rotate_left(13)
 }

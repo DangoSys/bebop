@@ -33,7 +33,7 @@ pub struct BemuInstance {
 
 impl BemuInstance {
     pub fn new(log_dir: &Path, trace_config: TraceConfig, disasm: bool, profile: bool) -> Result<Self, Whatever> {
-        crate::config::configure_default();
+        crate::config::configure_core(0);
         Ok(Self {
             spike: SpikeInstance::new(log_dir, trace_config, disasm, profile, 0, None)
                 .whatever_context("failed to create spike instance")?,
@@ -84,8 +84,8 @@ impl BemuInstance {
             .whatever_context("failed to initialize bemu hart")
     }
 
-    pub fn step(&mut self) -> Result<(), Whatever> {
-        self.spike.step().whatever_context("bemu step failed")
+    pub fn step(&mut self, count: u64) -> Result<(), Whatever> {
+        self.spike.step(count).whatever_context("bemu step failed")
     }
 
     pub fn barrier_hit(&self) -> bool {

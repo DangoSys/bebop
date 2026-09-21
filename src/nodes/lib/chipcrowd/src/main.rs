@@ -10,7 +10,11 @@ fn main() {
         match arg.as_str() {
             "--listen" => listen = args.next().unwrap_or_else(|| usage("--listen requires an address")),
             "--api-key" => api_key = args.next().unwrap_or_else(|| usage("--api-key requires a value")),
-            "--transport" => transport = args.next().unwrap_or_else(|| usage("--transport requires mock or fpga")),
+            "--transport" => {
+                transport = args
+                    .next()
+                    .unwrap_or_else(|| usage("--transport requires mock or fpga"))
+            }
             "--help" | "-h" => usage(""),
             other => usage(&format!("unknown argument: {other}")),
         }
@@ -21,11 +25,16 @@ fn main() {
         "fpga" => Service::new(registry, api_key, FpgaTransport).serve(&listen),
         _ => usage("--transport must be mock or fpga"),
     };
-    if let Err(error) = result { eprintln!("chipcrowd failed: {error}"); std::process::exit(1); }
+    if let Err(error) = result {
+        eprintln!("chipcrowd failed: {error}");
+        std::process::exit(1);
+    }
 }
 
 fn usage(message: &str) -> ! {
-    if !message.is_empty() { eprintln!("error: {message}"); }
+    if !message.is_empty() {
+        eprintln!("error: {message}");
+    }
     eprintln!("usage: chipcrowd [--listen HOST:PORT] [--api-key KEY] [--transport mock|fpga]");
     std::process::exit(if message.is_empty() { 0 } else { 2 });
 }

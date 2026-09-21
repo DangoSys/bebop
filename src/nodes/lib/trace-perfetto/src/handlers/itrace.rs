@@ -7,12 +7,12 @@ use serde_json::{json, Map, Value};
 pub fn on_itrace(state: &mut State, obj: &Map<String, Value>, line_no: usize, ts: u64) -> Result<(), ConvertError> {
     let event = req_str(obj, "event", line_no)?;
     let rob_id = req_u64_flex(obj, "rob_id", line_no)?;
+    let inst_id = req_u64_flex(obj, "inst_id", line_no)?;
+    let hart_id = req_u64_flex(obj, "hart_id", line_no)?;
     let domain_id = req_u64_flex(obj, "domain_id", line_no)?;
     let funct = req_str(obj, "funct", line_no)?;
-    let bank_enable = req_u64_flex(obj, "bank_enable", line_no)?;
-    let bank = req_str(obj, "bank", line_no)?;
     let pc = req_str(obj, "pc", line_no)?;
-    let name = format!("rob#{rob_id}");
+    let name = format!("inst#{inst_id}");
 
     match event {
         "alloc" => on_alloc(
@@ -21,15 +21,15 @@ pub fn on_itrace(state: &mut State, obj: &Map<String, Value>, line_no: usize, ts
             line_no,
             ts,
             rob_id,
+            inst_id,
+            hart_id,
             domain_id,
             funct,
-            bank_enable,
-            bank,
             pc,
             name,
         ),
-        "issue" => on_issue(state, obj, line_no, ts, rob_id, domain_id, funct, bank_enable, bank, pc),
-        "complete" => on_complete(state, line_no, ts, rob_id, domain_id, funct, bank_enable, bank, pc),
+        "issue" => on_issue(state, obj, line_no, ts, rob_id, inst_id, hart_id, domain_id, funct, pc),
+        "complete" => on_complete(state, line_no, ts, rob_id, inst_id, hart_id, domain_id, funct, pc),
         other => Err(ConvertError::InvalidLine {
             line: line_no,
             msg: format!("unsupported itrace event: {other}"),
@@ -43,10 +43,10 @@ fn on_alloc(
     line_no: usize,
     ts: u64,
     rob_id: u64,
+    inst_id: u64,
+    hart_id: u64,
     domain_id: u64,
     funct: &str,
-    bank_enable: u64,
-    bank: &str,
     pc: &str,
     name: String,
 ) -> Result<(), ConvertError> {
@@ -66,8 +66,8 @@ fn on_alloc(
     state.events.push(json!({
       "name": name, "cat": "itrace", "ph": "B", "ts": ts, "pid": PID_ITRACE, "tid": domain_id,
       "args": {
-        "rob_id": rob_id, "domain_id": domain_id, "funct": funct, "bank_enable": bank_enable,
-        "bank": bank, "pc": pc, "rs1": req_str(obj, "rs1", line_no)?, "rs2": req_str(obj, "rs2", line_no)?
+        "hart_id": hart_id, "rob_id": rob_id, "inst_id": inst_id, "domain_id": domain_id,
+        "funct": funct, "pc": pc, "rs1": req_str(obj, "rs1", line_no)?, "rs2": req_str(obj, "rs2", line_no)?
       }
     }));
     Ok(())
@@ -79,10 +79,10 @@ fn on_issue(
     line_no: usize,
     ts: u64,
     rob_id: u64,
+    inst_id: u64,
+    hart_id: u64,
     domain_id: u64,
     funct: &str,
-    bank_enable: u64,
-    bank: &str,
     pc: &str,
 ) -> Result<(), ConvertError> {
     if !state.open_rob.contains_key(&rob_id) {
@@ -95,8 +95,8 @@ fn on_issue(
       "name": "issue", "cat": "itrace", "ph": "i", "s": "t", "ts": ts,
       "pid": PID_ITRACE, "tid": domain_id,
       "args": {
-        "rob_id": rob_id, "domain_id": domain_id, "funct": funct, "bank_enable": bank_enable,
-        "bank": bank, "pc": pc, "rs1": req_str(obj, "rs1", line_no)?, "rs2": req_str(obj, "rs2", line_no)?
+        "hart_id": hart_id, "rob_id": rob_id, "inst_id": inst_id, "domain_id": domain_id,
+        "funct": funct, "pc": pc, "rs1": req_str(obj, "rs1", line_no)?, "rs2": req_str(obj, "rs2", line_no)?
       }
     }));
     Ok(())
@@ -107,10 +107,10 @@ fn on_complete(
     line_no: usize,
     ts: u64,
     rob_id: u64,
+    inst_id: u64,
+    hart_id: u64,
     domain_id: u64,
     funct: &str,
-    bank_enable: u64,
-    bank: &str,
     pc: &str,
 ) -> Result<(), ConvertError> {
     let open = state
@@ -131,7 +131,7 @@ fn on_complete(
     }
     state.events.push(json!({
     "name": open.name, "cat": "itrace", "ph": "E", "ts": ts, "pid": PID_ITRACE, "tid": domain_id,
-    "args": { "rob_id": rob_id, "domain_id": domain_id, "funct": funct, "bank_enable": bank_enable, "bank": bank, "pc": pc }
+    "args": { "hart_id": hart_id, "rob_id": rob_id, "inst_id": inst_id, "domain_id": domain_id, "funct": funct, "pc": pc }
   }));
     Ok(())
 }

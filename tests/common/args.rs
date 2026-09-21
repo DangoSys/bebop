@@ -76,8 +76,10 @@ impl RegressionArgs {
 
     /// P2E bitstream path read from BEBOP_P2E_BITSTREAM env var.
     #[cfg(feature = "p2e")]
-    pub fn p2e_bitstream(&self) -> Option<PathBuf> {
-        std::env::var_os(ENV_P2E_BITSTREAM).map(PathBuf::from)
+    pub fn p2e_bitstream(&self) -> PathBuf {
+        std::env::var_os(ENV_P2E_BITSTREAM)
+            .map(PathBuf::from)
+            .expect("BEBOP_P2E_BITSTREAM is required")
     }
 
     /// P2E build dir read from BEBOP_P2E_BUILD_DIR env var.

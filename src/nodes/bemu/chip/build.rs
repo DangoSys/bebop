@@ -3,7 +3,21 @@ mod build_support;
 
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+fn install_runtime_libraries(install_dir: &Path) {
+    let target_dir = PathBuf::from(env::var("CARGO_TARGET_DIR").expect("CARGO_TARGET_DIR"));
+    let profile = env::var("PROFILE").expect("PROFILE");
+    let destination = target_dir.join(profile).join("bemu-runtime");
+    fs::create_dir_all(&destination).expect("create BEMU runtime directory");
+    for entry in fs::read_dir(install_dir.join("lib")).expect("read Spike install lib") {
+        let entry = entry.expect("read Spike runtime library entry");
+        let name = entry.file_name();
+        if name.to_string_lossy().contains(".so") {
+            fs::copy(entry.path(), destination.join(name)).expect("install BEMU runtime library");
+        }
+    }
+}
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
@@ -70,6 +84,7 @@ fn main() {
     let spike_install_dir = out_dir.join(if p2e_abi { "spike_install_p2e" } else { "spike_install" });
     let spike_build_dir = out_dir.join(if p2e_abi { "spike_build_p2e" } else { "spike_build" });
     build_support::spike::build_and_link(&native_dir, &spike_dir, &spike_build_dir, &spike_install_dir);
+    install_runtime_libraries(&spike_install_dir);
     println!(
         "cargo:rustc-env=BEBOP_BEMU_SPIKE_LIB_DIR={}",
         spike_install_dir.join("lib").display()

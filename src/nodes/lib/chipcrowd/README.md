@@ -6,7 +6,7 @@ CLI yet.
 Run a local API server with the development transport:
 
 ```bash
-cargo run --manifest-path bebop/libs/chipcrowd/Cargo.toml -- \
+cargo run --manifest-path bebop/src/nodes/lib/chipcrowd/Cargo.toml -- \
   --listen 127.0.0.1:8080 --api-key bbk-dev --transport mock
 ```
 

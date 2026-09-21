@@ -9,11 +9,10 @@ static ENABLE_ITRACE: OnceLock<Mutex<bool>> = OnceLock::new();
 static ENABLE_MTRACE: OnceLock<Mutex<bool>> = OnceLock::new();
 static ENABLE_PMCTRACE: OnceLock<Mutex<bool>> = OnceLock::new();
 static ENABLE_CTRACE: OnceLock<Mutex<bool>> = OnceLock::new();
-static ENABLE_BANKTRACE: OnceLock<Mutex<bool>> = OnceLock::new();
 static RTL_CLK: OnceLock<Mutex<u64>> = OnceLock::new();
 static ITRACE_CALLBACKS: AtomicU64 = AtomicU64::new(0);
 static MTRACE_CALLBACKS: AtomicU64 = AtomicU64::new(0);
-static MTRACE_ISSUE_CALLBACKS: AtomicU64 = AtomicU64::new(0);
+static BTRACE_CALLBACKS: AtomicU64 = AtomicU64::new(0);
 static PMC_BALL_CALLBACKS: AtomicU64 = AtomicU64::new(0);
 static PMC_MEM_CALLBACKS: AtomicU64 = AtomicU64::new(0);
 static CTRACE_CALLBACKS: AtomicU64 = AtomicU64::new(0);
@@ -25,8 +24,6 @@ pub struct TraceConfig {
     pub pmctrace: bool,
     pub ctrace: bool,
     pub banktrace: bool,
-    /// Enables the M3 Bank-Stable whole-bank digest monitor.
-    pub bank_digest: Option<crate::bank_digest::BankDigestConfig>,
 }
 
 pub fn init(log_dir: &Path, config: TraceConfig) -> io::Result<()> {
@@ -42,11 +39,10 @@ pub fn init(log_dir: &Path, config: TraceConfig) -> io::Result<()> {
     *enable_mtrace().lock().unwrap() = config.mtrace;
     *enable_pmctrace().lock().unwrap() = config.pmctrace;
     *enable_ctrace().lock().unwrap() = config.ctrace;
-    *enable_banktrace().lock().unwrap() = config.banktrace;
-    crate::bank_digest::init(log_dir, config.bank_digest)?;
+    crate::banktrace::init(log_dir, config.banktrace)?;
     ITRACE_CALLBACKS.store(0, Ordering::Relaxed);
     MTRACE_CALLBACKS.store(0, Ordering::Relaxed);
-    MTRACE_ISSUE_CALLBACKS.store(0, Ordering::Relaxed);
+    BTRACE_CALLBACKS.store(0, Ordering::Relaxed);
     PMC_BALL_CALLBACKS.store(0, Ordering::Relaxed);
     PMC_MEM_CALLBACKS.store(0, Ordering::Relaxed);
     CTRACE_CALLBACKS.store(0, Ordering::Relaxed);
@@ -78,10 +74,6 @@ pub fn ctrace_enabled() -> bool {
     *enable_ctrace().lock().unwrap()
 }
 
-pub fn banktrace_enabled() -> bool {
-    *enable_banktrace().lock().unwrap()
-}
-
 pub fn write_trace(json: &str) {
     if let Some(ref mut file) = *trace_file().lock().unwrap() {
         writeln!(file, "{json}").ok();
@@ -97,8 +89,8 @@ pub fn record_mtrace_callback() {
     MTRACE_CALLBACKS.fetch_add(1, Ordering::Relaxed);
 }
 
-pub fn record_mtrace_issue_callback() {
-    MTRACE_ISSUE_CALLBACKS.fetch_add(1, Ordering::Relaxed);
+pub fn record_btrace_callback() {
+    BTRACE_CALLBACKS.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn record_pmc_ball_callback() {
@@ -116,13 +108,13 @@ pub fn record_ctrace_callback() {
 pub fn write_callback_summary(log_dir: &Path) -> io::Result<()> {
     let json = format!(
         concat!(
-            "{{\"itrace_callbacks\":{},\"mtrace_callbacks\":{},\"mtrace_issue_callbacks\":{},",
+            "{{\"itrace_callbacks\":{},\"mtrace_callbacks\":{},\"btrace_callbacks\":{},",
             "\"pmctrace_ball_callbacks\":{},\"pmctrace_mem_callbacks\":{},",
             "\"ctrace_callbacks\":{}}}\n"
         ),
         ITRACE_CALLBACKS.load(Ordering::Relaxed),
         MTRACE_CALLBACKS.load(Ordering::Relaxed),
-        MTRACE_ISSUE_CALLBACKS.load(Ordering::Relaxed),
+        BTRACE_CALLBACKS.load(Ordering::Relaxed),
         PMC_BALL_CALLBACKS.load(Ordering::Relaxed),
         PMC_MEM_CALLBACKS.load(Ordering::Relaxed),
         CTRACE_CALLBACKS.load(Ordering::Relaxed),
@@ -152,8 +144,4 @@ fn enable_pmctrace() -> &'static Mutex<bool> {
 
 fn enable_ctrace() -> &'static Mutex<bool> {
     ENABLE_CTRACE.get_or_init(|| Mutex::new(false))
-}
-
-fn enable_banktrace() -> &'static Mutex<bool> {
-    ENABLE_BANKTRACE.get_or_init(|| Mutex::new(false))
 }

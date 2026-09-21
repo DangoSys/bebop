@@ -1,50 +1,44 @@
+use bebop_bank_hash::{observe, BTraceBank, BTraceRecord, BTraceSource, BTraceTime};
+use std::fs::{File, OpenOptions};
+use std::io::{self, Write};
+use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+
 use crate::state;
 
-pub struct BankTraceEvent {
-    pub event: &'static str,
-    pub is_shared: u8,
-    pub vbank_id: u32,
-    pub pbank_id: u32,
-    pub group_id: u32,
-    pub addr: u32,
-    pub data_lo: Option<u64>,
-    pub data_hi: Option<u64>,
+static OUTPUT: OnceLock<Mutex<Option<File>>> = OnceLock::new();
+
+pub fn init(log_dir: &Path, enabled: bool) -> io::Result<()> {
+    let output = enabled
+        .then(|| {
+            OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(log_dir.join("rtl_btrace.ndjson"))
+        })
+        .transpose()?;
+    *OUTPUT.get_or_init(|| Mutex::new(None)).lock().unwrap() = output;
+    Ok(())
 }
 
-pub fn banktrace(event: BankTraceEvent) {
-    if !state::banktrace_enabled() {
-        return;
+pub fn btrace(inst_id: u64, hart_id: u64, r0: BTraceBank, r1: BTraceBank, w0: BTraceBank) {
+    let record = BTraceRecord::new(
+        BTraceSource::Rtl,
+        inst_id,
+        hart_id,
+        r0,
+        r1,
+        w0,
+        0,
+        "btrace".to_string(),
+        BTraceTime::Cycle(state::rtl_clk()),
+        None,
+        None,
+    );
+    if let Some(output) = OUTPUT.get_or_init(|| Mutex::new(None)).lock().unwrap().as_mut() {
+        write!(output, "{}", record.to_ndjson().unwrap()).unwrap();
+        output.flush().unwrap();
     }
-
-    let clk = state::rtl_clk();
-    let json = match (event.data_lo, event.data_hi) {
-        (Some(data_lo), Some(data_hi)) => format!(
-            r#"{{"type":"banktrace","clk":{},"event":"{}","bank_id":{},"row":{},"is_shared":{},"vbank_id":{},"pbank_id":{},"group_id":{},"addr":"0x{:08x}","data":"0x{:016x}{:016x}"}}"#,
-            clk,
-            event.event,
-            event.pbank_id,
-            event.addr,
-            event.is_shared,
-            event.vbank_id,
-            event.pbank_id,
-            event.group_id,
-            event.addr,
-            data_hi,
-            data_lo
-        ),
-        _ => format!(
-            r#"{{"type":"banktrace","clk":{},"event":"{}","bank_id":{},"row":{},"is_shared":{},"vbank_id":{},"pbank_id":{},"group_id":{},"addr":"0x{:08x}"}}"#,
-            clk,
-            event.event,
-            event.pbank_id,
-            event.addr,
-            event.is_shared,
-            event.vbank_id,
-            event.pbank_id,
-            event.group_id,
-            event.addr
-        ),
-    };
-
-    state::write_trace(&json);
+    observe(&record);
 }

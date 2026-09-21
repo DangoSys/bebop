@@ -35,8 +35,6 @@ proc run_workload {cycles wave wave_start} {
 
     while {1} {
         incr iteration
-        puts "  Iteration $iteration: running $cycles cycles..."
-        # run $cycles rclk
 
         if {$wave} {
             if {$total_cycles + $cycles <= $wave_start} {

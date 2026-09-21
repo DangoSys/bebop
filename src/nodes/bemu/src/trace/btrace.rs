@@ -1,13 +1,11 @@
 use super::trace::with_current_trace;
-use bebop_bank_hash::{
-    submit_runtime_bank_digest, BankDigestRecord, BankHashEventClass, BankHashSource, BankHashTime, LogicalBankId,
-};
+use bebop_bank_hash::{observe, BTraceBank, BTraceRecord, BTraceSource, BTraceTime};
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::Write;
 use std::path::Path;
 
-const GOLDEN_RECORD_FILE: &str = "bemu_bank_digest.ndjson";
+const GOLDEN_RECORD_FILE: &str = "bemu_btrace.ndjson";
 
 #[derive(Debug, Default)]
 pub(super) struct BtraceState {
@@ -43,28 +41,28 @@ pub(super) fn init(log_dir: &Path, enabled: bool) -> io::Result<BtraceState> {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn bemu_bank_digest(
-    instruction_id: u64,
-    vbank_id: u32,
-    group_id: u32,
-    physical_bank_id: u32,
+pub fn bemu_btrace(
+    inst_id: u64,
+    hart_id: u64,
+    r0: BTraceBank,
+    r1: BTraceBank,
+    w0: BTraceBank,
     funct7: u32,
     op_type: &str,
-    digest: u64,
     pc: u64,
 ) {
     with_current_trace(|trace| {
         let line_number = trace.btrace.next_line();
-        let record = BankDigestRecord::new(
-            BankHashSource::Bemu,
-            instruction_id,
-            LogicalBankId::new(vbank_id, group_id),
-            Some(physical_bank_id),
-            digest,
+        let record = BTraceRecord::new(
+            BTraceSource::Bemu,
+            inst_id,
+            hart_id,
+            r0,
+            r1,
+            w0,
             funct7,
             op_type,
-            BankHashEventClass::BankDataWrite,
-            BankHashTime::Cycle(trace.bemu_clk()),
+            BTraceTime::Cycle(trace.bemu_clk()),
             Some(pc),
             Some(format!("{GOLDEN_RECORD_FILE}:{line_number}")),
         );
@@ -73,6 +71,6 @@ pub fn bemu_bank_digest(
             file.write_all(line.as_bytes()).ok();
             file.flush().ok();
         }
-        submit_runtime_bank_digest(&record);
+        observe(&record);
     });
 }

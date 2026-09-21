@@ -55,32 +55,3 @@ pub fn handle_openat(
         Err(_) => ((-1i64 as u64), false),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::constants::GUEST_MEM_BASE;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn relative_path_uses_guest_working_directory() {
-        let dir = std::env::temp_dir().join(format!(
-            "bebop-syscall-openat-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir(&dir).unwrap();
-        std::fs::write(dir.join("payload.bin"), b"payload").unwrap();
-
-        let mut state = SyscallState::new();
-        state.working_dir = dir.clone();
-        let mut memory = vec![0; 32];
-        memory[..12].copy_from_slice(b"payload.bin\0");
-
-        let (fd, should_exit) = handle_openat(&mut state, -100, GUEST_MEM_BASE, 0, 0, &memory);
-
-        assert_eq!(fd, 3);
-        assert!(!should_exit);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-}

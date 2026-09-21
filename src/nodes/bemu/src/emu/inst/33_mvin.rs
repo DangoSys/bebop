@@ -1,7 +1,7 @@
 //===- 33_mvin.rs - MVIN instruction (memory to bank) ----------------------===//
 
-use super::super::bank::{bank_size, mem_read, MATRIX_SIZE};
-use super::decode::{pbank, pbank_group, rs1_b0, rs1_iter, xs2_mem_stride};
+use super::super::bank::{bank_size, MATRIX_SIZE};
+use super::decode::{pbank, pbank_group, rs1_b2, rs1_iter, xs2_mem_stride};
 use super::instruction::{ExecContext, Instruction};
 
 pub struct Mvin;
@@ -10,7 +10,7 @@ impl Instruction for Mvin {
     const FUNCT: u32 = 33;
 
     fn exec(xs1: u64, xs2: u64, ctx: &mut ExecContext) -> u64 {
-        let bank_id = rs1_b0(xs1);
+        let bank_id = rs1_b2(xs1);
         let depth = rs1_iter(xs1);
         let (mem_addr, stride) = xs2_mem_stride(xs2);
 
@@ -41,14 +41,15 @@ impl Instruction for Mvin {
                     }
                     let addr = mem_addr + row as u64 * groups as u64 * 16 * stride + group as u64 * 16;
                     for j in 0..16 {
-                        ctx.banks[p][bank_offset + j] = mem_read(ctx.memory, addr + j as u64);
+                        let value = ctx.read_memory(addr + j as u64);
+                        ctx.banks[p][bank_offset + j] = value;
                     }
                     crate::trace::mtrace(crate::trace::MTraceEvent {
                         is_write: true,
                         is_shared: crate::config::is_shared_vbank(bank_id),
                         channel: 0,
                         hart_id: ctx.hart_id as u64,
-                        rob_id: ctx.instruction_id as u32,
+                        rob_id: ctx.inst_id as u32,
                         vbank_id: bank_id as u32,
                         pbank_id: ctx.reported_physical_bank(bank_id, p),
                         group_id: group as u32,
@@ -73,14 +74,15 @@ impl Instruction for Mvin {
                     panic!("mvin: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
                 }
                 for j in 0..line_bytes {
-                    ctx.banks[p][bank_offset + j] = mem_read(ctx.memory, addr + j as u64);
+                    let value = ctx.read_memory(addr + j as u64);
+                    ctx.banks[p][bank_offset + j] = value;
                 }
                 crate::trace::mtrace(crate::trace::MTraceEvent {
                     is_write: true,
                     is_shared: crate::config::is_shared_vbank(bank_id),
                     channel: 0,
                     hart_id: ctx.hart_id as u64,
-                    rob_id: ctx.instruction_id as u32,
+                    rob_id: ctx.inst_id as u32,
                     vbank_id: bank_id as u32,
                     pbank_id: ctx.reported_physical_bank(bank_id, p),
                     group_id: 0,

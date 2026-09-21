@@ -4,14 +4,10 @@ use snafu::Whatever;
 #[cfg(feature = "p2e")]
 use std::path::PathBuf;
 #[cfg(feature = "p2e")]
-use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(feature = "p2e")]
 use std::time::Instant;
 
 #[cfg(feature = "p2e")]
 use bebop_p2e::{self};
-#[cfg(all(feature = "p2e", feature = "bemu"))]
-use bebop_rtl_trace::{finish_bank_digest, poll_bank_digest, BankDigestConfig};
 #[cfg(feature = "p2e")]
 use bebop_rtl_trace::{init_trace, write_trace_summary, TraceConfig};
 #[cfg(feature = "p2e")]
@@ -20,10 +16,7 @@ use bebop_uart::{ConsoleConfig, ConsoleServer};
 use snafu::ResultExt;
 
 #[cfg(all(feature = "p2e", feature = "bemu"))]
-use crate::simulation::difftest::DiffSession;
-
-#[cfg(feature = "p2e")]
-static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
+use crate::simulation::lib::difftest::DiffSession;
 
 #[cfg(feature = "p2e")]
 pub struct P2eRunConfig {
@@ -34,10 +27,14 @@ pub struct P2eRunConfig {
     pub multi_fpga: bool,
     pub wave: bool,
     pub wave_start: Option<u64>,
-    pub diff: bool,
-    pub golden_elf: Option<PathBuf>,
-    pub golden_pk: bool,
+    pub diff: Option<DiffConfig>,
     pub trace: P2eTraceConfig,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "p2e")]
+pub struct DiffConfig {
+    pub image_elf: PathBuf,
 }
 
 #[derive(Debug)]
@@ -55,13 +52,8 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).try_init();
     let command_started = Instant::now();
 
-    if config.diff && config.golden_elf.is_none() {
-        return Err(Whatever::without_source(
-            "P2E --diff requires --golden-elf <path>".to_string(),
-        ));
-    }
     #[cfg(not(feature = "bemu"))]
-    if config.diff {
+    if config.diff.is_some() {
         return Err(Whatever::without_source(
             "this executable was built without BEMU; rebuild P2E with --diff".to_string(),
         ));
@@ -73,9 +65,9 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     if !config.bitstream.exists() {
         snafu::whatever!("bitstream not found: {}", config.bitstream.display());
     }
-    if let Some(golden_elf) = config.golden_elf.as_ref().filter(|_| config.diff) {
-        if !golden_elf.exists() {
-            snafu::whatever!("BEMU golden ELF not found: {}", golden_elf.display());
+    if let Some(diff) = &config.diff {
+        if !diff.image_elf.exists() {
+            snafu::whatever!("P2E DiffTest image ELF not found: {}", diff.image_elf.display());
         }
     }
     if !config.log_dir.exists() {
@@ -108,12 +100,8 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     log::info!("  Multi FPGA: {}", config.multi_fpga);
     log::info!("  Waveform: {}", config.wave);
     log::info!("  Waveform Start Cycle: {}", config.wave_start.unwrap_or(0));
-    log::info!("  Bank DiffTest: {}", config.diff);
+    log::info!("  Bank DiffTest: {}", config.diff.is_some());
     log::info!("  Trace: {:?}", config.trace);
-
-    SHOULD_EXIT.store(false, Ordering::SeqCst);
-    ctrlc::set_handler(|| SHOULD_EXIT.store(true, Ordering::SeqCst))
-        .whatever_context("failed to set P2E Ctrl-C handler")?;
 
     bebop_p2e::source_environment().whatever_context("failed to initialize P2E environment")?;
     bebop_p2e::configure_vvac_environment();
@@ -121,13 +109,6 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     bebop_p2e::ffi::set_log_dir(config.log_dir.to_string_lossy().to_string());
     bebop_p2e::ffi::init_cycle_trace(&config.log_dir)
         .map_err(|e| Whatever::without_source(format!("failed to initialize P2E cycle trace collector: {e}")))?;
-    #[cfg(feature = "bemu")]
-    let bank_digest = config.diff.then(|| {
-        let (bank_size, row_bytes) = bebop_bemu::private_bank_geometry();
-        BankDigestConfig::new(bank_size, row_bytes)
-    });
-    #[cfg(not(feature = "bemu"))]
-    let bank_digest = None;
     init_trace(
         &config.log_dir,
         TraceConfig {
@@ -135,8 +116,7 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
             mtrace: config.trace.mtrace,
             pmctrace: config.trace.pmctrace,
             ctrace: config.trace.ctrace,
-            banktrace: config.trace.banktrace || config.diff,
-            bank_digest,
+            banktrace: config.trace.banktrace,
         },
     )
     .map_err(|e| Whatever::without_source(format!("failed to init P2E trace: {e}")))?;
@@ -167,42 +147,24 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let _ = std::fs::remove_file(&sim_exit_flag);
 
     let mut vdbg = bebop_p2e::start_vdbg_background(&main_tcl_path).whatever_context("failed to start P2E vdbg")?;
-    bebop_p2e::wait_for_flash(&flash_done_flag, &mut vdbg, || {
-        if SHOULD_EXIT.load(Ordering::SeqCst) {
-            return Err("P2E interrupted".to_string());
-        }
-        Ok(())
-    })
-    .whatever_context("P2E flash failed")?;
+    bebop_p2e::wait_for_flash(&flash_done_flag, &mut vdbg, || Ok(())).whatever_context("P2E flash failed")?;
 
-    let _ctb = bebop_p2e::init_ctb(&case_home, &rtcfg_path).whatever_context("failed to initialize P2E CTB")?;
     let _vdbg = vdbg.exit_on_drop(sim_exit_flag.clone());
+    let _ctb = bebop_p2e::init_ctb(&case_home, &rtcfg_path).whatever_context("failed to initialize P2E CTB")?;
     #[cfg(feature = "bemu")]
-    let diff_started = config.diff.then(Instant::now);
+    let diff_started = config.diff.as_ref().map(|_| Instant::now());
     #[cfg(feature = "bemu")]
     let mut diff_session = config
         .diff
-        .then(|| {
-            DiffSession::new(
-                config.golden_elf.as_deref().expect("validated golden ELF"),
-                &config.log_dir,
-                config.golden_pk,
-            )
-        })
+        .as_ref()
+        .map(|diff| DiffSession::new(&diff.image_elf, &config.log_dir))
         .transpose()?;
-    #[cfg(feature = "bemu")]
-    if let Some(diff) = diff_session.as_mut() {
-        diff.start_golden_background()?;
-    }
     std::fs::write(&host_init_flag, "").whatever_context("failed to signal P2E host init")?;
 
     let result = bebop_p2e::wait_for_completion(|| {
         #[cfg(feature = "bemu")]
-        if config.diff {
-            poll_bank_digest()?;
-        }
-        if SHOULD_EXIT.load(Ordering::SeqCst) {
-            return Err("P2E interrupted".to_string());
+        if let Some(diff) = diff_session.as_mut() {
+            diff.sync_golden().map_err(|error| error.to_string())?;
         }
         Ok(())
     })
@@ -214,16 +176,12 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
         .map_err(|e| Whatever::without_source(format!("failed to finalize P2E cycle trace: {e}")))?;
     let simulation_finished = Instant::now();
     #[cfg(feature = "bemu")]
-    let (diff_summary, diff_elapsed) = if let Some(mut diff) = diff_session {
-        finish_bank_digest().map_err(Whatever::without_source)?;
-        diff.finish_golden()?;
-        let summary = diff.finish()?;
-        (
-            Some(summary),
-            Some(diff_started.expect("diff session start exists").elapsed()),
-        )
+    let (diff_passed, diff_elapsed) = if let Some(mut diff) = diff_session {
+        diff.sync_golden()?;
+        diff.finish()?;
+        (true, Some(diff_started.expect("diff session start exists").elapsed()))
     } else {
-        (None, None)
+        (false, None)
     };
     let diff_finished = Instant::now();
     write_trace_summary(&config.log_dir).whatever_context("failed to write P2E RTL trace summary")?;
@@ -242,11 +200,8 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     }
 
     #[cfg(feature = "bemu")]
-    if let Some(summary) = diff_summary.as_ref() {
-        println!(
-            "Bank DiffTest M4 summary: pass={} mismatch={} missing_rtl={} unexpected_rtl={}",
-            summary.pass, summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
-        );
+    if diff_passed {
+        println!("Bank DiffTest passed");
     }
 
     let command_finished = Instant::now();
@@ -264,7 +219,7 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
             after_executable.as_secs_f64()
         ));
         #[cfg(feature = "bemu")]
-        if config.diff {
+        if config.diff.is_some() {
             timing_summary.push_str(&format!(
                 "  Bank DiffTest finalization: {:.3} s\n",
                 diff_finalize.as_secs_f64()
@@ -288,10 +243,7 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     }
     #[cfg(feature = "bemu")]
     if let Some(elapsed) = diff_elapsed {
-        timing_summary.push_str(&format!(
-            "  Bank DiffTest full session (parallel reference, excluded from total): {:.3} s\n",
-            elapsed.as_secs_f64()
-        ));
+        timing_summary.push_str(&format!("  Bank DiffTest session: {:.3} s\n", elapsed.as_secs_f64()));
     }
     print!("{timing_summary}");
     let timing_log_path = config.log_dir.join("p2e_timing.log");
@@ -299,21 +251,7 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     println!("  Timing log: {}", timing_log_path.display());
 
     if result.exit_code != 0 {
-        #[cfg(feature = "bemu")]
-        if let Some(summary) = diff_summary.as_ref().filter(|summary| !summary.passed()) {
-            return Err(Whatever::without_source(format!(
-                "P2E exited with code {}; Bank DiffTest M4 failed: mismatch={} missing_rtl={} unexpected_rtl={}",
-                result.exit_code, summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
-            )));
-        }
         snafu::whatever!("P2E exited with code {}", result.exit_code);
-    }
-    #[cfg(feature = "bemu")]
-    if let Some(summary) = diff_summary.filter(|summary| !summary.passed()) {
-        return Err(Whatever::without_source(format!(
-            "Bank DiffTest M4 failed: mismatch={} missing_rtl={} unexpected_rtl={}",
-            summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
-        )));
     }
     Ok(())
 }

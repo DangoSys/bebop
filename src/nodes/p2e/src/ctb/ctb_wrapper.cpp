@@ -63,16 +63,4 @@ void* ctb_builder_create_wrapper() {
     return result;
 }
 
-// Wrapper for vvac::ICtbMgr::quit()
-void ctb_quit_wrapper(void* mgr) {
-    std::cout << "[ctb_wrapper] ctb_quit_wrapper called" << std::endl;
-    if (!mgr) {
-        std::cout << "[ctb_wrapper] NULL mgr pointer" << std::endl;
-        return;
-    }
-    vvac::ICtbMgr* ctb_mgr = static_cast<vvac::ICtbMgr*>(mgr);
-    ctb_mgr->quit();
-    std::cout << "[ctb_wrapper] quit() completed" << std::endl;
-}
-
 } // extern "C"

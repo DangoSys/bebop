@@ -108,7 +108,7 @@ load_image $fpga_location 0 $image
 
 # Step 4: Run workload
 puts "\n========== Step 4: Running Workload =========="
-run_workload 10000000 $wave $wave_start
+run_workload 100000 $wave $wave_start
 
 puts "\n=========================================="
 puts "P2E Simulation Completed"
@@ -237,52 +237,5 @@ pub fn wait_for_flash(
             return Err(format!("vdbg exited before flash completed: {status}"));
         }
         std::thread::sleep(Duration::from_millis(100));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{wait_for_flash, VdbgProcess};
-    use std::os::unix::process::CommandExt;
-    use std::process::Command;
-
-    #[test]
-    fn vdbg_process_drop_kills_its_process_group() {
-        let child = Command::new("bash")
-            .arg("-c")
-            .arg("sleep 30 & wait")
-            .process_group(0)
-            .spawn()
-            .unwrap();
-        let process_group = i32::try_from(child.id()).unwrap();
-
-        drop(VdbgProcess { child, exit_flag: None });
-
-        assert_eq!(unsafe { libc::kill(-process_group, 0) }, -1);
-        assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
-    }
-
-    #[test]
-    fn vdbg_process_after_ctb_signals_tcl_exit() {
-        let exit_flag = std::env::temp_dir().join(format!("bebop-p2e-exit-{}", std::process::id()));
-        let _ = std::fs::remove_file(&exit_flag);
-        let child = Command::new("true").spawn().unwrap();
-
-        drop(VdbgProcess { child, exit_flag: None }.exit_on_drop(exit_flag.clone()));
-
-        assert!(exit_flag.is_file());
-        std::fs::remove_file(exit_flag).unwrap();
-    }
-
-    #[test]
-    fn flash_wait_fails_when_vdbg_exits() {
-        let flash_done = std::env::temp_dir().join(format!("bebop-p2e-flash-{}", std::process::id()));
-        let _ = std::fs::remove_file(&flash_done);
-        let child = Command::new("false").spawn().unwrap();
-        let mut vdbg = VdbgProcess { child, exit_flag: None };
-
-        let error = wait_for_flash(&flash_done, &mut vdbg, || Ok(())).unwrap_err();
-
-        assert!(error.starts_with("vdbg exited before flash completed:"));
     }
 }

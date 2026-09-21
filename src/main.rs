@@ -113,8 +113,6 @@ pub enum RunTarget {
         log_dir: PathBuf,
         #[arg(long, help = "Run with proxy kernel (Linux mode, starts in S-mode)")]
         pk: bool,
-        #[arg(long, help = "Generate DiffTest-N BEMU Golden Records")]
-        bank_digest: bool,
         // For MobileNetV3 on pebble with --pk, a run without disassembly took
         // 12m30.50s while a run with it exceeded 45m22s: at least 3.6x slower.
         #[arg(long, help = "Enable per-instruction disassembly logging")]
@@ -142,16 +140,10 @@ pub enum RunTarget {
         wave: bool,
         #[arg(long, help = "Start waveform dump from this cycle")]
         wave_start: Option<u64>,
-        #[arg(
-            long,
-            requires = "golden_elf",
-            help = "Run P2E FPGA with a BEMU Bank DiffTest golden model"
-        )]
+        #[arg(long, requires = "image_elf", help = "Compare P2E bank state against BEMU")]
         diff: bool,
-        #[arg(long, value_name = "ELF")]
-        golden_elf: Option<PathBuf>,
-        #[arg(long, help = "Initialize the BEMU golden model with proxy kernel mode")]
-        golden_pk: bool,
+        #[arg(long, value_name = "ELF", help = "ELF corresponding to --image")]
+        image_elf: Option<PathBuf>,
         #[arg(long, help = "Enable RTL instruction trace")]
         itrace: bool,
         #[arg(long, help = "Enable RTL memory trace")]
@@ -167,10 +159,12 @@ pub enum RunTarget {
 
 fn main() {
     let cli = Cli::parse();
-    let p2e_build = matches!(
+    let p2e_command = matches!(
         &cli.command,
         Commands::Build(BuildCommand {
             target: BuildTarget::P2e { .. },
+        }) | Commands::Run(RunCommand {
+            target: RunTarget::P2e { .. },
         })
     );
     let result = match cli.command {
@@ -186,7 +180,7 @@ fn main() {
         }
     };
 
-    if p2e_build {
+    if p2e_command {
         std::io::stdout().flush().expect("failed to flush stdout");
         std::io::stderr().flush().expect("failed to flush stderr");
         unsafe { libc::_exit(exit_code) };
@@ -194,74 +188,5 @@ fn main() {
 
     if exit_code != 0 {
         std::process::exit(exit_code);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn p2e_args() -> Vec<&'static str> {
-        vec![
-            "bebop",
-            "run",
-            "p2e",
-            "--image",
-            "image.hex",
-            "--bitstream",
-            "bitstream.bit",
-            "--log-dir",
-            "log",
-        ]
-    }
-
-    #[test]
-    fn parses_p2e_diff_options() {
-        let mut args = p2e_args();
-        args.extend(["--diff", "--golden-elf", "golden.elf", "--golden-pk"]);
-        let cli = Cli::try_parse_from(args).unwrap();
-        let Commands::Run(RunCommand {
-            target:
-                RunTarget::P2e {
-                    diff,
-                    golden_elf,
-                    golden_pk,
-                    ..
-                },
-        }) = cli.command
-        else {
-            panic!("expected P2E run command");
-        };
-        assert!(diff);
-        assert_eq!(golden_elf, Some(PathBuf::from("golden.elf")));
-        assert!(golden_pk);
-    }
-
-    #[test]
-    fn p2e_diff_requires_golden_elf() {
-        let mut args = p2e_args();
-        args.push("--diff");
-        let error = Cli::try_parse_from(args).unwrap_err().to_string();
-        assert!(error.contains("--golden-elf <ELF>"));
-    }
-
-    #[test]
-    fn parses_p2e_without_diff() {
-        let cli = Cli::try_parse_from(p2e_args()).unwrap();
-        let Commands::Run(RunCommand {
-            target:
-                RunTarget::P2e {
-                    diff,
-                    golden_elf,
-                    golden_pk,
-                    ..
-                },
-        }) = cli.command
-        else {
-            panic!("expected P2E run command");
-        };
-        assert!(!diff);
-        assert_eq!(golden_elf, None);
-        assert!(!golden_pk);
     }
 }
