@@ -34,6 +34,7 @@ pub struct BallDomainConfig {
 
 pub struct TileTopology {
     pub cores: Vec<(String, usize)>,
+    pub has_buckyball: bool,
     pub virtual_bank_count: usize,
     pub shared_physical_bank_count: usize,
     pub shared_bank_size: usize,
@@ -215,6 +216,12 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
         })
         .collect();
     TileTopology {
+        has_buckyball: tile.core_indices.iter().any(|&index| {
+            c.cores[index as usize]
+                .balldomain
+                .as_ref()
+                .is_some_and(|domain| !domain.mappings.is_empty())
+        }),
         cores,
         virtual_bank_count: tile.virtual_bank_count as usize,
         shared_physical_bank_count,

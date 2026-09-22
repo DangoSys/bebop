@@ -1,5 +1,5 @@
 use super::callbacks::{
-    bemu_barrier_hit, spike_create_raw, spike_destroy_raw, spike_exit_code_raw, spike_finished_raw,
+    bemu_take_barrier, spike_create_raw, spike_destroy_raw, spike_exit_code_raw, spike_finished_raw,
     spike_init_hart_raw, spike_step_elapsed_ns_raw, spike_step_raw, spike_stop_raw,
 };
 use super::pk::PkVm;
@@ -37,8 +37,8 @@ impl NativeSpike {
         }
     }
 
-    pub fn barrier_hit(&self) -> bool {
-        bemu_barrier_hit(self.state_ptr())
+    pub fn take_barrier(&mut self) -> bool {
+        bemu_take_barrier(self.state_ptr())
     }
 
     fn state_ptr(&self) -> *mut c_void {

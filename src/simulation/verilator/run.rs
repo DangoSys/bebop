@@ -43,7 +43,6 @@ use bebop_fd_redirect::FdRedirect;
 use bebop_verilator::{exit_code, init_trace, write_trace_summary, Simulator, TraceConfig};
 
 #[cfg(all(feature = "verilator", feature = "bemu"))]
-#[cfg(all(feature = "verilator", feature = "bemu"))]
 use crate::simulation::lib::difftest::DiffSession;
 
 #[cfg(feature = "verilator")]

@@ -205,6 +205,16 @@ pub fn progress() -> Progress {
         .progress
 }
 
+pub fn subject_matched() -> bool {
+    session()
+        .lock()
+        .unwrap()
+        .as_ref()
+        .expect("DiffTest session is active")
+        .subject
+        .is_empty()
+}
+
 pub fn failure() -> Option<String> {
     session()
         .lock()
@@ -281,8 +291,7 @@ pub fn bank_hash(bytes: &[u8], row_bytes: usize) -> u32 {
         })
 }
 
-pub fn combine_bank_hash(status_hash: u32, group_id: u32, pbank_id: u32, physical_hash: u32) -> u32 {
-    let mapping = group_id.rotate_left(7) ^ pbank_id.rotate_left(17);
-    let mixed = physical_hash ^ mapping ^ 0x9e37_79b9;
+pub fn combine_bank_hash(status_hash: u32, group_id: u32, physical_hash: u32) -> u32 {
+    let mixed = physical_hash ^ group_id.rotate_left(7) ^ 0x9e37_79b9;
     status_hash.rotate_left(5) ^ mixed ^ mixed.rotate_left(13)
 }

@@ -29,6 +29,8 @@ use bebop_bemu_profile::BemuProfileReport;
 
 pub struct BemuInstance {
     spike: SpikeInstance,
+    core_index: usize,
+    virtual_bank_count: Option<usize>,
 }
 
 impl BemuInstance {
@@ -37,11 +39,11 @@ impl BemuInstance {
         Ok(Self {
             spike: SpikeInstance::new(log_dir, trace_config, disasm, profile, 0, None)
                 .whatever_context("failed to create spike instance")?,
+            core_index: 0,
+            virtual_bank_count: None,
         })
     }
 
-    /// Create a worker bound to one chip.pb core index. The caller must
-    /// invoke this on the worker thread; configuration is deliberately thread-local.
     pub fn new_with_core(
         log_dir: &Path,
         trace_config: TraceConfig,
@@ -70,26 +72,39 @@ impl BemuInstance {
         Ok(Self {
             spike: SpikeInstance::new(log_dir, trace_config, disasm, profile, hart_id, shared_memory)
                 .whatever_context("failed to create spike instance")?,
+            core_index,
+            virtual_bank_count,
         })
     }
 
+    fn configure(&self) {
+        if let Some(virtual_bank_count) = self.virtual_bank_count {
+            crate::config::configure_core_with_virtual_bank_count(self.core_index, virtual_bank_count);
+        } else {
+            crate::config::configure_core(self.core_index);
+        }
+    }
+
     pub fn load_elf(&mut self, elf: &Path) -> Result<(), Whatever> {
+        self.configure();
         let elf = elf.to_str().whatever_context("invalid elf path")?;
         self.spike.load_elf(elf).whatever_context("failed to load bemu elf")
     }
 
     pub fn init_hart(&mut self, pk: bool) -> Result<(), Whatever> {
+        self.configure();
         self.spike
             .init_hart(pk)
             .whatever_context("failed to initialize bemu hart")
     }
 
     pub fn step(&mut self, count: u64) -> Result<(), Whatever> {
+        self.configure();
         self.spike.step(count).whatever_context("bemu step failed")
     }
 
-    pub fn barrier_hit(&self) -> bool {
-        self.spike.barrier_hit()
+    pub fn take_barrier(&mut self) -> bool {
+        self.spike.take_barrier()
     }
 
     pub fn stop(&mut self, code: i32) {

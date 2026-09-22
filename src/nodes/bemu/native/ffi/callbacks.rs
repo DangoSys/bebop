@@ -143,7 +143,7 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
                 bank_cfgs[vbank_id as usize].cols
             };
             for group_id in 0..cols as u32 {
-                let (pbank_id, physical_hash) = if crate::config::is_shared_vbank(vbank_id as u64) {
+                let physical_hash = if crate::config::is_shared_vbank(vbank_id as u64) {
                     let shared = shared_memory
                         .as_ref()
                         .expect("shared bank storage is unavailable")
@@ -152,14 +152,14 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
                         .map
                         .resolve_hart_group(*hart_id, vbank_id, group_id)
                         .unwrap_or_else(|| panic!("unmapped shared vbank {vbank_id} group {group_id}"));
-                    (pbank_id, shared.storage[pbank_id].status_hash())
+                    shared.storage[pbank_id].status_hash()
                 } else {
                     let pbank_id = bank_map
                         .resolve_group(vbank_id, group_id)
                         .unwrap_or_else(|| panic!("unmapped vbank {vbank_id} group {group_id}"));
-                    (pbank_id, banks[pbank_id].status_hash())
+                    banks[pbank_id].status_hash()
                 };
-                status_hash = combine_bank_hash(status_hash, group_id, pbank_id as u32, physical_hash);
+                status_hash = combine_bank_hash(status_hash, group_id, physical_hash);
             }
             hashes.insert(vbank_id, status_hash);
         }
@@ -195,8 +195,9 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
 }
 
 #[no_mangle]
-pub extern "C" fn bemu_barrier_hit(state: *mut c_void) -> bool {
-    unsafe { (&*(state as *const EmuState)).barrier_hit }
+pub extern "C" fn bemu_take_barrier(state: *mut c_void) -> bool {
+    let state = unsafe { state_mut(state) };
+    std::mem::take(&mut state.barrier_hit)
 }
 
 /// Handle system call from guest program

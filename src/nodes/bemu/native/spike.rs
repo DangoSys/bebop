@@ -58,8 +58,8 @@ impl SpikeInstance {
         self.native.step(count)
     }
 
-    pub fn barrier_hit(&self) -> bool {
-        self.native.barrier_hit()
+    pub fn take_barrier(&mut self) -> bool {
+        self.native.take_barrier()
     }
 
     pub fn finished(&self) -> bool {
