@@ -1,9 +1,12 @@
 use clap::Parser;
 use std::process::ExitCode;
 
+#[path = "common/runner/bemu.rs"]
+mod backend;
 mod common;
 
-use common::{run_elf_regression, BemuBackend, RegressionArgs};
+use backend::BemuBackend;
+use common::{run_elf_regression, RegressionArgs};
 
 fn main() -> ExitCode {
     let args = RegressionArgs::parse();
@@ -11,7 +14,7 @@ fn main() -> ExitCode {
         args,
         "test_bemu",
         |tc| format!("bemu::{}", tc.name),
-        "Make sure to build with BEMU enabled, for example: cargo build --features bemu",
+        "Make sure to build the generated BEMU crate",
         BemuBackend,
     )
 }

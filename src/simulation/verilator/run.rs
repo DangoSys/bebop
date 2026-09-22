@@ -16,7 +16,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// M4 tracks concurrent writers per <InstID, LogicalBankID> and emits records
+// Track concurrent writers per <InstID, LogicalBankID> and emit records
 // only when instruction completion and issued==arrived establish a Bank-Stable
 // Boundary. Fast/checkpoint-parallel execution remains a later milestone.
 //
@@ -40,21 +40,10 @@ use std::path::Path;
 use bebop_fd_redirect::FdRedirect;
 
 #[cfg(feature = "verilator")]
-use bebop_verilator::{
-    exit_code, init_trace, setup_ctrlc_handler, should_exit, write_trace_summary, Simulator, TraceConfig,
-};
+use bebop_verilator::{exit_code, init_trace, write_trace_summary, Simulator, TraceConfig};
 
 #[cfg(all(feature = "verilator", feature = "bemu"))]
-use bebop_bank_hash::{
-    init_runtime_packet_channel, run_online_compare_with_summary, runtime_packet_status,
-    shutdown_runtime_packet_channel, BankHashCompareSummary,
-};
-#[cfg(all(feature = "verilator", feature = "bemu"))]
-use bebop_bemu::{BemuInstance, TraceConfig as BemuTraceConfig};
-#[cfg(all(feature = "verilator", feature = "bemu"))]
-use bebop_verilator::{finish_bank_digest, poll_bank_digest, BankDigestConfig};
-#[cfg(all(feature = "verilator", feature = "bemu"))]
-use std::thread::JoinHandle;
+use crate::simulation::lib::difftest::DiffSession;
 
 #[cfg(feature = "verilator")]
 use super::console::ConsoleServer;
@@ -99,7 +88,6 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     //===----------------------------------------------------------------------===//
     // Configuration Checks
     //===----------------------------------------------------------------------===//
-    setup_ctrlc_handler();
     if config.fast {
         return Err(Whatever::without_source(
             "Verilator fast run is not supported yet".to_string(),
@@ -116,21 +104,12 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     let stderr_file = config.log_dir.join("stderr.log");
     let fst_file = config.log_dir.join("waveform").join("waveform.fst");
 
-    #[cfg(feature = "bemu")]
-    let bank_digest = config.diff.then(|| {
-        let (bank_size, row_bytes) = bebop_bemu::private_bank_geometry();
-        BankDigestConfig::new(bank_size, row_bytes)
-    });
-
-    #[cfg(not(feature = "bemu"))]
-    let bank_digest = None;
     let trace_config = TraceConfig {
         itrace: config.trace.itrace,
         mtrace: config.trace.mtrace,
         pmctrace: config.trace.pmctrace,
         ctrace: config.trace.ctrace,
-        banktrace: config.trace.banktrace || config.diff,
-        bank_digest,
+        banktrace: config.trace.banktrace,
     };
 
     println!("ELF file: {}", config.elf.display());
@@ -176,15 +155,8 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
             break;
         }
         #[cfg(feature = "bemu")]
-        if config.diff {
-            poll_bank_digest().map_err(Whatever::without_source)?;
-        }
-        #[cfg(feature = "bemu")]
         if let Some(diff) = diff_session.as_mut() {
-            diff.step_golden()?;
-        }
-        if should_exit() {
-            break;
+            diff.sync_golden()?;
         }
     }
     console.poll_tx();
@@ -196,12 +168,12 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     simulator.finalize();
 
     #[cfg(feature = "bemu")]
-    let diff_summary = if let Some(mut diff) = diff_session {
-        finish_bank_digest().map_err(Whatever::without_source)?;
-        diff.finish_golden()?;
-        Some(diff.finish()?)
+    let diff_passed = if let Some(mut diff) = diff_session {
+        diff.sync_golden()?;
+        diff.finish()?;
+        true
     } else {
-        None
+        false
     };
 
     drop(console);
@@ -213,122 +185,13 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     write_disasm_log(&stderr_file)?;
 
     #[cfg(feature = "bemu")]
-    if let Some(summary) = diff_summary.as_ref() {
-        println!(
-            "Bank DiffTest M4 summary: pass={} mismatch={} missing_rtl={} unexpected_rtl={}",
-            summary.pass, summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
-        );
+    if diff_passed {
+        println!("Bank DiffTest passed");
     }
     if code != 0 {
-        #[cfg(feature = "bemu")]
-        if let Some(summary) = diff_summary.as_ref().filter(|summary| !summary.passed()) {
-            return Err(Whatever::without_source(format!(
-                "Verilator exited with code {code}; Bank DiffTest M4 failed: mismatch={} missing_rtl={} unexpected_rtl={}",
-                summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
-            )));
-        }
         return Err(Whatever::without_source(format!("Verilator exited with code {code}")));
     }
-    #[cfg(feature = "bemu")]
-    if let Some(summary) = diff_summary.filter(|summary| !summary.passed()) {
-        return Err(Whatever::without_source(format!(
-            "Bank DiffTest M4 failed: mismatch={} missing_rtl={} unexpected_rtl={}",
-            summary.mismatch, summary.missing_rtl, summary.unexpected_rtl
-        )));
-    }
     Ok(())
-}
-
-#[cfg(all(feature = "verilator", feature = "bemu"))]
-struct DiffSession {
-    golden: BemuInstance,
-    worker: Option<JoinHandle<Result<BankHashCompareSummary, String>>>,
-}
-
-#[cfg(all(feature = "verilator", feature = "bemu"))]
-impl DiffSession {
-    fn new(elf: &Path, log_dir: &Path) -> Result<Self, Whatever> {
-        let receiver = init_runtime_packet_channel();
-        let output = log_dir.join("bank_diff.ndjson");
-        let worker = std::thread::Builder::new()
-            .name("bank-diff-m4".to_string())
-            .spawn(move || run_online_compare_with_summary(receiver, output).map_err(|error| error.to_string()))
-            .map_err(|error| {
-                shutdown_runtime_packet_channel();
-                Whatever::without_source(format!("failed to start Bank DiffTest M4 worker: {error}"))
-            })?;
-
-        let golden_result = (|| {
-            let golden_log_dir = log_dir.join("golden");
-            let mut trace = BemuTraceConfig::new(false, false);
-            trace.btrace = true;
-            let mut golden = BemuInstance::new(&golden_log_dir, trace, false, false)
-                .whatever_context("failed to create BEMU Golden Model")?;
-            golden.load_elf(elf)?;
-            golden.init_hart(false)?;
-            Ok::<_, Whatever>(golden)
-        })();
-        let golden = match golden_result {
-            Ok(golden) => golden,
-            Err(error) => {
-                shutdown_runtime_packet_channel();
-                let _ = worker.join();
-                return Err(error);
-            }
-        };
-
-        Ok(Self {
-            golden,
-            worker: Some(worker),
-        })
-    }
-
-    fn step_golden(&mut self) -> Result<(), Whatever> {
-        if !self.golden.finished() {
-            self.golden.step()?;
-        }
-        Ok(())
-    }
-
-    fn finish_golden(&mut self) -> Result<(), Whatever> {
-        while !self.golden.finished() {
-            self.golden.step()?;
-        }
-        let code = self.golden.exit_code().unwrap_or(0);
-        if code != 0 {
-            return Err(Whatever::without_source(format!(
-                "BEMU Golden Model exited with code {code}"
-            )));
-        }
-        Ok(())
-    }
-
-    fn finish(mut self) -> Result<BankHashCompareSummary, Whatever> {
-        let packet_status = runtime_packet_status();
-        shutdown_runtime_packet_channel();
-        let summary = self
-            .worker
-            .take()
-            .expect("DiffTest worker exists")
-            .join()
-            .map_err(|_| Whatever::without_source("Bank DiffTest M4 worker panicked".to_string()))?
-            .map_err(Whatever::without_source)?;
-        println!(
-            "Bank DiffTest runtime packets: submitted={} no_sink={} send_failed={}",
-            packet_status.submitted, packet_status.no_sink, packet_status.send_failed
-        );
-        Ok(summary)
-    }
-}
-
-#[cfg(all(feature = "verilator", feature = "bemu"))]
-impl Drop for DiffSession {
-    fn drop(&mut self) {
-        shutdown_runtime_packet_channel();
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-    }
 }
 
 #[cfg(not(feature = "verilator"))]

@@ -55,7 +55,7 @@ fn discover_from_workload_toml(
     if !bb_tests_root.exists() {
         return Err(DiscoveryError::RootMissing { path: bb_tests_root });
     }
-    if let Some(backend) = args.rushb_backend() {
+    if let Some(backend) = &args.rushb_backend {
         let tests = spec
             .tests
             .iter()
@@ -64,7 +64,7 @@ fn discover_from_workload_toml(
                     .file_stem()
                     .and_then(|stem| stem.to_str())
                     .ok_or_else(|| DiscoveryError::RushBStem { stem: name.clone() })?;
-                rushb_stem(stem, &backend)
+                rushb_stem(stem, backend)
             })
             .collect::<Result<Vec<_>, _>>()?;
         let (test_cases, missing, duplicates) = scan_elf_files_by_stems(&bb_tests_root, extension, &tests);

@@ -1,6 +1,6 @@
 use bebop_rushb::decode_core_id;
 use prost::Message;
-use std::path::PathBuf;
+use std::sync::OnceLock;
 
 include!(concat!(env!("OUT_DIR"), "/buckyball.config.rs"));
 
@@ -35,6 +35,7 @@ pub struct BallDomainConfig {
 
 pub struct TileTopology {
     pub cores: Vec<(String, usize)>,
+    pub has_buckyball: bool,
     pub virtual_bank_count: usize,
     pub shared_physical_bank_count: usize,
     pub shared_bank_size: usize,
@@ -45,8 +46,9 @@ pub struct RushBEndpoint {
     pub virtual_bank_count: usize,
 }
 
-fn chip() -> Chip {
-    Chip::decode(CHIP_PB).unwrap_or_else(|e| panic!("decode chip.pb: {e}"))
+fn chip() -> &'static Chip {
+    static CHIP: OnceLock<Chip> = OnceLock::new();
+    CHIP.get_or_init(|| Chip::decode(CHIP_PB).unwrap_or_else(|e| panic!("decode chip.pb: {e}")))
 }
 
 fn mem_of(core: &CoreInstance) -> &MemDomainConfig {
@@ -98,13 +100,12 @@ fn to_topology(core: &CoreInstance) -> Topology {
     }
 }
 
-pub fn topology_for_core(core_index: usize) -> Topology {
-    let c = chip();
-    let core = c
-        .cores
+pub fn topology_for_core(core_index: usize) -> &'static Topology {
+    static TOPOLOGIES: OnceLock<Vec<Topology>> = OnceLock::new();
+    let topologies = TOPOLOGIES.get_or_init(|| chip().cores.iter().map(to_topology).collect());
+    topologies
         .get(core_index)
-        .unwrap_or_else(|| panic!("core index {core_index} out of range (n={})", c.cores.len()));
-    to_topology(core)
+        .unwrap_or_else(|| panic!("core index {core_index} out of range (n={})", topologies.len()))
 }
 
 pub fn virtual_bank_count_for_core(core_index: usize) -> usize {
@@ -216,13 +217,15 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
         })
         .collect();
     TileTopology {
+        has_buckyball: tile.core_indices.iter().any(|&index| {
+            c.cores[index as usize]
+                .balldomain
+                .as_ref()
+                .is_some_and(|domain| !domain.mappings.is_empty())
+        }),
         cores,
         virtual_bank_count: tile.virtual_bank_count as usize,
         shared_physical_bank_count,
         shared_bank_size: bank_entries * (bank_width / 8),
     }
-}
-
-pub fn chip_manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }

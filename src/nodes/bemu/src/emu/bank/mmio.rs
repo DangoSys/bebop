@@ -30,15 +30,3 @@ pub fn mmio_read_byte(mmio_banks: &[Vec<u8>], addr: usize) -> u8 {
 
     mmio_banks[bank_idx][bank_offset]
 }
-
-pub fn mmio_write_byte(mmio_banks: &mut [Vec<u8>], addr: usize, data: u8) {
-    if !mmio_enable() {
-        panic!("mmio_write_byte: MMIO is disabled for this BEMU chip config");
-    }
-    if addr >= mmio_total_size() {
-        panic!("mmio_write_byte: address 0x{:x} out of range", addr);
-    }
-    let bank_idx = addr % mmio_bank_num();
-    let bank_offset = addr / mmio_bank_num();
-    mmio_banks[bank_idx][bank_offset] = data;
-}

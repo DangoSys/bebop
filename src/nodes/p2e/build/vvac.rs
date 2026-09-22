@@ -158,33 +158,12 @@ pub fn remove_empty_module_instantiations(build_dir: &Path) {
     }
 }
 
-pub fn fix_vvac_library_rpath(out_dir: &Path) {
-    // Why: VVAC libraries (libtbppeer.so, etc.) were compiled with libstdc++.so.6.0.25
-    // but their RPATH points to non-existent build-time paths. Set RPATH to $ORIGIN
-    // so they load libstdc++ from their own directory.
-
-    let vvac_lib_dir = out_dir.join("vvacDir/runtimeDir/lib/lib_arm");
-    if !vvac_lib_dir.exists() {
-        println!("cargo:warning=VVAC lib directory not found, skipping RPATH fix");
-        return;
-    }
-
-    let libraries = ["libtbppeer.so", "libvCtb.so", "libvmri.so"];
-
-    for lib_name in &libraries {
-        let lib_path = vvac_lib_dir.join(lib_name);
-        if !lib_path.exists() {
-            println!("cargo:warning={} not found, skipping", lib_name);
-            continue;
-        }
-
-        println!("cargo:warning=Fixing RPATH for {}", lib_name);
-
-        let result = cmd!("patchelf", "--set-rpath", "$ORIGIN", lib_path.to_str().unwrap()).run();
-
-        match result {
-            Ok(_) => println!("cargo:warning=Successfully fixed RPATH for {}", lib_name),
-            Err(e) => println!("cargo:warning=Failed to fix RPATH for {}: {}", lib_name, e),
-        }
+pub fn fix_library_rpath(out_dir: &Path) {
+    let lib_dir = out_dir.join("vvacDir/runtimeDir/lib/lib_arm");
+    for name in ["libtbppeer.so", "libvCtb.so", "libvmri.so"] {
+        let library = lib_dir.join(name);
+        cmd!("patchelf", "--set-rpath", "$ORIGIN", &library)
+            .run()
+            .unwrap_or_else(|error| panic!("failed to set RPATH for {}: {error}", library.display()));
     }
 }

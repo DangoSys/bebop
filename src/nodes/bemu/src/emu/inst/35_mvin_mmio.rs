@@ -12,7 +12,7 @@
 //
 //===-----------------------------------------------------------------===//-----===//
 
-use super::super::bank::{bank_row_bytes, mem_read, mmio_bank_num, mmio_enable, mmio_total_size};
+use super::super::bank::{bank_row_bytes, mmio_bank_num, mmio_enable, mmio_total_size};
 use super::instruction::{ExecContext, Instruction};
 
 pub struct MvinMmio;
@@ -44,7 +44,7 @@ impl Instruction for MvinMmio {
                 let bank_idx = abs_addr % mmio_bank_num();
                 let bank_offset = abs_addr / mmio_bank_num();
                 ctx.mmio_banks[bank_idx][bank_offset] = if b < col as usize {
-                    mem_read(ctx.memory, src_addr + b as u64)
+                    ctx.read_memory(src_addr + b as u64)
                 } else {
                     0
                 };

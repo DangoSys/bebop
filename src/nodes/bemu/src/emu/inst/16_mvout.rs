@@ -1,6 +1,6 @@
 //===- 16_mvout.rs - MVOUT instruction (bank to memory) --------------------===//
 
-use super::super::bank::{bank_size, mem_write, MATRIX_SIZE};
+use super::super::bank::{bank_size, MATRIX_SIZE};
 use super::decode::{pbank, pbank_group, rs1_b0, rs1_iter, xs2_mem_stride};
 use super::instruction::{ExecContext, Instruction};
 
@@ -42,14 +42,15 @@ impl Instruction for Mvout {
                     }
                     let addr = mem_addr + i as u64 * groups as u64 * 16 * stride + group as u64 * 16;
                     for j in 0..16 {
-                        mem_write(ctx.memory, addr + j as u64, ctx.banks[p][bank_offset + j]);
+                        let value = ctx.banks[p][bank_offset + j];
+                        ctx.write_memory(addr + j as u64, value);
                     }
                     crate::trace::mtrace(crate::trace::MTraceEvent {
                         is_write: false,
                         is_shared: crate::config::is_shared_vbank(bank_id),
                         channel: 0,
                         hart_id: ctx.hart_id as u64,
-                        rob_id: ctx.instruction_id as u32,
+                        rob_id: ctx.inst_id as u32,
                         vbank_id: bank_id as u32,
                         pbank_id: ctx.reported_physical_bank(bank_id, p),
                         group_id: group as u32,
@@ -72,14 +73,15 @@ impl Instruction for Mvout {
                 }
                 let addr = mem_addr + i * line_bytes as u64 * stride;
                 for j in 0..line_bytes {
-                    mem_write(ctx.memory, addr + j as u64, ctx.banks[p][bank_offset + j]);
+                    let value = ctx.banks[p][bank_offset + j];
+                    ctx.write_memory(addr + j as u64, value);
                 }
                 crate::trace::mtrace(crate::trace::MTraceEvent {
                     is_write: false,
                     is_shared: crate::config::is_shared_vbank(bank_id),
                     channel: 0,
                     hart_id: ctx.hart_id as u64,
-                    rob_id: ctx.instruction_id as u32,
+                    rob_id: ctx.inst_id as u32,
                     vbank_id: bank_id as u32,
                     pbank_id: ctx.reported_physical_bank(bank_id, p),
                     group_id: 0,

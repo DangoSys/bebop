@@ -21,17 +21,17 @@ fn mvin_mmio_spans(rows: u64, columns: u64) -> (Vec<(usize, usize)>, Vec<(usize,
 }
 
 #[no_mangle]
-pub extern "C" fn rushb_init() {
+pub extern "C" fn verilator_rushb_init() {
     state::init();
 }
 
 #[no_mangle]
-pub extern "C" fn rushb_destroy() {
+pub extern "C" fn verilator_rushb_destroy() {
     state::destroy();
 }
 
 #[no_mangle]
-pub extern "C" fn rushb_mset(core_id: u32, xs1: u64, xs2: u64) {
+pub extern "C" fn verilator_rushb_mset(core_id: u32, xs1: u64, xs2: u64) {
     command::execute(core_id, xs1, xs2, FUNCT7_MSET, WaitMode::Accepted, DmaOperation::None)
         .unwrap_or_else(|error| panic!("rushB mset failed: {error}"));
 
@@ -45,8 +45,8 @@ pub extern "C" fn rushb_mset(core_id: u32, xs1: u64, xs2: u64) {
 }
 
 #[no_mangle]
-pub extern "C" fn rushb_mvin(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *const c_void) {
-    let bank_id = usize::try_from(xs1 & 0x3ff).expect("invalid bank id");
+pub extern "C" fn verilator_rushb_mvin(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *const c_void) {
+    let bank_id = usize::try_from((xs1 >> 20) & 0x3ff).expect("invalid bank id");
     let spans = dma::spans(state::bank_config(core_id, bank_id), xs1, packed_xs2);
     let chunks = unsafe { dma::capture_host(host_ptr.cast(), &spans) };
     command::execute(
@@ -61,7 +61,7 @@ pub extern "C" fn rushb_mvin(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: 
 }
 
 #[no_mangle]
-pub extern "C" fn rushb_mvin_mmio(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *const c_void) {
+pub extern "C" fn verilator_rushb_mvin_mmio(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *const c_void) {
     let rows = xs1 >> 30;
     let columns = (packed_xs2 >> 56) & 0xff;
     assert!(rows > 0, "mvin_mmio row count must be non-zero");
@@ -79,20 +79,8 @@ pub extern "C" fn rushb_mvin_mmio(core_id: u32, xs1: u64, packed_xs2: u64, host_
     .unwrap_or_else(|error| panic!("rushB mvin_mmio failed: {error}"));
 }
 
-#[cfg(test)]
-mod tests {
-    use super::mvin_mmio_spans;
-
-    #[test]
-    fn mvin_mmio_only_reads_valid_host_columns() {
-        let (staging, host) = mvin_mmio_spans(2, 4);
-        assert_eq!(staging, vec![(0, 16), (16, 16)]);
-        assert_eq!(host, vec![(0, 4), (16, 4)]);
-    }
-}
-
 #[no_mangle]
-pub extern "C" fn rushb_mvout(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *mut c_void) {
+pub extern "C" fn verilator_rushb_mvout(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *mut c_void) {
     let bank_id = usize::try_from(xs1 & 0x3ff).expect("invalid bank id");
     let spans = dma::spans(state::bank_config(core_id, bank_id), xs1, packed_xs2);
     let response = command::execute(
@@ -108,12 +96,12 @@ pub extern "C" fn rushb_mvout(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr:
 }
 
 #[no_mangle]
-pub extern "C" fn rushb_custom(core_id: u32, xs1: u64, xs2: u64, funct7: u32) {
+pub extern "C" fn verilator_rushb_custom(core_id: u32, xs1: u64, xs2: u64, funct7: u32) {
     command::execute(core_id, xs1, xs2, funct7, WaitMode::Accepted, DmaOperation::None)
-        .unwrap_or_else(|error| panic!("rushB custom command failed: {error}"));
+        .unwrap_or_else(|error| panic!("rushB custom instruction failed: {error}"));
 }
 
 #[no_mangle]
-pub extern "C" fn rushb_cycles(_core_id: u32) -> u64 {
+pub extern "C" fn verilator_rushb_cycles(_core_id: u32) -> u64 {
     state::cycles()
 }

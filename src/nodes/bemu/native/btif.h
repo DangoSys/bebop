@@ -13,11 +13,16 @@ constexpr uint64_t SIM_EXIT_ADDR = 0x60000000UL;
 constexpr uint64_t DRAM_BASE = 0x80000000UL;
 constexpr uint64_t UART_BASE = 0x60020000UL;
 constexpr uint64_t UART_SIZE = 0x100UL;
+constexpr uint64_t CLINT_BASE = 0x02000000UL;
+constexpr uint64_t CLINT_SIZE = 0x10000UL;
+constexpr uint64_t PLIC_BASE = 0x0c000000UL;
+constexpr uint64_t PLIC_SIZE = 0x04000000UL;
 
 // BEMU-Target Interface: the memory/MMIO surface that BEMU exposes to Spike.
 class BTIF : public simif_t {
 public:
-    BTIF(uint8_t* mem_ptr, size_t mem_size, uint8_t* uart_ptr, const char* isa, size_t hart_id);
+    BTIF(uint8_t* mem_ptr, size_t mem_size, uint8_t* uart_ptr, uint8_t* clint_ptr,
+         uint8_t* plic_ptr, const char* isa, size_t hart_id);
 
     char* addr_to_mem(reg_t addr) override;
     bool mmio_load(reg_t addr, size_t len, uint8_t* bytes) override;
@@ -34,6 +39,8 @@ private:
     uint8_t* mem_ptr;
     size_t mem_size;
     uint8_t* uart_ptr;
+    uint8_t* clint_ptr;
+    uint8_t* plic_ptr;
     std::string isa_storage;
     cfg_t cfg;
 };

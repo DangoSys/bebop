@@ -16,6 +16,8 @@ serde_json = "1"
 bebop-elf = { path = "../lib/elf" }
 bebop-syscall = { path = "../lib/syscall" }
 bebop-dtb = { path = "../lib/dtb" }
+bebop-clint = { path = "../lib/clint" }
+bebop-plic = { path = "../lib/plic" }
 bebop-uart = { path = "../lib/uart" }
 bebop-bank-hash = { path = "../lib/bank-hash" }
 bebop-bemu-profile = { path = "../lib/bemu-profile" }
@@ -26,7 +28,3 @@ cc = { version = "1", features = ["parallel"] }
 
 [lints]
 workspace = true
-
-[features]
-difftest = []
-

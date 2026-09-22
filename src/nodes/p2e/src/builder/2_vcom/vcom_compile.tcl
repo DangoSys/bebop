@@ -94,7 +94,7 @@ create_clock -sig_name ${top_module}.P2ETop.top.user_clk -frequency 5Mhz
 set_dr_mode -add enable
 
 # Enable this when this board is reousrces are limited for design
-# memory_options -add{bram_balance SMART}
+memory_options -add{bram_balance SMART}
 
 # Enable logic replication to avoid long path in multi-fpga design
 logic_replication -enable

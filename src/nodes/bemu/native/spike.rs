@@ -8,7 +8,6 @@ use crate::ffi::SharedMemory;
 use std::time::Duration;
 
 pub struct SpikeInstance {
-    mem_mb: usize,
     native: NativeSpike,
 }
 
@@ -44,7 +43,7 @@ impl SpikeInstance {
             profile,
         )?;
 
-        Ok(Self { mem_mb: 2048, native })
+        Ok(Self { native })
     }
 
     pub fn load_elf(&mut self, elf_file: &str) -> Result<(), String> {
@@ -52,15 +51,15 @@ impl SpikeInstance {
     }
 
     pub fn init_hart(&mut self, pk: bool) -> Result<(), String> {
-        self.native.init_hart(self.mem_mb, pk)
+        self.native.init_hart(pk)
     }
 
-    pub fn step(&mut self) -> Result<(), String> {
-        self.native.step()
+    pub fn step(&mut self, count: u64) -> Result<(), String> {
+        self.native.step(count)
     }
 
-    pub fn barrier_hit(&self) -> bool {
-        self.native.barrier_hit()
+    pub fn take_barrier(&mut self) -> bool {
+        self.native.take_barrier()
     }
 
     pub fn finished(&self) -> bool {

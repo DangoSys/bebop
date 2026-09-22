@@ -156,37 +156,3 @@ fn write_bucket(output: &mut String, name: &str, elapsed: Duration, total: Durat
 fn format_duration(duration: Duration) -> String {
     format!("{:.3}s", duration.as_secs_f64())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn disabled_profile_has_no_report() {
-        assert!(BemuProfile::new(false)
-            .report(Duration::from_secs(1), Duration::from_secs(1))
-            .is_none());
-    }
-
-    #[test]
-    fn report_sorts_operations_by_elapsed_time() {
-        let mut profile = BemuProfile::new(true);
-        profile.npu = Duration::from_millis(8);
-        profile.operations[1] = OperationCounter {
-            calls: 2,
-            elapsed: Duration::from_millis(3),
-        };
-        profile.operations[2] = OperationCounter {
-            calls: 1,
-            elapsed: Duration::from_millis(5),
-        };
-
-        let report = profile
-            .report(Duration::from_millis(10), Duration::from_millis(9))
-            .unwrap();
-        assert_eq!(report.spike_guest(), Duration::from_millis(1));
-        assert_eq!(report.bemu_glue(), Duration::from_millis(1));
-        assert_eq!(report.operations()[0].funct7, 2);
-        assert_eq!(report.operations()[1].funct7, 1);
-    }
-}

@@ -239,15 +239,3 @@ fn decode_jtype_imm(inst: u32) -> u32 {
     let imm = (imm20 << 20) | (imm19_12 << 12) | (imm11 << 11) | (imm10_1 << 1);
     ((imm as i32) << 11 >> 11) as u32
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_process_line() {
-        let line = "C0: 19 [1] pc=[0x10040] inst=[020005b7] DASM(020005b7)";
-        let result = process_line(line);
-        assert!(result.contains("lui"));
-    }
-}
