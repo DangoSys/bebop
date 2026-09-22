@@ -62,12 +62,9 @@ pub trait BackendRunner {
     }
 }
 
-#[cfg(feature = "bemu")]
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)]
 pub struct BemuBackend;
 
-#[cfg(feature = "bemu")]
 impl BackendRunner for BemuBackend {
     fn backend_name(&self) -> &'static str {
         "bemu"
@@ -181,7 +178,10 @@ impl BackendRunner for VerilatorBackend {
         if is_rushb_verilator(elf_path) {
             return;
         }
-        let arch_config = self.arch_config.as_deref().unwrap_or("sims.verilator.BuckyballToyVerilatorConfig");
+        let arch_config = self
+            .arch_config
+            .as_deref()
+            .unwrap_or("sims.verilator.BuckyballToyVerilatorConfig");
         cmd.env("ARCH_CONFIG", arch_config);
     }
 

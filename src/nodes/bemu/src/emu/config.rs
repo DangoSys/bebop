@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 mod chip_config;
 
-pub use chip_config::{rushb_endpoint, tile_topology, virtual_bank_count_for_core, TileTopology, Topology};
+pub use chip_config::{rushb_endpoint, tile_topology, TileTopology, Topology};
 
 thread_local! {
     static TOPOLOGY: RefCell<Option<Topology>> = const { RefCell::new(None) };
@@ -140,18 +140,6 @@ pub mod ball_domain {
                 .iter()
                 .find(|entry| entry.mnemonic == mnemonic)
                 .map(|entry| entry.funct7)
-        })
-    }
-
-    pub fn out_bw(ball_class: &str) -> usize {
-        with_topology(|topology| {
-            topology
-                .ball_domain
-                .mappings
-                .iter()
-                .find(|mapping| mapping.ball_class == ball_class)
-                .unwrap_or_else(|| panic!("missing Ball mapping for {ball_class}"))
-                .out_bw as usize
         })
     }
 

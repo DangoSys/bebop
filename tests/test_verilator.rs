@@ -3,7 +3,8 @@ use std::process::ExitCode;
 
 mod common;
 
-use common::{run_elf_regression, RegressionArgs, VerilatorBackend};
+use common::runner::backend::VerilatorBackend;
+use common::{run_elf_regression, RegressionArgs};
 
 fn main() -> ExitCode {
     let args = RegressionArgs::parse();

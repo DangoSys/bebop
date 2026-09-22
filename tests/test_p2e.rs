@@ -3,7 +3,8 @@ use std::process::ExitCode;
 
 mod common;
 
-use common::{run_elf_regression, P2eBackend, RegressionArgs};
+use common::runner::backend::P2eBackend;
+use common::{run_elf_regression, RegressionArgs};
 
 fn main() -> ExitCode {
     let args = RegressionArgs::parse();

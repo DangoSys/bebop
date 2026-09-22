@@ -1,6 +1,5 @@
 use bebop_rushb::decode_core_id;
 use prost::Message;
-use std::path::PathBuf;
 
 include!(concat!(env!("OUT_DIR"), "/buckyball.config.rs"));
 
@@ -221,8 +220,4 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
         shared_physical_bank_count,
         shared_bank_size: bank_entries * (bank_width / 8),
     }
-}
-
-pub fn chip_manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
