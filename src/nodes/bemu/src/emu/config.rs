@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::Cell;
 
 mod chip_config;
 
@@ -6,13 +6,13 @@ pub use chip_config::rushb_endpoint;
 pub use chip_config::{tile_topology, TileTopology, Topology};
 
 thread_local! {
-    static TOPOLOGY: RefCell<Option<Topology>> = const { RefCell::new(None) };
-    static VIRTUAL_BANK_COUNT: RefCell<Option<usize>> = const { RefCell::new(None) };
+    static TOPOLOGY: Cell<Option<&'static Topology>> = const { Cell::new(None) };
+    static VIRTUAL_BANK_COUNT: Cell<Option<usize>> = const { Cell::new(None) };
 }
 
 pub fn configure_core(core_index: usize) {
-    TOPOLOGY.with(|slot| *slot.borrow_mut() = Some(chip_config::topology_for_core(core_index)));
-    VIRTUAL_BANK_COUNT.with(|slot| *slot.borrow_mut() = Some(chip_config::virtual_bank_count_for_core(core_index)));
+    TOPOLOGY.with(|slot| slot.set(Some(chip_config::topology_for_core(core_index))));
+    VIRTUAL_BANK_COUNT.with(|slot| slot.set(Some(chip_config::virtual_bank_count_for_core(core_index))));
 }
 
 pub fn configure_core_with_virtual_bank_count(core_index: usize, virtual_bank_count: usize) {
@@ -25,17 +25,11 @@ pub fn configure_core_with_virtual_bank_count(core_index: usize, virtual_bank_co
         virtual_bank_count >= shared_vbank_base(),
         "virtual bank count ends before the shared bank base"
     );
-    VIRTUAL_BANK_COUNT.with(|slot| *slot.borrow_mut() = Some(virtual_bank_count));
+    VIRTUAL_BANK_COUNT.with(|slot| slot.set(Some(virtual_bank_count)));
 }
 
 fn with_topology<R>(f: impl FnOnce(&Topology) -> R) -> R {
-    TOPOLOGY.with(|slot| {
-        let borrow = slot.borrow();
-        let topology = borrow
-            .as_ref()
-            .unwrap_or_else(|| panic!("BEMU topology is not configured"));
-        f(topology)
-    })
+    TOPOLOGY.with(|slot| f(slot.get().unwrap_or_else(|| panic!("BEMU topology is not configured"))))
 }
 
 pub fn bank_num() -> usize {
@@ -45,7 +39,7 @@ pub fn vector_len() -> usize {
     with_topology(|t| t.vector_len)
 }
 pub fn virtual_bank_num() -> usize {
-    VIRTUAL_BANK_COUNT.with(|slot| slot.borrow().unwrap_or_else(|| bank_num()))
+    VIRTUAL_BANK_COUNT.with(|slot| slot.get().unwrap_or_else(|| bank_num()))
 }
 pub fn private_vbank_upper_bound() -> usize {
     with_topology(|t| t.mem_config.private_vbank_upper_bound)

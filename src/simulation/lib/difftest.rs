@@ -31,6 +31,7 @@ impl DiffSession {
                 topology.shared_bank_size,
                 topology.virtual_bank_count,
             );
+            let virtual_bank_count = (topology.shared_physical_bank_count != 0).then_some(topology.virtual_bank_count);
             let mut golden = Vec::with_capacity(topology.cores.len());
             for (hart_id, (_, core_index)) in topology.cores.into_iter().enumerate() {
                 let mut trace = BemuTraceConfig::new(false, false);
@@ -43,7 +44,7 @@ impl DiffSession {
                     core_index,
                     hart_id,
                     Some(memory.clone()),
-                    Some(topology.virtual_bank_count),
+                    virtual_bank_count,
                 )
                 .whatever_context("failed to create BEMU Golden Model")?;
                 bemu.load_elf(elf)?;
