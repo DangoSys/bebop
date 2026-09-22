@@ -1,9 +1,11 @@
 use clap::Parser;
 use std::process::ExitCode;
 
+#[path = "common/runner/p2e.rs"]
+mod backend;
 mod common;
 
-use common::runner::backend::P2eBackend;
+use backend::P2eBackend;
 use common::{run_elf_regression, RegressionArgs};
 
 fn main() -> ExitCode {

@@ -2,7 +2,8 @@ use std::cell::RefCell;
 
 mod chip_config;
 
-pub use chip_config::{rushb_endpoint, tile_topology, TileTopology, Topology};
+pub use chip_config::rushb_endpoint;
+pub use chip_config::{tile_topology, TileTopology, Topology};
 
 thread_local! {
     static TOPOLOGY: RefCell<Option<Topology>> = const { RefCell::new(None) };
@@ -129,17 +130,6 @@ pub mod ball_domain {
                 .iter()
                 .find(|entry| entry.funct7 == funct7)
                 .map(|entry| entry.mnemonic.clone())
-        })
-    }
-
-    pub fn funct_for_mnemonic(mnemonic: &str) -> Option<u32> {
-        with_topology(|topology| {
-            topology
-                .ball_domain
-                .isa
-                .iter()
-                .find(|entry| entry.mnemonic == mnemonic)
-                .map(|entry| entry.funct7)
         })
     }
 

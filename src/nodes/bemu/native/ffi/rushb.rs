@@ -317,15 +317,15 @@ fn host_mvout(state: &mut EmuState, xs1: u64, packed_xs2: u64, host_ptr: *mut u8
     }
 }
 
-#[cfg_attr(feature = "rushb-host", no_mangle)]
-pub extern "C" fn rushb_init() {
+#[no_mangle]
+pub extern "C" fn bemu_rushb_init() {
     let mut guard = HOST_STATE.lock().expect("rushB BEMU state poisoned");
     assert!(guard.is_none(), "rushB BEMU is already initialized");
     *guard = Some(HostState { cores: HashMap::new() });
 }
 
-#[cfg_attr(feature = "rushb-host", no_mangle)]
-pub extern "C" fn rushb_destroy() {
+#[no_mangle]
+pub extern "C" fn bemu_rushb_destroy() {
     let mut guard = HOST_STATE.lock().expect("rushB BEMU state poisoned");
     if let Some(state) = guard.take() {
         for core in state.cores.into_values() {
@@ -335,8 +335,8 @@ pub extern "C" fn rushb_destroy() {
     }
 }
 
-#[cfg_attr(feature = "rushb-host", no_mangle)]
-pub extern "C" fn rushb_mset(core_id: u32, xs1: u64, xs2: u64) {
+#[no_mangle]
+pub extern "C" fn bemu_rushb_mset(core_id: u32, xs1: u64, xs2: u64) {
     with_core(core_id, |commands| {
         let (reply, result) = mpsc::channel();
         commands
@@ -351,8 +351,8 @@ pub extern "C" fn rushb_mset(core_id: u32, xs1: u64, xs2: u64) {
     });
 }
 
-#[cfg_attr(feature = "rushb-host", no_mangle)]
-pub extern "C" fn rushb_mvin(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *const c_void) {
+#[no_mangle]
+pub extern "C" fn bemu_rushb_mvin(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *const c_void) {
     with_core(core_id, |commands| {
         let (reply, result) = mpsc::channel();
         commands
@@ -367,8 +367,8 @@ pub extern "C" fn rushb_mvin(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: 
     });
 }
 
-#[cfg_attr(feature = "rushb-host", no_mangle)]
-pub extern "C" fn rushb_mvin_mmio(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *const c_void) {
+#[no_mangle]
+pub extern "C" fn bemu_rushb_mvin_mmio(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *const c_void) {
     with_core(core_id, |commands| {
         let (reply, result) = mpsc::channel();
         commands
@@ -383,8 +383,8 @@ pub extern "C" fn rushb_mvin_mmio(core_id: u32, xs1: u64, packed_xs2: u64, host_
     });
 }
 
-#[cfg_attr(feature = "rushb-host", no_mangle)]
-pub extern "C" fn rushb_mvout(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *mut c_void) {
+#[no_mangle]
+pub extern "C" fn bemu_rushb_mvout(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *mut c_void) {
     with_core(core_id, |commands| {
         let (reply, result) = mpsc::channel();
         commands
@@ -399,8 +399,8 @@ pub extern "C" fn rushb_mvout(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr:
     });
 }
 
-#[cfg_attr(feature = "rushb-host", no_mangle)]
-pub extern "C" fn rushb_custom(core_id: u32, xs1: u64, xs2: u64, funct7: u32) {
+#[no_mangle]
+pub extern "C" fn bemu_rushb_custom(core_id: u32, xs1: u64, xs2: u64, funct7: u32) {
     with_core(core_id, |commands| {
         let (reply, result) = mpsc::channel();
         commands
@@ -415,8 +415,8 @@ pub extern "C" fn rushb_custom(core_id: u32, xs1: u64, xs2: u64, funct7: u32) {
     });
 }
 
-#[cfg_attr(feature = "rushb-host", no_mangle)]
-pub extern "C" fn rushb_cycles(core_id: u32) -> u64 {
+#[no_mangle]
+pub extern "C" fn bemu_rushb_cycles(core_id: u32) -> u64 {
     with_core(core_id, |commands| {
         let (reply, result) = mpsc::channel();
         commands

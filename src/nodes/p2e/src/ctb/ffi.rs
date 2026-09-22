@@ -34,9 +34,6 @@ mod raw {
             case_home: *const c_char,
             rtcfg_path: *const c_char,
         ) -> bool;
-
-        /// C++: scu_0_hart_id() - exported from RTL
-        pub fn scu_0_hart_id() -> u32;
     }
 }
 

@@ -11,7 +11,8 @@ use std::collections::HashMap;
 use std::os::raw::{c_char, c_void};
 use std::path::Path;
 use std::slice;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 

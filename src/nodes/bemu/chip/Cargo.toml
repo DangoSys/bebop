@@ -45,7 +45,4 @@ libtest-mimic = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [features]
-default = ["rushb-host"]
 p2e = []
-rushb-host = []
-verilator = []

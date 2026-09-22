@@ -1,9 +1,11 @@
 use clap::Parser;
 use std::process::ExitCode;
 
+#[path = "common/runner/verilator.rs"]
+mod backend;
 mod common;
 
-use common::runner::backend::VerilatorBackend;
+use backend::VerilatorBackend;
 use common::{run_elf_regression, RegressionArgs};
 
 fn main() -> ExitCode {

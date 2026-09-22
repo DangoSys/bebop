@@ -28,7 +28,3 @@ cc = { version = "1", features = ["parallel"] }
 
 [lints]
 workspace = true
-
-[features]
-default = ["rushb-host"]
-rushb-host = []
