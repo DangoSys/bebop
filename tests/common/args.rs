@@ -1,16 +1,6 @@
 use clap::Parser;
 use std::path::PathBuf;
 
-/// Environment variables for bbdev-driven regression runs
-/// (nextest does not allow custom CLI args after `--`, so we use envs).
-const ENV_WORKLOAD_TOML: &str = "BEBOP_WORKLOAD_TOML";
-const ENV_BB_TESTS_ROOT: &str = "BEBOP_BB_TESTS_ROOT";
-const ENV_RUSHB_BACKEND: &str = "BEBOP_RUSHB_BACKEND";
-#[cfg(feature = "p2e")]
-const ENV_P2E_BITSTREAM: &str = "BEBOP_P2E_BITSTREAM";
-#[cfg(feature = "p2e")]
-const ENV_P2E_BUILD_DIR: &str = "BEBOP_P2E_BUILD_DIR";
-
 #[derive(Parser, Debug, Clone)]
 #[command(name = "elf-regression")]
 #[command(about = "ELF regression test harness for bebop")]
@@ -23,6 +13,25 @@ pub struct RegressionArgs {
 
     #[arg(long)]
     pub clean_before: bool,
+
+    #[arg(long)]
+    pub diff: bool,
+
+    #[arg(long)]
+    pub workload_toml: Option<PathBuf>,
+
+    #[arg(long, default_value = "../bb-tests/output")]
+    pub bb_tests_root: PathBuf,
+
+    #[arg(long)]
+    pub arch_config: Option<String>,
+
+    #[arg(long)]
+    pub rushb_backend: Option<String>,
+
+    #[cfg(feature = "p2e")]
+    #[arg(long)]
+    pub p2e_bitstream: Option<PathBuf>,
 
     #[arg(long, short = 'j', value_name = "N", default_value = "1")]
     pub jobs: usize,
@@ -56,36 +65,17 @@ pub struct RegressionArgs {
 }
 
 impl RegressionArgs {
-    /// Workload toml path read from BEBOP_WORKLOAD_TOML env var.
     pub fn workload_toml(&self) -> Option<PathBuf> {
-        std::env::var_os(ENV_WORKLOAD_TOML).map(PathBuf::from)
+        self.workload_toml.clone()
     }
 
-    /// Root directory that workload paths are resolved against.
-    /// Read from BEBOP_BB_TESTS_ROOT; defaults to `../bb-tests/output` relative
-    /// to the bebop crate (compatible with the pre-bbdev developer workflow).
     pub fn bb_tests_root(&self) -> PathBuf {
-        std::env::var_os(ENV_BB_TESTS_ROOT)
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("../bb-tests/output"))
+        self.bb_tests_root.clone()
     }
 
-    pub fn rushb_backend(&self) -> Option<String> {
-        std::env::var(ENV_RUSHB_BACKEND).ok()
-    }
-
-    /// P2E bitstream path read from BEBOP_P2E_BITSTREAM env var.
     #[cfg(feature = "p2e")]
     pub fn p2e_bitstream(&self) -> PathBuf {
-        std::env::var_os(ENV_P2E_BITSTREAM)
-            .map(PathBuf::from)
-            .expect("BEBOP_P2E_BITSTREAM is required")
-    }
-
-    /// P2E build dir read from BEBOP_P2E_BUILD_DIR env var.
-    #[cfg(feature = "p2e")]
-    pub fn p2e_build_dir(&self) -> Option<PathBuf> {
-        std::env::var_os(ENV_P2E_BUILD_DIR).map(PathBuf::from)
+        self.p2e_bitstream.clone().expect("--p2e-bitstream is required")
     }
 
     pub fn libtest_forward_flags(&self) -> Vec<String> {

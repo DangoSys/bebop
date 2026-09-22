@@ -63,7 +63,7 @@ pub trait BackendRunner {
 }
 
 #[cfg(feature = "bemu")]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 #[allow(dead_code)]
 pub struct BemuBackend;
 
@@ -123,12 +123,13 @@ impl BackendRunner for BemuBackend {
 #[allow(dead_code)]
 pub struct VerilatorBackend {
     diff: bool,
+    arch_config: Option<String>,
 }
 
 #[cfg(feature = "verilator")]
 impl VerilatorBackend {
-    pub fn new(diff: bool) -> Self {
-        Self { diff }
+    pub fn new(diff: bool, arch_config: Option<String>) -> Self {
+        Self { diff, arch_config }
     }
 }
 
@@ -180,8 +181,7 @@ impl BackendRunner for VerilatorBackend {
         if is_rushb_verilator(elf_path) {
             return;
         }
-        let arch_config = std::env::var_os("BEBOP_ARCH_CONFIG")
-            .unwrap_or_else(|| "sims.verilator.BuckyballToyVerilatorConfig".into());
+        let arch_config = self.arch_config.as_deref().unwrap_or("sims.verilator.BuckyballToyVerilatorConfig");
         cmd.env("ARCH_CONFIG", arch_config);
     }
 

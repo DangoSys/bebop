@@ -30,4 +30,5 @@ cc = { version = "1", features = ["parallel"] }
 workspace = true
 
 [features]
-difftest = []
+default = ["rushb-host"]
+rushb-host = []
