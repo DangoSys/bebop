@@ -15,8 +15,21 @@ impl Instruction for Mset {
         assert!(!clear || alloc == 1, "mset: clear requires allocation");
 
         let v = bank_id as u32;
-        let groups = col.max(1);
         let shared_bank = is_shared_vbank(bank_id);
+        let groups = if alloc == 1 && col == 0 {
+            if shared_bank {
+                ctx.shared
+                    .as_ref()
+                    .expect("shared bank storage is unavailable")
+                    .bank_map
+                    .slots
+                    .len() as u64
+            } else {
+                crate::config::bank_num() as u64
+            }
+        } else {
+            col.max(1)
+        };
 
         if alloc == 1 {
             let mut allocated = Vec::with_capacity(groups as usize);
@@ -42,14 +55,18 @@ impl Instruction for Mset {
                     allocated.push(p);
                 }
             }
-            if clear {
-                for p in allocated {
-                    ctx.banks.initialize(p, 0);
+            for p in allocated {
+                if shared_bank {
+                    if clear {
+                        ctx.banks.initialize(p, 0);
+                    }
+                } else {
+                    ctx.banks.allocate(p, clear);
                 }
             }
             *ctx.config_mut(bank_id) = BankConfig {
                 allocated: true,
-                cols: col,
+                cols: groups,
                 valid_rows: 0,
             };
         } else {

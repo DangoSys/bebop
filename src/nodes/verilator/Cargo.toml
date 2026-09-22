@@ -16,7 +16,6 @@ bebop-dasm = { path = "../lib/dasm" }
 bebop-fd-redirect = { path = "../lib/fd-redirect" }
 bebop-rtl-trace = { path = "../lib/rtl-trace" }
 bebop-rushb = { path = "../lib/rushB" }
-ctrlc = "3.4"
 
 [build-dependencies]
 cc = { version = "1", features = ["parallel"] }

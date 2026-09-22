@@ -24,6 +24,7 @@
 //===----------------------------------------------------------------------===//
 
 use clap::{Args, Parser, Subcommand};
+use std::io::Write;
 use std::path::PathBuf;
 
 mod simulation;
@@ -68,6 +69,8 @@ pub enum BuildTarget {
         rtl_dir: PathBuf,
         #[arg(long, value_name = "DIR")]
         out_dir: PathBuf,
+        #[arg(long, help = "Build a P2E+BEMU Bank DiffTest executable")]
+        diff: bool,
     },
 }
 
@@ -110,8 +113,6 @@ pub enum RunTarget {
         log_dir: PathBuf,
         #[arg(long, help = "Run with proxy kernel (Linux mode, starts in S-mode)")]
         pk: bool,
-        #[arg(long, help = "Generate DiffTest-N BEMU Golden Records")]
-        bank_digest: bool,
         // For MobileNetV3 on pebble with --pk, a run without disassembly took
         // 12m30.50s while a run with it exceeded 45m22s: at least 3.6x slower.
         #[arg(long, help = "Enable per-instruction disassembly logging")]
@@ -139,6 +140,10 @@ pub enum RunTarget {
         wave: bool,
         #[arg(long, help = "Start waveform dump from this cycle")]
         wave_start: Option<u64>,
+        #[arg(long, requires = "image_elf", help = "Compare P2E bank state against BEMU")]
+        diff: bool,
+        #[arg(long, value_name = "ELF", help = "ELF corresponding to --image")]
+        image_elf: Option<PathBuf>,
         #[arg(long, help = "Enable RTL instruction trace")]
         itrace: bool,
         #[arg(long, help = "Enable RTL memory trace")]
@@ -154,13 +159,34 @@ pub enum RunTarget {
 
 fn main() {
     let cli = Cli::parse();
+    let p2e_command = matches!(
+        &cli.command,
+        Commands::Build(BuildCommand {
+            target: BuildTarget::P2e { .. },
+        }) | Commands::Run(RunCommand {
+            target: RunTarget::P2e { .. },
+        })
+    );
     let result = match cli.command {
         Commands::Build(command) => simulation::build(command),
         Commands::Run(command) => simulation::run(command),
     };
 
-    if let Err(e) = result {
-        eprintln!("Error: {}", e);
-        std::process::exit(1);
+    let exit_code = match result {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            1
+        }
+    };
+
+    if p2e_command {
+        std::io::stdout().flush().expect("failed to flush stdout");
+        std::io::stderr().flush().expect("failed to flush stderr");
+        unsafe { libc::_exit(exit_code) };
+    }
+
+    if exit_code != 0 {
+        std::process::exit(exit_code);
     }
 }

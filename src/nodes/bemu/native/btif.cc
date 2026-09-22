@@ -31,10 +31,15 @@
 extern "C" {
     uint64_t uart_mmio_load(uint8_t* uart_ptr, uint64_t addr, size_t size);
     bool uart_mmio_store(uint8_t* uart_ptr, uint64_t addr, size_t size, uint64_t value);
+    bool clint_mmio_load(uint8_t* clint_ptr, uint64_t addr, size_t size, uint64_t* value);
+    bool clint_mmio_store(uint8_t* clint_ptr, uint64_t addr, size_t size, uint64_t value);
+    bool plic_mmio_load(uint8_t* plic_ptr, uint64_t addr, size_t size, uint64_t* value);
+    bool plic_mmio_store(uint8_t* plic_ptr, uint64_t addr, size_t size, uint64_t value);
 }
 
-BTIF::BTIF(uint8_t* mem_ptr, size_t mem_size, uint8_t* uart_ptr, const char* isa, size_t hart_id)
-    : mem_ptr(mem_ptr), mem_size(mem_size), uart_ptr(uart_ptr) {
+BTIF::BTIF(uint8_t* mem_ptr, size_t mem_size, uint8_t* uart_ptr, uint8_t* clint_ptr,
+           uint8_t* plic_ptr, const char* isa, size_t hart_id)
+    : mem_ptr(mem_ptr), mem_size(mem_size), uart_ptr(uart_ptr), clint_ptr(clint_ptr), plic_ptr(plic_ptr) {
     isa_storage = isa;
     cfg.isa = isa_storage.c_str();
     cfg.priv = "MSU";
@@ -50,11 +55,21 @@ char* BTIF::addr_to_mem(reg_t addr) {
 }
 
 bool BTIF::mmio_load(reg_t addr, size_t len, uint8_t* bytes) {
+    uint64_t value = 0;
     if (addr >= UART_BASE && addr < UART_BASE + UART_SIZE) {
-        uint64_t value = uart_mmio_load(uart_ptr, addr, len);
+        value = uart_mmio_load(uart_ptr, addr, len);
         memcpy(bytes, &value, len);
         return true;
     }
+    if (addr >= CLINT_BASE && addr < CLINT_BASE + CLINT_SIZE && clint_mmio_load(clint_ptr, addr, len, &value)) {
+        memcpy(bytes, &value, len);
+        return true;
+    }
+    if (addr >= PLIC_BASE && addr < PLIC_BASE + PLIC_SIZE && plic_mmio_load(plic_ptr, addr, len, &value)) {
+        memcpy(bytes, &value, len);
+        return true;
+    }
+    fprintf(stderr, "[ERROR] unsupported MMIO load: addr=0x%lx size=%zu\n", addr, len);
     return false;
 }
 
@@ -72,7 +87,18 @@ bool BTIF::mmio_store(reg_t addr, size_t len, const uint8_t* bytes) {
         memcpy(&value, bytes, len);
         return uart_mmio_store(uart_ptr, addr, len, value);
     }
+    if (addr >= CLINT_BASE && addr < CLINT_BASE + CLINT_SIZE) {
+        uint64_t value = 0;
+        memcpy(&value, bytes, len);
+        return clint_mmio_store(clint_ptr, addr, len, value);
+    }
+    if (addr >= PLIC_BASE && addr < PLIC_BASE + PLIC_SIZE) {
+        uint64_t value = 0;
+        memcpy(&value, bytes, len);
+        return plic_mmio_store(plic_ptr, addr, len, value);
+    }
 
+    fprintf(stderr, "[ERROR] unsupported MMIO store: addr=0x%lx size=%zu\n", addr, len);
     return false;
 }
 

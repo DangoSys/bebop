@@ -7,6 +7,7 @@ use std::io::Write;
 use std::os::unix::fs::FileExt;
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 const SIM_EXIT_ADDR: u64 = 0x6000_0000;
 const UART_BASE_ADDR: u64 = 0x6002_0000;
@@ -34,9 +35,6 @@ mod raw {
             rtcfg_path: *const c_char,
         ) -> bool;
 
-        /// C wrapper: ctb_quit_wrapper(mgr)
-        pub fn ctb_quit_wrapper(ctb: *mut ICtbMgr);
-
         /// C++: scu_0_hart_id() - exported from RTL
         pub fn scu_0_hart_id() -> u32;
     }
@@ -58,6 +56,9 @@ struct RuntimeState {
     console_tx: Option<Sender<UartTx>>,
     cycle_trace: Option<CycleTraceCollector>,
     cycle_trace_error: Option<String>,
+    uart_line: Vec<u8>,
+    executable_started: Option<(String, Instant)>,
+    executable_timing: Option<(String, Instant, Instant)>,
 }
 
 static STATE: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
@@ -136,6 +137,39 @@ pub fn uart_log() -> String {
     String::from_utf8_lossy(&guard.uart_log).to_string()
 }
 
+pub fn executable_timing() -> Option<(String, Instant, Instant)> {
+    state().lock().unwrap().executable_timing.clone()
+}
+
+fn record_uart_byte(guard: &mut RuntimeState, hart_id: u32, byte: u8) {
+    guard.uart_log.push(byte);
+    if let Some(collector) = guard.cycle_trace.as_mut() {
+        if let Err(error) = collector.push_uart_byte(hart_id, byte) {
+            guard.cycle_trace_error.get_or_insert(error);
+        }
+    }
+    if hart_id != 0 {
+        return;
+    }
+    guard.uart_line.push(byte);
+    if byte != b'\n' {
+        return;
+    }
+
+    let bytes = std::mem::take(&mut guard.uart_line);
+    let line = String::from_utf8_lossy(&bytes).trim().to_string();
+    if let Some(name) = line.strip_prefix("RUN ") {
+        guard.executable_started = Some((name.to_string(), Instant::now()));
+    }
+    if let Some(name) = line.strip_prefix("PASS ") {
+        if let Some((running, started)) = guard.executable_started.take() {
+            if running == name {
+                guard.executable_timing = Some((running, started, Instant::now()));
+            }
+        }
+    }
+}
+
 pub fn host_mmio_write(addr: u64, data: u64) -> i32 {
     let mut guard = state().lock().unwrap();
 
@@ -152,12 +186,7 @@ pub fn host_mmio_write(addr: u64, data: u64) -> i32 {
     if (UART_BASE_ADDR..UART_BASE_ADDR + UART_SIZE).contains(&addr) {
         if addr == UART_BASE_ADDR {
             let byte = (data & 0xff) as u8;
-            guard.uart_log.push(byte);
-            if let Some(collector) = guard.cycle_trace.as_mut() {
-                if let Err(error) = collector.push_uart_byte(0, byte) {
-                    guard.cycle_trace_error.get_or_insert(error);
-                }
-            }
+            record_uart_byte(&mut guard, 0, byte);
             print!("{}", byte as char);
             let _ = std::io::Write::flush(&mut std::io::stdout());
         }
@@ -202,12 +231,7 @@ pub extern "C" fn scu_uart_write(hart_id: u32, ch: u32) {
 
     // Also write to global uart_log for backward compatibility
     let byte = (ch & 0xff) as u8;
-    guard.uart_log.push(byte);
-    if let Some(collector) = guard.cycle_trace.as_mut() {
-        if let Err(error) = collector.push_uart_byte(hart_id, byte) {
-            guard.cycle_trace_error.get_or_insert(error);
-        }
-    }
+    record_uart_byte(&mut guard, hart_id, byte);
     if let Some(tx) = &guard.console_tx {
         let _ = tx.send(UartTx { hart_id, byte });
     }
@@ -463,23 +487,5 @@ impl CtbManager {
         } else {
             Err("CTB initialization failed".to_string())
         }
-    }
-
-    pub fn quit(&self) {
-        if !self.ctb.is_null() {
-            #[cfg(vvac_linked)]
-            // SAFETY: self.ctb is valid (set in new(), freed in Drop); ctb_quit_wrapper
-            // is the proper cleanup function for ICtbMgr.
-            unsafe {
-                raw::ctb_quit_wrapper(self.ctb);
-            }
-            log::info!("CTB quit");
-        }
-    }
-}
-
-impl Drop for CtbManager {
-    fn drop(&mut self) {
-        self.quit();
     }
 }

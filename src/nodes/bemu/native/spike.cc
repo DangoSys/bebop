@@ -43,9 +43,13 @@ extern "C" {
     uint64_t handle_syscall_ffi(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
     bool should_exit_ffi(void*);
     int get_exit_code_ffi(void*);
+    uint32_t clint_tick(uint8_t*, uint64_t);
+    uint64_t clint_time(const uint8_t*);
 }
 
 static thread_local void* current_emu_state = nullptr;
+struct spike_context_t;
+static thread_local spike_context_t* current_spike = nullptr;
 
 extern "C" void* current_bemu_state() {
     return current_emu_state;
@@ -88,6 +92,7 @@ struct spike_context_t {
     void* emu_state = nullptr;
     uint8_t* mem_ptr = nullptr;
     size_t mem_size = 0;
+    uint8_t* clint_ptr = nullptr;
     uint64_t step_count = 0;
     uint64_t step_elapsed_ns = 0;
     bool profile_enabled = false;
@@ -96,6 +101,42 @@ struct spike_context_t {
     bool finished = false;
     int exit_code = 0;
 };
+
+bool spike_mmu_load_u8(uint64_t addr, uint8_t* value) {
+    if (current_spike == nullptr) {
+        fprintf(stderr, "[ERROR] BEMU MMU load without an active Spike context\n");
+        return false;
+    }
+    reg_t previous_privilege = current_spike->state->prv;
+    current_spike->proc->set_privilege(PRV_U, false);
+    try {
+        *value = current_spike->proc->get_mmu()->load<uint8_t>(addr);
+        current_spike->proc->set_privilege(previous_privilege, false);
+        return true;
+    } catch (trap_t& trap) {
+        current_spike->proc->set_privilege(previous_privilege, false);
+        fprintf(stderr, "[ERROR] BEMU DMA load fault: addr=0x%lx cause=%ld\n", addr, trap.cause());
+        return false;
+    }
+}
+
+bool spike_mmu_store_u8(uint64_t addr, uint8_t value) {
+    if (current_spike == nullptr) {
+        fprintf(stderr, "[ERROR] BEMU MMU store without an active Spike context\n");
+        return false;
+    }
+    reg_t previous_privilege = current_spike->state->prv;
+    current_spike->proc->set_privilege(PRV_U, false);
+    try {
+        current_spike->proc->get_mmu()->store<uint8_t>(addr, value);
+        current_spike->proc->set_privilege(previous_privilege, false);
+        return true;
+    } catch (trap_t& trap) {
+        current_spike->proc->set_privilege(previous_privilege, false);
+        fprintf(stderr, "[ERROR] BEMU DMA store fault: addr=0x%lx cause=%ld\n", addr, trap.cause());
+        return false;
+    }
+}
 
 static void destroy_context(spike_context_t* ctx) {
     if (ctx == nullptr) {
@@ -167,6 +208,8 @@ void* spike_create_raw(
     size_t mem_size,
     const char* log_path,
     uint8_t* uart_ptr,
+    uint8_t* clint_ptr,
+    uint8_t* plic_ptr,
     void* emu_state,
     bool profile_enabled
 ) {
@@ -182,18 +225,21 @@ void* spike_create_raw(
     auto* ctx = new spike_context_t();
     ctx->mem_ptr = mem_ptr;
     ctx->mem_size = mem_size;
+    ctx->clint_ptr = clint_ptr;
     ctx->emu_state = emu_state;
     ctx->profile_enabled = profile_enabled;
     current_emu_state = ctx->emu_state;
+    current_spike = ctx;
 
     if (!init_log(ctx, log_path)) {
         destroy_context(ctx);
         return nullptr;
     }
 
-    ctx->btif = new BTIF(mem_ptr, mem_size, uart_ptr, isa, hart_id);
+    ctx->btif = new BTIF(mem_ptr, mem_size, uart_ptr, clint_ptr, plic_ptr, isa, hart_id);
     const char* final_isa = ctx->btif->get_cfg().isa;
     ctx->proc = new processor_t(final_isa, "MSU", &ctx->btif->get_cfg(), ctx->btif, hart_id, false, ctx->log_file, std::cerr);
+    ctx->proc->set_max_vaddr_bits(39);
     ctx->proc->reset();
 
     if (std::strstr(final_isa, "xbuckyball") != nullptr && !check_buckyball_mounted(ctx)) {
@@ -235,9 +281,7 @@ bool spike_init_hart_raw(
     }
     current_emu_state = ctx->emu_state;
     ctx->pk_mode = pk;
-
     if (pk) {
-        ctx->proc->set_max_vaddr_bits(39);
         ctx->state->csrmap[CSR_MTVEC]->write(trap_handler_addr);
         ctx->state->csrmap[CSR_SATP]->write(satp);
         ctx->proc->get_mmu()->flush_tlb();
@@ -272,6 +316,7 @@ static spike_context_t* enter_context(void* raw_ctx) {
     auto* ctx = reinterpret_cast<spike_context_t*>(raw_ctx);
     if (ctx != nullptr) {
         current_emu_state = ctx->emu_state;
+        current_spike = ctx;
     }
     return ctx;
 }
@@ -326,7 +371,7 @@ static int handle_syscall_magic_pc(spike_context_t* ctx) {
     if (ctx->pk_mode) {
         ctx->proc->set_privilege(PRV_U, false);
     } else {
-        ctx->state->prv = PRV_S;
+        ctx->proc->set_privilege(PRV_M, false);
     }
     ctx->prev_pc = ctx->state->pc;
     return 1;
@@ -395,33 +440,40 @@ static int handle_trap(spike_context_t* ctx, trap_t& trap) {
         return 0;
     }
 
-    if (trap.cause() == CAUSE_MISALIGNED_LOAD || trap.cause() == CAUSE_MISALIGNED_STORE) {
-        return 0;
-    }
-
     return fail_unhandled_trap(ctx, trap);
 }
 
-static int step_one_instruction(spike_context_t* ctx) {
+static int step_instructions(spike_context_t* ctx, uint64_t count) {
+    const reg_t retired_before = ctx->state->csrmap[CSR_MINSTRET]->read();
     if (!ctx->profile_enabled) {
         int result = 0;
         try {
-            ctx->proc->step(1);
-            ctx->step_count++;
+            ctx->proc->step(count);
         } catch (trap_t& trap) {
             result = handle_trap(ctx, trap);
         }
+        const reg_t retired = ctx->state->csrmap[CSR_MINSTRET]->read() - retired_before;
+        ctx->step_count += retired;
+        const uint32_t pending = clint_tick(ctx->clint_ptr, retired);
+        ctx->state->time->sync(clint_time(ctx->clint_ptr));
+        const reg_t value = (pending & 1 ? MIP_MSIP : 0) | (pending & 2 ? MIP_MTIP : 0);
+        ctx->state->mip->backdoor_write_with_mask(MIP_MSIP | MIP_MTIP, value);
         return result;
     }
 
     const auto started = std::chrono::steady_clock::now();
     int result = 0;
     try {
-        ctx->proc->step(1);
-        ctx->step_count++;
+        ctx->proc->step(count);
     } catch (trap_t& trap) {
         result = handle_trap(ctx, trap);
     }
+    const reg_t retired = ctx->state->csrmap[CSR_MINSTRET]->read() - retired_before;
+    ctx->step_count += retired;
+    const uint32_t pending = clint_tick(ctx->clint_ptr, retired);
+    ctx->state->time->sync(clint_time(ctx->clint_ptr));
+    const reg_t value = (pending & 1 ? MIP_MSIP : 0) | (pending & 2 ? MIP_MTIP : 0);
+    ctx->state->mip->backdoor_write_with_mask(MIP_MSIP | MIP_MTIP, value);
     const auto elapsed = std::chrono::steady_clock::now() - started;
     ctx->step_elapsed_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count();
     return result;
@@ -439,12 +491,11 @@ static bool pc_jumped_to_zero(spike_context_t* ctx) {
     return true;
 }
 
-int spike_step_raw(void* raw_ctx) {
+int spike_step_raw(void* raw_ctx, uint64_t count) {
     auto* ctx = enter_context(raw_ctx);
     if (ctx == nullptr) {
         return -1;
     }
-
     if (finish_if_requested(ctx)) {
         return 1;
     }
@@ -453,29 +504,16 @@ int spike_step_raw(void* raw_ctx) {
     if (syscall_magic < 0) {
         return -1;
     }
-    if (syscall_magic > 0) {
+    if (syscall_magic > 0 || skip_invalid_compressed_jump(ctx)) {
         return 0;
     }
 
-    if (skip_invalid_compressed_jump(ctx)) {
-        return 0;
-    }
-
-    int step_result = step_one_instruction(ctx);
-    if (step_result < 0) {
-        return -1;
-    }
-
-    if (pc_jumped_to_zero(ctx)) {
+    if (step_instructions(ctx, count) < 0 || pc_jumped_to_zero(ctx)) {
         return -1;
     }
 
     ctx->prev_pc = ctx->state->pc;
-
-    if (finish_if_requested(ctx)) {
-        return 1;
-    }
-    return 0;
+    return finish_if_requested(ctx) ? 1 : 0;
 }
 
 //===----------------------------------------------------------------------===//

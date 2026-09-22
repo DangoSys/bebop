@@ -3,9 +3,13 @@ members = [
   ".",
   "src/nodes/lib/bank-hash",
   "src/nodes/lib/bemu-profile",
+  "src/nodes/lib/chipcrowd",
+  "src/nodes/lib/clint",
   "src/nodes/lib/rushB",
   "src/nodes/lib/fd-redirect",
+  "src/nodes/lib/plic",
   "src/nodes/lib/rtl-trace",
+  "src/nodes/lib/syscall",
   "src/nodes/lib/uart",
   "src/nodes/verilator",
   "src/nodes/p2e",
@@ -49,7 +53,6 @@ required-features = ["bemu"]
 default = []
 verilator = ["dep:bebop-verilator"]
 p2e = ["dep:bebop-p2e"]
-difftest = []
 bemu = []
 
 [dependencies]
@@ -67,7 +70,6 @@ log = "0.4"
 env_logger = "0.11"
 nix = { version = "0.29", features = ["fs", "mman", "signal", "process"] }
 toml = "0.8"
-ctrlc = "3"
 camino = "1.1"
 snafu = "0.8"
 serde = { version = "1", features = ["derive"] }

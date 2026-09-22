@@ -1,6 +1,7 @@
 use crate::state::SyscallState;
 use crate::utils::guest_cstr;
 use std::fs::OpenOptions;
+use std::path::Path;
 
 pub fn handle_openat(
     state: &mut SyscallState,
@@ -38,6 +39,13 @@ pub fn handle_openat(
     if flags == 0 {
         opts.read(true);
     }
+
+    let path = Path::new(path);
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        state.working_dir.join(path)
+    };
 
     match opts.open(path) {
         Ok(file) => {

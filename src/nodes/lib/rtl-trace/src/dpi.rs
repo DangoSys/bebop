@@ -6,9 +6,10 @@ use crate::{state, trace};
 
 pub(crate) fn force_link() {
     let _ = dpi_bdb_set_clk as extern "C" fn(u64);
-    let _ = dpi_itrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
-    let _ = dpi_mtrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
-    let _ = dpi_mtrace_issue as extern "C" fn(u32, u32, u32, u32, u32, u32);
+    let _ = dpi_itrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
+    let _ = dpi_mtrace
+        as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
+    let _ = dpi_btrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
     let _ = dpi_pmctrace as extern "C" fn(u32, u32, u32, u32);
     let _ = dpi_mem_pmctrace as extern "C" fn(u32, u32, u32, u32);
     let _ = dpi_ctrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32);
@@ -27,31 +28,31 @@ fn u64_from_words(lo: u32, hi: u32) -> u64 {
 #[no_mangle]
 pub extern "C" fn dpi_itrace(
     is_issue: u32,
+    hart_id_lo: u32,
+    hart_id_hi: u32,
     rob_id: u32,
+    inst_id_lo: u32,
+    inst_id_hi: u32,
     domain_id: u32,
     funct: u32,
     pc_lo: u32,
     pc_hi: u32,
-    _rs1_idx_lo: u32,
-    _rs1_idx_hi: u32,
-    _rs2_idx_lo: u32,
-    _rs2_idx_hi: u32,
     rs1_data_lo: u32,
     rs1_data_hi: u32,
     rs2_data_lo: u32,
     rs2_data_hi: u32,
-    bank_enable: u32,
 ) {
     state::record_itrace_callback();
     trace::itrace(trace::ITraceEvent {
+        hart_id: u64_from_words(hart_id_lo, hart_id_hi),
         is_issue: is_issue as u8,
         rob_id,
+        inst_id: u64_from_words(inst_id_lo, inst_id_hi),
         domain_id,
         funct,
         pc: u64_from_words(pc_lo, pc_hi),
         rs1: u64_from_words(rs1_data_lo, rs1_data_hi),
         rs2: u64_from_words(rs2_data_lo, rs2_data_hi),
-        bank_enable: bank_enable as u8,
     });
 }
 
@@ -63,6 +64,8 @@ pub extern "C" fn dpi_mtrace(
     hart_id_lo: u32,
     hart_id_hi: u32,
     rob_id: u32,
+    inst_id_lo: u32,
+    inst_id_hi: u32,
     vbank_id: u32,
     pbank_id: u32,
     group_id: u32,
@@ -80,6 +83,7 @@ pub extern "C" fn dpi_mtrace(
         channel,
         hart_id: u64_from_words(hart_id_lo, hart_id_hi),
         rob_id,
+        inst_id: u64_from_words(inst_id_lo, inst_id_hi),
         vbank_id,
         pbank_id,
         group_id,
@@ -91,22 +95,35 @@ pub extern "C" fn dpi_mtrace(
 }
 
 #[no_mangle]
-pub extern "C" fn dpi_mtrace_issue(
+pub extern "C" fn dpi_btrace(
+    inst_id_lo: u32,
+    inst_id_hi: u32,
     hart_id_lo: u32,
     hart_id_hi: u32,
-    is_shared: u32,
-    rob_id: u32,
-    vbank_id: u32,
-    group_id: u32,
+    r0_vbank: u32,
+    r0_hash: u32,
+    r1_vbank: u32,
+    r1_hash: u32,
+    w0_vbank: u32,
+    w0_hash: u32,
 ) {
-    state::record_mtrace_issue_callback();
-    trace::mtrace_issue(trace::MTraceIssueEvent {
-        is_shared: is_shared as u8,
-        hart_id: u64_from_words(hart_id_lo, hart_id_hi),
-        rob_id,
-        vbank_id,
-        group_id,
-    });
+    state::record_btrace_callback();
+    crate::banktrace::btrace(
+        u64_from_words(inst_id_lo, inst_id_hi),
+        u64_from_words(hart_id_lo, hart_id_hi),
+        bebop_bank_hash::BTraceBank {
+            vbank_id: r0_vbank,
+            hash: r0_hash,
+        },
+        bebop_bank_hash::BTraceBank {
+            vbank_id: r1_vbank,
+            hash: r1_hash,
+        },
+        bebop_bank_hash::BTraceBank {
+            vbank_id: w0_vbank,
+            hash: w0_hash,
+        },
+    );
 }
 
 #[no_mangle]

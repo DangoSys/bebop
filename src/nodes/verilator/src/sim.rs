@@ -4,22 +4,6 @@ use std::ffi::CString;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-
-static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
-
-pub fn setup_ctrlc_handler() {
-    ctrlc::set_handler(move || {
-        eprintln!("Simulation interrupted");
-        SHOULD_EXIT.store(true, Ordering::SeqCst);
-    })
-    .expect("failed to set Ctrl-C handler");
-}
-
-pub fn should_exit() -> bool {
-    SHOULD_EXIT.load(Ordering::SeqCst)
-}
-
 pub struct Simulator {
     context: *mut VerilatorContext,
     top: *mut VerilatorTop,

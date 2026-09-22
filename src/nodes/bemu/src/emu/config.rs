@@ -14,10 +14,6 @@ pub fn configure_core(core_index: usize) {
     VIRTUAL_BANK_COUNT.with(|slot| *slot.borrow_mut() = Some(chip_config::virtual_bank_count_for_core(core_index)));
 }
 
-pub fn configure_default() {
-    configure_core(0);
-}
-
 pub fn configure_core_with_virtual_bank_count(core_index: usize, virtual_bank_count: usize) {
     configure_core(core_index);
     assert!(

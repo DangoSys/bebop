@@ -1,7 +1,7 @@
 mod chip;
 mod sim;
 
-#[path = "../native/ffi.rs"]
+#[path = "../native/ffi/mod.rs"]
 mod ffi;
 
 #[path = "../native/spike.rs"]
@@ -27,5 +27,10 @@ pub use trace::TraceConfig;
 /// Private-bank geometry used by an in-process RTL DiffTest monitor.
 /// Geometry follows chip.pb baked at build time.
 pub fn private_bank_geometry() -> (usize, usize) {
+    config::configure_core(0);
     (config::bank_size(), config::bank_row_bytes())
+}
+
+pub fn spike_library_dir() -> &'static std::path::Path {
+    std::path::Path::new(env!("BEBOP_BEMU_SPIKE_LIB_DIR"))
 }

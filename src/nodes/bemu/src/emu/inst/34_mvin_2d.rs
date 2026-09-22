@@ -1,5 +1,5 @@
-use super::super::bank::{bank_size, mem_read};
-use super::decode::{pbank, rs1_b0, rs1_iter};
+use super::super::bank::bank_size;
+use super::decode::{pbank, rs1_b2, rs1_iter};
 use super::instruction::{ExecContext, Instruction};
 
 pub struct Mvin2d;
@@ -8,7 +8,7 @@ impl Instruction for Mvin2d {
     const FUNCT: u32 = 34;
 
     fn exec(xs1: u64, xs2: u64, ctx: &mut ExecContext) -> u64 {
-        let bank_id = rs1_b0(xs1);
+        let bank_id = rs1_b2(xs1);
         let height = rs1_iter(xs1);
         let mem_addr = xs2 & 0xffff_ffff;
         let pixel_bytes = ((xs2 >> 32) & 0x7f) * 8;
@@ -45,7 +45,7 @@ impl Instruction for Mvin2d {
                 let offset = row as usize * 16;
                 for lane in 0..16 {
                     ctx.banks[bank][offset + lane] = if lane < valid_bytes as usize {
-                        mem_read(ctx.memory, source + lane as u64)
+                        ctx.read_memory(source + lane as u64)
                     } else {
                         0
                     };
@@ -55,7 +55,7 @@ impl Instruction for Mvin2d {
                     is_shared: crate::config::is_shared_vbank(bank_id),
                     channel: 0,
                     hart_id: ctx.hart_id as u64,
-                    rob_id: ctx.instruction_id as u32,
+                    rob_id: ctx.inst_id as u32,
                     vbank_id: bank_id as u32,
                     pbank_id: ctx.reported_physical_bank(bank_id, bank),
                     group_id: 0,

@@ -31,7 +31,6 @@ pub struct BemuRunConfig {
     pub elf: PathBuf,
     pub log_dir: PathBuf,
     pub pk: bool,
-    pub bank_digest: bool,
     pub disasm: bool,
     pub tool_profile: bool,
     pub itrace: bool,
@@ -46,8 +45,7 @@ pub fn run(config: BemuRunConfig) -> Result<(), Whatever> {
         println!("[INFO] Running BEMU: elf={elf} log_dir={log_dir}");
 
         // Step 1: Initialize BEMU
-        let mut trace_config = TraceConfig::new(config.itrace, config.mtrace);
-        trace_config.btrace = config.bank_digest;
+        let trace_config = TraceConfig::new(config.itrace, config.mtrace);
 
         let mut bemu = BemuInstance::new(&config.log_dir, trace_config, config.disasm, config.tool_profile)?;
 
@@ -60,7 +58,7 @@ pub fn run(config: BemuRunConfig) -> Result<(), Whatever> {
         // Step 4: Run bemu in a loop until finished
         let started = config.tool_profile.then(Instant::now);
         while !bemu.finished() {
-            bemu.step()?;
+            bemu.step(10_000)?;
         }
         if let Some(started) = started {
             if let Some(report) = bemu.profile_report(started.elapsed()) {

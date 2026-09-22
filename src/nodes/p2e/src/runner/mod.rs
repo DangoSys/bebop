@@ -2,7 +2,7 @@ mod runworkload;
 
 pub use runworkload::{
     configure_vvac_environment, generate_main_tcl, init_ctb, source_environment, start_vdbg_background,
-    wait_for_completion, wait_for_flash, SimulationResult,
+    wait_for_completion, wait_for_flash, SimulationResult, VdbgProcess,
 };
 
 // Runner steps - use path attribute to map module names to directories with numeric prefixes

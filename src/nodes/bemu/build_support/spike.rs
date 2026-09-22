@@ -11,7 +11,12 @@ pub fn native_dir(manifest_dir: &Path) -> PathBuf {
     }
 
     for dir in start.ancestors() {
-        let repo_native = dir.join("bebop").join("src").join("nodes").join("bemu").join("native");
+        let repo_native = dir
+            .join("bebop")
+            .join("src")
+            .join("nodes")
+            .join("bemu")
+            .join("native");
         if repo_native.join("spike").exists() {
             return repo_native;
         }
@@ -40,13 +45,19 @@ pub fn build_and_link(native_dir: &Path, spike_dir: &Path, build_dir: &Path, ins
         .flag("-std=c++17")
         .compile("spike_wrapper");
 
-    println!("cargo:rustc-link-search=native={}/lib", install_dir.display());
+    println!(
+        "cargo:rustc-link-search=native={}/lib",
+        install_dir.display()
+    );
     println!("cargo:rustc-link-lib=dylib=riscv");
     println!("cargo:rustc-link-lib=dylib=disasm");
     println!("cargo:rustc-link-lib=dylib=softfloat");
     println!("cargo:rustc-link-lib=dylib=fesvr");
     println!("cargo:rustc-link-lib=dylib=stdc++");
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{}/lib", install_dir.display());
+    println!(
+        "cargo:rustc-link-arg=-Wl,-rpath,{}/lib",
+        install_dir.display()
+    );
 }
 
 pub fn build_spike(spike_dir: &Path, build_dir: &Path, install_dir: &Path) {
@@ -87,7 +98,11 @@ fn spike_configure(spike_dir: &Path, build_dir: &Path, install_dir: &Path) {
         .current_dir(build_dir)
         .arg("--prefix")
         .arg(install_dir)
-        .args(["--with-boost=no", "--with-boost-asio=no", "--with-boost-regex=no"])
+        .args([
+            "--with-boost=no",
+            "--with-boost-asio=no",
+            "--with-boost-regex=no",
+        ])
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status()

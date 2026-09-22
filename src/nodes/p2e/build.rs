@@ -30,9 +30,11 @@ const SOURCE_ME: &str = "sourceme.sh";
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(vvac_linked)");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=build/link.rs");
+    println!("cargo:rerun-if-changed=build/vsrc.rs");
+    println!("cargo:rerun-if-changed=build/vvac.rs");
     println!("cargo:rerun-if-env-changed=VSRC_PATH");
     println!("cargo:rerun-if-env-changed=OUT_PATH");
-    println!("cargo:rerun-if-env-changed=BEBOP_P2E_REBUILD_RUNTIME");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let bebop_root = manifest_dir
@@ -46,18 +48,13 @@ fn main() {
         Err(_) => bebop_root.join("out"),
     };
     let libctb_dst = out_dir.join("libvCtb.so");
-    let rebuild_runtime = env::var_os("BEBOP_P2E_REBUILD_RUNTIME").is_some();
 
-    if libctb_dst.exists() && !rebuild_runtime {
+    if libctb_dst.exists() {
         println!("cargo:warning=Found existing libvCtb.so, skipping VVAC build");
         println!("cargo:warning=Building C++ wrapper for Rust FFI...");
         link::build_cpp_wrapper(&manifest_dir, &out_dir);
         link::link_vvac(&libctb_dst);
         return;
-    }
-
-    if rebuild_runtime {
-        println!("cargo:warning=Forcing VVAC runtime rebuild");
     }
 
     let vsrc_path = match env::var("VSRC_PATH") {
@@ -122,8 +119,7 @@ fn main() {
         libctb_dst.display()
     );
 
-    println!("cargo:warning=Fixing VVAC library RPATH for C++ ABI compatibility...");
-    vvac::fix_vvac_library_rpath(&out_dir);
+    vvac::fix_library_rpath(&out_dir);
 
     println!("cargo:warning=Building C++ wrapper for Rust FFI...");
     link::build_cpp_wrapper(&manifest_dir, &out_dir);

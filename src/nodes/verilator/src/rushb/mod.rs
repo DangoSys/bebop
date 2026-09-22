@@ -3,7 +3,7 @@ mod dma;
 mod scheduler;
 mod state;
 
-use bebop_rushb::{FUNCT7_MSET, FUNCT7_MVIN, FUNCT7_MVIN_MMIO, FUNCT7_MVOUT};
+use bebop_rushb::{FUNCT7_MSET, FUNCT7_MVIN, FUNCT7_MVIN_MMIO};
 use command::WaitMode;
 use dma::DmaOperation;
 use std::ffi::c_void;
@@ -46,7 +46,7 @@ pub extern "C" fn rushb_mset(core_id: u32, xs1: u64, xs2: u64) {
 
 #[no_mangle]
 pub extern "C" fn rushb_mvin(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *const c_void) {
-    let bank_id = usize::try_from(xs1 & 0x3ff).expect("invalid bank id");
+    let bank_id = usize::try_from((xs1 >> 20) & 0x3ff).expect("invalid bank id");
     let spans = dma::spans(state::bank_config(core_id, bank_id), xs1, packed_xs2);
     let chunks = unsafe { dma::capture_host(host_ptr.cast(), &spans) };
     command::execute(
@@ -77,43 +77,4 @@ pub extern "C" fn rushb_mvin_mmio(core_id: u32, xs1: u64, packed_xs2: u64, host_
         DmaOperation::Mvin { spans, chunks },
     )
     .unwrap_or_else(|error| panic!("rushB mvin_mmio failed: {error}"));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::mvin_mmio_spans;
-
-    #[test]
-    fn mvin_mmio_only_reads_valid_host_columns() {
-        let (staging, host) = mvin_mmio_spans(2, 4);
-        assert_eq!(staging, vec![(0, 16), (16, 16)]);
-        assert_eq!(host, vec![(0, 4), (16, 4)]);
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn rushb_mvout(core_id: u32, xs1: u64, packed_xs2: u64, host_ptr: *mut c_void) {
-    let bank_id = usize::try_from(xs1 & 0x3ff).expect("invalid bank id");
-    let spans = dma::spans(state::bank_config(core_id, bank_id), xs1, packed_xs2);
-    let response = command::execute(
-        core_id,
-        xs1,
-        packed_xs2,
-        FUNCT7_MVOUT,
-        WaitMode::Completed,
-        DmaOperation::Mvout { spans },
-    )
-    .unwrap_or_else(|error| panic!("rushB mvout failed: {error}"));
-    unsafe { dma::restore_host(host_ptr.cast(), &response.output) };
-}
-
-#[no_mangle]
-pub extern "C" fn rushb_custom(core_id: u32, xs1: u64, xs2: u64, funct7: u32) {
-    command::execute(core_id, xs1, xs2, funct7, WaitMode::Accepted, DmaOperation::None)
-        .unwrap_or_else(|error| panic!("rushB custom command failed: {error}"));
-}
-
-#[no_mangle]
-pub extern "C" fn rushb_cycles(_core_id: u32) -> u64 {
-    state::cycles()
 }
