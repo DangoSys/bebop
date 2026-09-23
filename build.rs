@@ -13,6 +13,7 @@ fn main() {
     }
 
     if env::var("CARGO_FEATURE_P2E").is_ok() {
+        println!("cargo:rerun-if-env-changed=OUT_PATH");
         let bebop_root = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
         let out_dir = env::var("OUT_PATH").unwrap_or_else(|_| format!("{bebop_root}/out"));
         let vvac_lib_dir = format!("{out_dir}/vvacDir/runtimeDir/lib/lib_arm");

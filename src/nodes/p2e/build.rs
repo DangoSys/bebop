@@ -48,6 +48,7 @@ fn main() {
         Err(_) => bebop_root.join("out"),
     };
     let libctb_dst = out_dir.join("libvCtb.so");
+    println!("cargo:rerun-if-changed={}", libctb_dst.display());
 
     if libctb_dst.exists() {
         println!("cargo:warning=Found existing libvCtb.so, skipping VVAC build");

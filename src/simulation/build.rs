@@ -51,11 +51,22 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
             std::fs::create_dir_all(&out_dir).whatever_context("failed to create output directory")?;
             println!("Building p2e: {} -> {}", rtl_dir.display(), out_dir.display());
             let features = if diff { "p2e,bemu" } else { "p2e" };
-            cmd!("cargo", "build", "--release", "--bin", "bebop", "--features", features)
-                .env("VSRC_PATH", &rtl_dir)
-                .env("OUT_PATH", &out_dir)
-                .run()
-                .whatever_context("failed to build p2e")?;
+            let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+            cmd!(
+                "cargo",
+                "build",
+                "--release",
+                "--manifest-path",
+                &manifest,
+                "--bin",
+                "bebop",
+                "--features",
+                features
+            )
+            .env("VSRC_PATH", &rtl_dir)
+            .env("OUT_PATH", &out_dir)
+            .run()
+            .whatever_context("failed to build p2e")?;
 
             #[cfg(feature = "p2e")]
             {
