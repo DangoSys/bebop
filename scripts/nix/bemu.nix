@@ -7,6 +7,7 @@ in
 {
   buildInputs = [
     pkgs.dtc
+    pkgs.protobuf
     pkgs.autoconf
     pkgs.automake
     pkgs.git
