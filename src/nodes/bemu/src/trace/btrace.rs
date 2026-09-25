@@ -40,12 +40,9 @@ pub(super) fn init(log_dir: &Path, enabled: bool) -> io::Result<BtraceState> {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn bemu_btrace(
     inst_id: u64,
     hart_id: u64,
-    r0: BTraceBank,
-    r1: BTraceBank,
     w0: BTraceBank,
     funct7: u32,
     op_type: &str,
@@ -57,8 +54,6 @@ pub fn bemu_btrace(
             BTraceSource::Bemu,
             inst_id,
             hart_id,
-            r0,
-            r1,
             w0,
             funct7,
             op_type,
@@ -67,10 +62,9 @@ pub fn bemu_btrace(
             Some(format!("{GOLDEN_RECORD_FILE}:{line_number}")),
         );
 
-        if let (Some(file), Ok(line)) = (trace.btrace.golden_record_file.as_mut(), record.to_ndjson()) {
-            file.write_all(line.as_bytes()).ok();
-            file.flush().ok();
-        }
+        let file = trace.btrace.golden_record_file.as_mut().expect("BTrace is enabled");
+        file.write_all(record.to_ndjson().unwrap().as_bytes()).unwrap();
+        file.flush().unwrap();
         observe(&record);
     });
 }

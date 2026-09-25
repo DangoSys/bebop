@@ -22,13 +22,11 @@ pub fn init(log_dir: &Path, enabled: bool) -> io::Result<()> {
     Ok(())
 }
 
-pub fn btrace(inst_id: u64, hart_id: u64, r0: BTraceBank, r1: BTraceBank, w0: BTraceBank) {
+pub fn btrace(inst_id: u64, hart_id: u64, w0: BTraceBank) {
     let record = BTraceRecord::new(
         BTraceSource::Rtl,
         inst_id,
         hart_id,
-        r0,
-        r1,
         w0,
         0,
         "btrace".to_string(),

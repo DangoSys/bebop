@@ -32,7 +32,8 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
     let trace = &mut state.trace as *mut TraceState;
     let enable = funct7 >> 4;
     let btrace = state.trace.btrace_enabled()
-        && matches!(enable, 1..=4)
+        && pc != 0
+        && matches!(enable, 2..=4)
         && !matches!(funct7 as u32, FUNCT7_MSET | FUNCT7_MVIN_MMIO);
     if btrace {
         state.bank_scoreboard.issue(inst_id);
@@ -117,64 +118,46 @@ pub extern "C" fn buckyball_exec(state: *mut c_void, funct7: u8, xs1: u64, xs2: 
     if btrace {
         bank_scoreboard.complete(inst_id);
         let op_type = format!("funct7_{}", funct7);
-        let r0_enabled = matches!(enable, 1 | 3 | 4);
-        let r1_enabled = enable == 4;
-        let w0_enabled = matches!(enable, 2 | 3 | 4);
-        let r0_vbank = (xs1 & 0x3ff) as u32;
-        let r1_vbank = ((xs1 >> 10) & 0x3ff) as u32;
         let w0_vbank = ((xs1 >> 20) & 0x3ff) as u32;
-        let mut hashes = std::collections::BTreeMap::new();
-        for (enabled, vbank_id) in [(r0_enabled, r0_vbank), (r1_enabled, r1_vbank), (w0_enabled, w0_vbank)] {
-            if !enabled {
-                continue;
-            }
-            if hashes.contains_key(&vbank_id) {
-                continue;
-            }
-            let mut status_hash = 0;
-            let cols = if crate::config::is_shared_vbank(vbank_id as u64) {
+        let mut status_hash = 0;
+        let cols = if crate::config::is_shared_vbank(w0_vbank as u64) {
+            let shared = shared_memory
+                .as_ref()
+                .expect("shared bank storage is unavailable")
+                .banks_mut();
+            let core = *hart_id % (shared.cfgs.len() / shared.virtual_bank_count);
+            shared.cfgs[core * shared.virtual_bank_count + w0_vbank as usize].cols
+        } else {
+            bank_cfgs[w0_vbank as usize].cols
+        };
+        for group_id in 0..cols as u32 {
+            let physical_hash = if crate::config::is_shared_vbank(w0_vbank as u64) {
                 let shared = shared_memory
                     .as_ref()
                     .expect("shared bank storage is unavailable")
                     .banks_mut();
-                let core = *hart_id % (shared.cfgs.len() / shared.virtual_bank_count);
-                shared.cfgs[core * shared.virtual_bank_count + vbank_id as usize].cols
+                let pbank_id = shared
+                    .map
+                    .resolve_hart_group(*hart_id, w0_vbank, group_id)
+                    .unwrap_or_else(|| panic!("unmapped shared vbank {w0_vbank} group {group_id}"));
+                shared.storage[pbank_id].status_hash()
             } else {
-                bank_cfgs[vbank_id as usize].cols
+                let pbank_id = bank_map
+                    .resolve_group(w0_vbank, group_id)
+                    .unwrap_or_else(|| panic!("unmapped vbank {w0_vbank} group {group_id}"));
+                banks[pbank_id].status_hash()
             };
-            for group_id in 0..cols as u32 {
-                let physical_hash = if crate::config::is_shared_vbank(vbank_id as u64) {
-                    let shared = shared_memory
-                        .as_ref()
-                        .expect("shared bank storage is unavailable")
-                        .banks_mut();
-                    let pbank_id = shared
-                        .map
-                        .resolve_hart_group(*hart_id, vbank_id, group_id)
-                        .unwrap_or_else(|| panic!("unmapped shared vbank {vbank_id} group {group_id}"));
-                    shared.storage[pbank_id].status_hash()
-                } else {
-                    let pbank_id = bank_map
-                        .resolve_group(vbank_id, group_id)
-                        .unwrap_or_else(|| panic!("unmapped vbank {vbank_id} group {group_id}"));
-                    banks[pbank_id].status_hash()
-                };
-                status_hash = combine_bank_hash(status_hash, group_id, physical_hash);
-            }
-            hashes.insert(vbank_id, status_hash);
+            status_hash = combine_bank_hash(status_hash, group_id, physical_hash);
         }
-        let slot = |enabled: bool, vbank_id: u32| BTraceBank {
-            vbank_id: if enabled { vbank_id } else { INVALID_VBANK },
-            hash: if enabled { hashes[&vbank_id] } else { 0 },
-        };
         unsafe {
             with_trace_ptr(trace, || {
                 crate::trace::bemu_btrace(
                     inst_id,
                     *hart_id as u64,
-                    slot(r0_enabled, r0_vbank),
-                    slot(r1_enabled, r1_vbank),
-                    slot(w0_enabled, w0_vbank),
+                    BTraceBank {
+                        vbank_id: w0_vbank,
+                        hash: status_hash,
+                    },
                     funct7 as u32,
                     &op_type,
                     pc,
