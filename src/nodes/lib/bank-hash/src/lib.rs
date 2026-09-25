@@ -17,8 +17,6 @@ pub enum BTraceSource {
     Bemu,
 }
 
-pub const INVALID_VBANK: u32 = u32::MAX;
-
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BTraceBank {
     pub vbank_id: u32,
@@ -32,19 +30,14 @@ pub enum BTraceTime {
     VerilatorTime(u64),
 }
 
-/// comparison record: <InstID, LogicalBankID, Hash>.
-///
-/// The remaining fields are diagnostic metadata and never participate in
-/// record alignment.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BTraceRecord {
     #[serde(rename = "type")]
     pub record_type: String,
     pub source: BTraceSource,
     pub inst_id: u64,
     pub hart_id: u64,
-    pub r0: BTraceBank,
-    pub r1: BTraceBank,
     pub w0: BTraceBank,
     pub funct7: u32,
     pub op_type: String,
@@ -59,13 +52,10 @@ pub struct BTraceRecord {
 }
 
 impl BTraceRecord {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         source: BTraceSource,
         inst_id: u64,
         hart_id: u64,
-        r0: BTraceBank,
-        r1: BTraceBank,
         w0: BTraceBank,
         funct7: u32,
         op_type: impl Into<String>,
@@ -83,8 +73,6 @@ impl BTraceRecord {
             source,
             inst_id,
             hart_id,
-            r0,
-            r1,
             w0,
             funct7,
             op_type: op_type.into(),

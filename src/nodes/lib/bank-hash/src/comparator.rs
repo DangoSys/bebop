@@ -33,8 +33,8 @@ pub struct Comparison {
     pub result: CompareResult,
     pub hart_id: u64,
     pub inst_id: u64,
-    pub subject: Option<[BTraceBank; 3]>,
-    pub golden: Option<[BTraceBank; 3]>,
+    pub subject: Option<BTraceBank>,
+    pub golden: Option<BTraceBank>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub funct7: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,7 +43,7 @@ pub struct Comparison {
 
 pub(crate) fn compare(key: CompareKey, rtl: Option<&BTraceRecord>, bemu: Option<&BTraceRecord>) -> Comparison {
     let result = match (rtl, bemu) {
-        (Some(rtl), Some(bemu)) if [rtl.r0, rtl.r1, rtl.w0] == [bemu.r0, bemu.r1, bemu.w0] => CompareResult::Pass,
+        (Some(rtl), Some(bemu)) if rtl.w0 == bemu.w0 => CompareResult::Pass,
         (Some(_), Some(_)) => CompareResult::Mismatch,
         (None, Some(_)) => CompareResult::MissingSubject,
         (Some(_), None) => CompareResult::MissingGolden,
@@ -55,8 +55,8 @@ pub(crate) fn compare(key: CompareKey, rtl: Option<&BTraceRecord>, bemu: Option<
         result,
         hart_id: key.hart_id,
         inst_id: key.inst_id,
-        subject: rtl.map(|record| [record.r0, record.r1, record.w0]),
-        golden: bemu.map(|record| [record.r0, record.r1, record.w0]),
+        subject: rtl.map(|record| record.w0),
+        golden: bemu.map(|record| record.w0),
         funct7: bemu
             .map(|record| record.funct7)
             .or_else(|| rtl.map(|record| record.funct7)),
@@ -67,10 +67,17 @@ pub(crate) fn compare(key: CompareKey, rtl: Option<&BTraceRecord>, bemu: Option<
 }
 
 fn records_by_key(records: impl IntoIterator<Item = BTraceRecord>) -> BTreeMap<CompareKey, BTraceRecord> {
-    records
-        .into_iter()
-        .map(|record| (CompareKey::from(&record), record))
-        .collect()
+    let mut keyed = BTreeMap::new();
+    for record in records {
+        let key = CompareKey::from(&record);
+        assert!(
+            keyed.insert(key, record).is_none(),
+            "duplicate BTrace record: hart={} inst={}",
+            key.hart_id,
+            key.inst_id
+        );
+    }
+    keyed
 }
 
 pub fn compare_offline(

@@ -1,4 +1,4 @@
-use bebop_bank_hash::{combine_bank_hash, BTraceBank, INVALID_VBANK};
+use bebop_bank_hash::{combine_bank_hash, BTraceBank};
 use bebop_bemu_profile::{BemuProfile, BemuProfileReport};
 use bebop_clint::Clint;
 use bebop_dtb::DtbBuilder;
