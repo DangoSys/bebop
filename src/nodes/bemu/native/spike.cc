@@ -108,18 +108,10 @@ bool spike_mmu_load_u8(uint64_t addr, uint8_t *value) {
     fprintf(stderr, "[ERROR] BEMU MMU load without an active Spike context\n");
     return false;
   }
-  reg_t previous_privilege = current_spike->state->prv;
-  reg_t previous_mstatus = current_spike->state->csrmap[CSR_MSTATUS]->read();
-  current_spike->state->csrmap[CSR_MSTATUS]->write(previous_mstatus | MSTATUS_SUM);
-  current_spike->proc->set_privilege(PRV_S, false);
   try {
     *value = current_spike->proc->get_mmu()->load<uint8_t>(addr);
-    current_spike->proc->set_privilege(previous_privilege, false);
-    current_spike->state->csrmap[CSR_MSTATUS]->write(previous_mstatus);
     return true;
   } catch (trap_t &trap) {
-    current_spike->proc->set_privilege(previous_privilege, false);
-    current_spike->state->csrmap[CSR_MSTATUS]->write(previous_mstatus);
     fprintf(stderr, "[ERROR] BEMU DMA load fault: addr=0x%lx cause=%ld\n", addr,
             trap.cause());
     return false;
@@ -131,18 +123,10 @@ bool spike_mmu_store_u8(uint64_t addr, uint8_t value) {
     fprintf(stderr, "[ERROR] BEMU MMU store without an active Spike context\n");
     return false;
   }
-  reg_t previous_privilege = current_spike->state->prv;
-  reg_t previous_mstatus = current_spike->state->csrmap[CSR_MSTATUS]->read();
-  current_spike->state->csrmap[CSR_MSTATUS]->write(previous_mstatus | MSTATUS_SUM);
-  current_spike->proc->set_privilege(PRV_S, false);
   try {
     current_spike->proc->get_mmu()->store<uint8_t>(addr, value);
-    current_spike->proc->set_privilege(previous_privilege, false);
-    current_spike->state->csrmap[CSR_MSTATUS]->write(previous_mstatus);
     return true;
   } catch (trap_t &trap) {
-    current_spike->proc->set_privilege(previous_privilege, false);
-    current_spike->state->csrmap[CSR_MSTATUS]->write(previous_mstatus);
     fprintf(stderr, "[ERROR] BEMU DMA store fault: addr=0x%lx cause=%ld\n",
             addr, trap.cause());
     return false;
