@@ -1,7 +1,7 @@
 use bebop_bemu::{format_profile_report, print_profile_report, BemuInstance, TraceConfig};
 use clap::Parser;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[derive(Parser)]
 #[command(name = "bebop-bemu")]
@@ -43,11 +43,20 @@ fn run() -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     bemu.load_elf(&args.elf).map_err(|e| e.to_string())?;
     bemu.init_hart(args.pk).map_err(|e| e.to_string())?;
-    let started = args.tool_profile.then(Instant::now);
+    let started = Instant::now();
+    let mut last_progress = started;
     while !bemu.finished() {
         bemu.step(10_000).map_err(|e| e.to_string())?;
+        if last_progress.elapsed() >= Duration::from_secs(10) {
+            eprintln!(
+                "[BEMU] elapsed {:.1}s, accelerator cycles {}",
+                started.elapsed().as_secs_f64(),
+                bemu.total_latency()
+            );
+            last_progress = Instant::now();
+        }
     }
-    if let Some(started) = started {
+    if args.tool_profile {
         let report = bemu
             .profile_report(started.elapsed())
             .ok_or_else(|| "tool-profile enabled but no profile report".to_string())?;

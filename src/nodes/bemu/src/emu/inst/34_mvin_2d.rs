@@ -10,23 +10,23 @@ impl Instruction for Mvin2d {
     fn exec(xs1: u64, xs2: u64, ctx: &mut ExecContext) -> u64 {
         let bank_id = rs1_b2(xs1);
         let height = rs1_iter(xs1);
-        let mem_addr = xs2 & 0xffff_ffff;
-        let pixel_bytes = ((xs2 >> 32) & 0x7f) * 8;
-        let source_width = (xs2 >> 39) & 0x3ff;
-        let dst_base = (xs2 >> 49) & 0x3f;
-        let width = ((xs2 >> 55) & 0x7) + 1;
-        let valid_bytes = match (xs2 >> 58) & 0xf {
-            0 => 16,
-            value => value,
-        };
+        let mem_addr = (xs2 & 0x000f_ffff_ffff) << 3;
+        let pixel_bytes = ((xs2 >> 36) & 0x7f) * 8;
+        let source_width = (xs2 >> 43) & 0x3ff;
+        let dst_base = (xs2 >> 53) & 0x3f;
+        let width = ((xs2 >> 59) & 0x7) + 1;
+        let valid_bytes = if (xs2 >> 62) & 1 == 0 { 16 } else { 8 };
 
         crate::config::is_shared_vbank(bank_id);
-        if height == 0 || pixel_bytes == 0 || source_width == 0 || valid_bytes > 16 || valid_bytes as u64 > pixel_bytes
+        if height == 0 || pixel_bytes == 0 || source_width == 0 || valid_bytes as u64 > pixel_bytes
         {
             panic!("mvin_2d: invalid geometry");
         }
-        if xs2 >> 62 != 0 {
+        if xs2 >> 63 != 0 {
             panic!("mvin_2d: reserved rs2 bits must be zero");
+        }
+        if xs1 & 0x000f_ffff != 0 {
+            panic!("mvin_2d: reserved rs1 bits must be zero");
         }
         if !ctx.config(bank_id).allocated {
             panic!("mvin_2d: bank {bank_id} not allocated");
@@ -72,6 +72,6 @@ impl Instruction for Mvin2d {
     }
 
     fn latency(xs1: u64, xs2: u64) -> u64 {
-        rs1_iter(xs1) * (((xs2 >> 55) & 0x7) + 1)
+        rs1_iter(xs1) * (((xs2 >> 59) & 0x7) + 1)
     }
 }
