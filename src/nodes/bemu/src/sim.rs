@@ -330,10 +330,16 @@ impl Core {
             if let Step::Custom(request) = event {
                 let value = match request.instruction & 0x7f {
                     0x7b => {
+                        let mut translation = self.hart.translation_context();
+                        if translation.privilege == rvsim::Privilege::Machine
+                            && translation.satp != rvsim::mmu::Satp::Bare
+                        {
+                            translation.privilege = rvsim::Privilege::Supervisor;
+                        }
                         let guest = GuestAccess {
                             platform: Port(&self.tile.platform),
                             mmu: &self.mmu,
-                            translation: self.hart.translation_context(),
+                            translation,
                         };
                         accel::execute(
                             &mut self.accel,
