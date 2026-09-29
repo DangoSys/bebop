@@ -12,9 +12,13 @@ fn main() {
         let bebop_root = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
         let out_dir = env::var("OUT_PATH").unwrap_or_else(|_| format!("{bebop_root}/out"));
         let vvac_lib_dir = format!("{out_dir}/vvacDir/runtimeDir/lib/lib_arm");
-        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+        assert!(
+            std::path::Path::new(&vvac_lib_dir).join("libstdc++.so.6").is_file(),
+            "VVAC runtime libstdc++.so.6 missing"
+        );
         println!("cargo:rustc-link-arg=-Wl,-rpath,{vvac_lib_dir}");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
         println!("cargo:rustc-link-arg=-Wl,-rpath,{out_dir}");
-        println!("cargo:rustc-link-arg=-Wl,--enable-new-dtags");
+        println!("cargo:rustc-link-arg=-Wl,--disable-new-dtags");
     }
 }

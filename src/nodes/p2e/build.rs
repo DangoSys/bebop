@@ -35,6 +35,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build/vvac.rs");
     println!("cargo:rerun-if-env-changed=VSRC_PATH");
     println!("cargo:rerun-if-env-changed=OUT_PATH");
+    println!("cargo:rerun-if-env-changed=P2E_DIFF");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let bebop_root = manifest_dir
@@ -48,9 +49,25 @@ fn main() {
         Err(_) => bebop_root.join("out"),
     };
     let libctb_dst = out_dir.join("libvCtb.so");
+    let trace_mode_path = out_dir.join("p2e_trace_mode");
+    let diff = match env::var("P2E_DIFF").as_deref() {
+        Ok("1") => true,
+        Ok("0") | Err(env::VarError::NotPresent) => false,
+        value => panic!("P2E_DIFF must be 0 or 1, got {value:?}"),
+    };
+    let trace_mode = if diff { "btrace" } else { "none" };
     println!("cargo:rerun-if-changed={}", libctb_dst.display());
+    println!("cargo:rerun-if-changed={}", trace_mode_path.display());
 
     if libctb_dst.exists() {
+        if env::var_os("P2E_DIFF").is_some() {
+            let cached_mode =
+                std::fs::read_to_string(&trace_mode_path).expect("missing P2E trace mode; rebuild in a fresh OUT_PATH");
+            assert_eq!(
+                cached_mode, trace_mode,
+                "P2E trace mode changed; rebuild in a fresh OUT_PATH"
+            );
+        }
         println!("cargo:warning=Found existing libvCtb.so, skipping VVAC build");
         println!("cargo:warning=Building C++ wrapper for Rust FFI...");
         link::build_cpp_wrapper(&manifest_dir, &out_dir);
@@ -93,7 +110,8 @@ fn main() {
 
     std::fs::create_dir_all(&out_dir).expect("create p2e out directory");
     let flist = out_dir.join("p2e_vvac_filelist.f");
-    vsrc::write_flist(&flist, &vsrcs);
+    vsrc::write_flist(&flist, &vsrcs, diff);
+    println!("cargo:warning=P2E trace mode: {trace_mode}");
 
     println!("cargo:warning=Removing empty module instantiations from Verilog...");
     vvac::remove_empty_module_instantiations(&build_dir);
@@ -114,6 +132,7 @@ fn main() {
     let libctb_dst = out_dir.join("libvCtb.so");
     vsrc::assert_exists(&libctb_src, "libvCtb.so not found. vvac may have failed");
     std::fs::copy(&libctb_src, &libctb_dst).expect("copy libvCtb.so");
+    std::fs::write(&trace_mode_path, trace_mode).expect("write P2E trace mode");
     println!(
         "cargo:warning=Copied libvCtb.so from {} to {}",
         libctb_src.display(),

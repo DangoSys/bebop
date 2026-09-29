@@ -65,6 +65,7 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
             )
             .env("VSRC_PATH", &rtl_dir)
             .env("OUT_PATH", &out_dir)
+            .env("P2E_DIFF", if diff { "1" } else { "0" })
             .run()
             .whatever_context("failed to build p2e")?;
 

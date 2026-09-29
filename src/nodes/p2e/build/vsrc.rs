@@ -26,8 +26,15 @@ fn collect_files_inner(root: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
     }
 }
 
-pub fn write_flist(path: &Path, sources: &[PathBuf]) {
-    let mut contents = String::new();
+pub fn write_flist(path: &Path, sources: &[PathBuf], diff: bool) {
+    let mut contents = if diff {
+        "+define+BUCKYBALL_DISABLE_ITRACE_DPI\n\
+         +define+BUCKYBALL_DISABLE_MTRACE_DPI\n\
+         +define+BUCKYBALL_DISABLE_PMCTRACE_DPI\n"
+    } else {
+        "+define+BUCKYBALL_DISABLE_TRACE_DPI\n"
+    }
+    .to_string();
     for src in sources {
         contents.push_str(&src.display().to_string());
         contents.push('\n');
