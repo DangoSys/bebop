@@ -9,7 +9,12 @@ const FILE_STDERR: &str = "stderr.log";
 const FILE_WAVEFORM: &str = "waveform.fst";
 
 fn artifact_root() -> PathBuf {
-    PathBuf::from(std::env::var("CARGO_TARGET_DIR").expect("CARGO_TARGET_DIR must be set")).join("test-artifacts")
+    std::env::current_exe()
+        .expect("locate regression binary")
+        .ancestors()
+        .nth(3)
+        .expect("regression binary must be under target/<profile>/deps")
+        .join("test-artifacts")
 }
 
 pub struct ArtifactManager {

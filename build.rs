@@ -1,11 +1,6 @@
 use std::env;
 
 fn main() {
-    if env::var("CARGO_FEATURE_BEMU").is_ok() {
-        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/bemu-runtime");
-        println!("cargo:rustc-link-arg=-Wl,--enable-new-dtags");
-    }
-
     if env::var("CARGO_FEATURE_VERILATOR").is_ok() {
         let riscv = env::var("RISCV").expect("RISCV must be set by the nix development environment");
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}/lib", riscv);

@@ -1,7 +1,7 @@
-use crate::constants::{ERR_FAULT, ERR_INVAL};
+use super::write::handle_write;
+use crate::constants::ERR_FAULT;
 use crate::state::SyscallState;
 use crate::utils::guest_range;
-use std::io::Write;
 
 pub fn handle_writev(
     state: &mut SyscallState,
@@ -35,31 +35,13 @@ pub fn handle_writev(
             continue;
         }
 
-        if fd == 1 || fd == 2 {
-            let Some(offset) = guest_range(buf_addr, count, memory.len()) else {
-                return ((ERR_FAULT as u64), false);
-            };
-            let data = &memory[offset..offset + count];
-
-            if let Ok(s) = std::str::from_utf8(data) {
-                print!("{}", s);
-                std::io::stdout().flush().ok();
-            } else {
-                std::io::stdout().write_all(data).ok();
-            }
-            total_written += count as u64;
-        } else if let Some(file) = state.open_files.get_mut(&fd) {
-            let Some(offset) = guest_range(buf_addr, count, memory.len()) else {
-                return ((ERR_FAULT as u64), false);
-            };
-            let data = &memory[offset..offset + count];
-
-            match file.write(data) {
-                Ok(n) => total_written += n as u64,
-                Err(_) => return ((ERR_INVAL as u64), false),
-            }
-        } else {
-            return ((ERR_INVAL as u64), false);
+        let (written, _) = handle_write(state, fd, buf_addr, count, memory);
+        if (written as i64) < 0 {
+            return (if total_written == 0 { written } else { total_written }, false);
+        }
+        total_written += written;
+        if written < count as u64 {
+            break;
         }
     }
 

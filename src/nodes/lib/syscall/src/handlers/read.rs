@@ -3,19 +3,43 @@ use crate::utils::guest_range;
 use std::io::Read;
 
 pub fn handle_read(state: &mut SyscallState, fd: u64, buf_addr: u64, count: usize, memory: &mut [u8]) -> (u64, bool) {
-    if fd == 0 {
-        (0, false)
-    } else if let Some(file) = state.open_files.get_mut(&fd) {
-        let Some(offset) = guest_range(buf_addr, count, memory.len()) else {
-            return ((-1i64 as u64), false);
+    let mut ranges = Vec::new();
+    let mut position = 0;
+    while position < count {
+        let Some(address) = buf_addr.checked_add(position as u64) else {
+            return ((-14_i64) as u64, false);
         };
-        let buf = &mut memory[offset..offset + count];
-
-        match file.read(buf) {
-            Ok(n) => (n as u64, false),
-            Err(_) => ((-1i64 as u64), false),
-        }
+        let bytes = (4096 - address as usize % 4096).min(count - position);
+        let Some(offset) = guest_range(address, bytes, memory.len()) else {
+            return ((-14_i64) as u64, false);
+        };
+        ranges.push((offset, bytes));
+        position += bytes;
+    }
+    let mut buffer = vec![0; count];
+    let result = if fd == 0 {
+        std::io::stdin().lock().read(&mut buffer)
+    } else if let Some(file) = state.open_files.get_mut(&fd) {
+        file.read(&mut buffer)
     } else {
-        ((-1i64 as u64), false)
+        return ((-9_i64) as u64, false);
+    };
+    match result {
+        Ok(count) => {
+            let mut position = 0;
+            for (offset, bytes) in ranges {
+                let bytes = bytes.min(count - position);
+                memory[offset..offset + bytes].copy_from_slice(&buffer[position..position + bytes]);
+                position += bytes;
+                if position == count {
+                    break;
+                }
+            }
+            (count as u64, false)
+        }
+        Err(error) => (
+            (-i64::from(error.raw_os_error().expect("host I/O error must carry errno"))) as u64,
+            false,
+        ),
     }
 }

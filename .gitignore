@@ -10,7 +10,7 @@ result/
 result
 out/
 
-# Native / Spike / workload build artifacts
+# Native / workload build artifacts
 *.o
 *.a
 *.so

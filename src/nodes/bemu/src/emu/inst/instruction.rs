@@ -45,10 +45,6 @@ impl BankScoreboard {
         Self::default()
     }
 
-    pub fn reset(&self) {
-        self.instructions.borrow_mut().clear();
-    }
-
     pub fn issue(&self, inst_id: u64) {
         let old = self
             .instructions
@@ -163,12 +159,6 @@ impl PrivateBank {
             self.dirty(0, self.bytes.len());
         }
     }
-
-    pub fn reset(&mut self) {
-        self.bytes.fill(0);
-        self.initialized.fill(true);
-        self.clear_hash();
-    }
 }
 
 impl std::ops::Deref for PrivateBank {
@@ -218,7 +208,11 @@ macro_rules! impl_range_index {
 }
 
 impl_range_index!(Range<usize>, |r: &Range<usize>, _| r.start, |r: &Range<usize>, _| r.end);
-impl_range_index!(RangeFrom<usize>, |r: &RangeFrom<usize>, _| r.start, |_: &RangeFrom<usize>, len| len);
+impl_range_index!(
+    RangeFrom<usize>,
+    |r: &RangeFrom<usize>, _| r.start,
+    |_: &RangeFrom<usize>, len| len
+);
 impl_range_index!(RangeFull, |_: &RangeFull, _| 0, |_: &RangeFull, len| len);
 impl_range_index!(
     RangeInclusive<usize>,
@@ -379,8 +373,7 @@ pub struct SharedBankContext<'a> {
 pub struct ExecContext<'a> {
     pub hart_id: usize,
     pub inst_id: u64,
-    pub memory: &'a mut [u8],
-    pub translate_dma: bool,
+    pub(crate) memory: crate::root::mmu::GuestAccess<'a>,
     pub banks: TrackedBanks<'a>,
     pub cfgs: &'a mut [BankConfig],
     pub bank_map: &'a mut BankMap,
@@ -394,20 +387,8 @@ pub struct ExecContext<'a> {
 }
 
 impl ExecContext<'_> {
-    pub fn read_memory(&self, addr: u64) -> u8 {
-        if self.translate_dma {
-            crate::ffi::dma_read(addr)
-        } else {
-            super::super::bank::mem_read(self.memory, addr)
-        }
-    }
-
-    pub fn write_memory(&mut self, addr: u64, value: u8) {
-        if self.translate_dma {
-            crate::ffi::dma_write(addr, value);
-        } else {
-            super::super::bank::mem_write(self.memory, addr, value);
-        }
+    pub fn read_memory(&mut self, addr: u64) -> u8 {
+        self.memory.read(addr)
     }
 
     pub fn config(&self, bank_id: u64) -> &BankConfig {

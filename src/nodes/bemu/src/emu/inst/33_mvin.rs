@@ -1,6 +1,6 @@
 //===- 33_mvin.rs - MVIN instruction (memory to bank) ----------------------===//
 
-use super::super::bank::{bank_size, MATRIX_SIZE};
+use super::super::bank::bank_size;
 use super::decode::{pbank, pbank_group, rs1_b2, rs1_iter, xs2_mem_stride};
 use super::instruction::{ExecContext, Instruction};
 
@@ -40,10 +40,9 @@ impl Instruction for Mvin {
                         panic!("mvin: bank range: bank_offset={bank_offset} line_bytes=16 depth={depth}");
                     }
                     let addr = mem_addr + row as u64 * groups as u64 * 16 * stride + group as u64 * 16;
-                    for j in 0..16 {
-                        let value = ctx.read_memory(addr + j as u64);
-                        ctx.banks[p][bank_offset + j] = value;
-                    }
+                    let mut bytes = [0; 16];
+                    ctx.memory.read_buffer(addr, &mut bytes);
+                    ctx.banks[p][bank_offset..bank_offset + 16].copy_from_slice(&bytes);
                     crate::trace::mtrace(crate::trace::MTraceEvent {
                         is_write: true,
                         is_shared: crate::config::is_shared_vbank(bank_id),
@@ -64,8 +63,7 @@ impl Instruction for Mvin {
             }
         } else {
             let p = pbank(ctx, bank_id);
-            let matrix_mode_acc = cols == 4 && depth <= MATRIX_SIZE as u64;
-            let line_bytes = if matrix_mode_acc { 64usize } else { 16usize };
+            let line_bytes = 16usize;
 
             for i in 0..depth {
                 let addr = mem_addr + i * line_bytes as u64 * stride;
@@ -73,10 +71,9 @@ impl Instruction for Mvin {
                 if bank_offset + line_bytes > bank_size() {
                     panic!("mvin: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
                 }
-                for j in 0..line_bytes {
-                    let value = ctx.read_memory(addr + j as u64);
-                    ctx.banks[p][bank_offset + j] = value;
-                }
+                let mut bytes = [0; 16];
+                ctx.memory.read_buffer(addr, &mut bytes);
+                ctx.banks[p][bank_offset..bank_offset + 16].copy_from_slice(&bytes);
                 crate::trace::mtrace(crate::trace::MTraceEvent {
                     is_write: true,
                     is_shared: crate::config::is_shared_vbank(bank_id),

@@ -2,9 +2,6 @@
 target/
 Cargo.lock
 
-# Spike build artifacts
-spike_build/
-spike_install/
 
 # IDE
 .vscode/
@@ -12,4 +9,6 @@ spike_install/
 *.swp
 *.swo
 *~
-spike
+
+# CPU simulator checkout
+rvcpu/

@@ -17,3 +17,5 @@ pub mod f34_mvin_2d;
 pub mod f35_mvin_mmio;
 pub mod instruction;
 pub use base::{cycles_after_issue, execute_known};
+
+pub use decode::{FUNCT7_MSET, FUNCT7_MVIN_MMIO};

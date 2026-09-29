@@ -80,14 +80,6 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
                     .map(std::path::PathBuf::from)
                     .unwrap_or_else(|| std::path::PathBuf::from("target"));
                 let staged = out_dir.join(".bebop-p2e.new");
-                #[cfg(feature = "bemu")]
-                if diff {
-                    std::fs::copy(
-                        bebop_bemu::spike_library_dir().join("libriscv.so"),
-                        out_dir.join("libriscv.so"),
-                    )
-                    .whatever_context("failed to install libriscv.so")?;
-                }
                 let executable = target_dir.join("release/bebop");
                 std::fs::copy(executable, &staged).whatever_context("failed to stage built executable")?;
                 std::fs::rename(staged, &dest).whatever_context("failed to install built executable")?;

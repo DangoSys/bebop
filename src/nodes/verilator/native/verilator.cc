@@ -8,16 +8,13 @@
 #include <cstdlib>
 #include <deque>
 #include <mutex>
-#include <optional>
 #include <unordered_map>
 #include <vector>
 
 // Context management
 extern "C" void *verilator_context_new() {
   auto *context = new VerilatedContext;
-  // The generated BBSimHarness model is single-threaded. Verilator otherwise
-  // defaults to the host CPU count and creates an unused worker pool, which can
-  // leave repeated native rushB simulations blocked in the pool's futex wait.
+  // BBSimHarness is single-threaded.
   context->threads(1);
   return context;
 }
@@ -82,135 +79,6 @@ static std::unordered_map<uint32_t, std::deque<uint8_t>> g_uart_rx;
 static int32_t g_exit_code = 0;
 static bool g_has_exit = false;
 static std::mutex g_scu_mutex;
-
-// =============================================================================
-// rushB command state
-//
-// Commands are supplied by the Rust C ABI and consumed by one DPI bridge per
-// Core. The Verilator model is single-threaded; calls into this state
-// occur only while that model is being stepped.
-// =============================================================================
-struct RushBCommand {
-  uint64_t xs1;
-  uint64_t xs2;
-  uint32_t funct7;
-};
-
-struct RushBChannel {
-  std::optional<RushBCommand> pending;
-  uint64_t probes = 0;
-  uint64_t accepted = 0;
-  uint64_t completed = 0;
-  bool last_ready = false;
-  bool last_retired = false;
-  uint64_t inflight = 0;
-};
-
-static std::unordered_map<uint32_t, RushBChannel> g_rushb_channels;
-
-extern "C" void verilator_rushb_clear() { g_rushb_channels.clear(); }
-
-extern "C" void verilator_rushb_submit(uint32_t core_id, uint64_t xs1,
-                                       uint64_t xs2, uint32_t funct7) {
-  auto &channel = g_rushb_channels[core_id];
-  if (channel.pending.has_value()) {
-    fprintf(stderr, "verilator rushB only permits one pending command per "
-                    "Core; accepted commands may remain in flight\n");
-    abort();
-  }
-  channel.pending = RushBCommand{xs1, xs2, funct7};
-}
-
-extern "C" void verilator_rushb_peek(uint32_t core_id, uint8_t *valid,
-                                     uint64_t *xs1, uint64_t *xs2,
-                                     uint32_t *funct7) {
-  if (valid == nullptr || xs1 == nullptr || xs2 == nullptr ||
-      funct7 == nullptr) {
-    fprintf(stderr, "verilator_rushb_peek received null output pointer\n");
-    abort();
-  }
-  auto &channel = g_rushb_channels[core_id];
-  channel.probes++;
-  if (!channel.pending.has_value()) {
-    *valid = 0;
-    *xs1 = 0;
-    *xs2 = 0;
-    *funct7 = 0;
-    return;
-  }
-  const auto &cmd = *channel.pending;
-  *valid = 1;
-  *xs1 = cmd.xs1;
-  *xs2 = cmd.xs2;
-  *funct7 = cmd.funct7;
-}
-
-extern "C" void verilator_rushb_observe(uint32_t core_id, uint8_t valid,
-                                        uint8_t ready) {
-  auto &channel = g_rushb_channels[core_id];
-  (void)valid;
-  channel.last_ready = ready != 0;
-}
-
-extern "C" void verilator_rushb_accept(uint32_t core_id) {
-  auto &channel = g_rushb_channels[core_id];
-  if (!channel.pending.has_value()) {
-    fprintf(stderr, "verilator rushB accepted an invalid command\n");
-    abort();
-  }
-  channel.pending.reset();
-  channel.accepted++;
-  channel.inflight++;
-}
-
-extern "C" void verilator_rushb_complete_on_accept(uint32_t core_id) {
-  auto &channel = g_rushb_channels[core_id];
-  if (channel.inflight == 0) {
-    fprintf(stderr, "verilator rushB completed an invalid accepted command\n");
-    abort();
-  }
-  channel.inflight--;
-  channel.completed++;
-}
-
-extern "C" void verilator_rushb_report(uint32_t core_id, uint8_t retired) {
-  auto &channel = g_rushb_channels[core_id];
-  channel.last_retired = retired != 0;
-  if (channel.inflight == 0) {
-    return;
-  }
-
-  // The accelerator reports completions in GlobalROB retirement order, so
-  // each pulse completes the oldest in-flight host command.
-  if (retired) {
-    channel.inflight--;
-    channel.completed++;
-  }
-}
-
-extern "C" uint64_t verilator_rushb_accepted(uint32_t core_id) {
-  return g_rushb_channels[core_id].accepted;
-}
-
-extern "C" uint64_t verilator_rushb_completed(uint32_t core_id) {
-  return g_rushb_channels[core_id].completed;
-}
-
-extern "C" uint64_t verilator_rushb_inflight(uint32_t core_id) {
-  return g_rushb_channels[core_id].inflight;
-}
-
-extern "C" uint64_t verilator_rushb_probes(uint32_t core_id) {
-  return g_rushb_channels[core_id].probes;
-}
-
-extern "C" bool verilator_rushb_last_ready(uint32_t core_id) {
-  return g_rushb_channels[core_id].last_ready;
-}
-
-extern "C" bool verilator_rushb_last_retired(uint32_t core_id) {
-  return g_rushb_channels[core_id].last_retired;
-}
 
 // =============================================================================
 // SCU DPI-C interface

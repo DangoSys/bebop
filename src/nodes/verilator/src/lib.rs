@@ -1,4 +1,3 @@
-mod rushb;
 mod sim;
 
 #[path = "../native/ffi.rs"]

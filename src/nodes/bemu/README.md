@@ -1,4 +1,4 @@
 # bebop-bemu
 
-Buckyball emulator with Spike ISA simulator.
+Buckyball emulator with RVSim CPU core.
 

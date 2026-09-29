@@ -1,6 +1,5 @@
 use crate::constants::{
-    ANON_RESERVE_COMMIT_LIMIT, ERR_INVAL, ERR_NOMEM, GUEST_MEM_BASE, MAP_ANONYMOUS, MAP_PRIVATE, MMAP_TOP_RESERVED,
-    PAGE_SIZE,
+    ERR_INVAL, ERR_NOMEM, GUEST_MEM_BASE, MAP_ANONYMOUS, MAP_PRIVATE, MMAP_TOP_RESERVED, PAGE_SIZE,
 };
 use crate::state::SyscallState;
 use crate::utils::{align_down, align_up};
@@ -39,17 +38,15 @@ pub fn handle_mmap(
     let length_aligned = align_up(length, PAGE_SIZE);
     let is_anon_private =
         (flags & (MAP_PRIVATE | MAP_ANONYMOUS)) == (MAP_PRIVATE | MAP_ANONYMOUS) && fd == -1 && offset == 0;
-    let commit_len = if is_anon_private && length_aligned > ANON_RESERVE_COMMIT_LIMIT {
-        ANON_RESERVE_COMMIT_LIMIT
-    } else {
-        length_aligned
-    };
-    if commit_len > (mem_end - mem_low) {
+    if !is_anon_private {
+        return (ERR_INVAL as u64, false);
+    }
+    if length_aligned > (mem_end - mem_low) {
         return ((ERR_NOMEM as u64), false);
     }
     if addr != 0 {
         let map_start = align_down(addr, PAGE_SIZE);
-        let map_end = match map_start.checked_add(commit_len) {
+        let map_end = match map_start.checked_add(length_aligned) {
             Some(v) => v,
             None => return ((ERR_NOMEM as u64), false),
         };
@@ -59,7 +56,7 @@ pub fn handle_mmap(
         return (map_start, false);
     }
 
-    let next_base = match state.mmap_base.checked_sub(commit_len) {
+    let next_base = match state.mmap_base.checked_sub(length_aligned) {
         Some(v) => align_down(v, PAGE_SIZE),
         None => return ((ERR_NOMEM as u64), false),
     };

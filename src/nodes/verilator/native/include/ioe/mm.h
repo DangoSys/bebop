@@ -5,8 +5,8 @@
 
 #include <cassert>
 #include <cstring>
-#include <fesvr/memif.h>
 #include <queue>
+#include <vector>
 #include <stdint.h>
 
 struct backing_data_t {

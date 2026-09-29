@@ -80,35 +80,3 @@ pub struct BankConfig {
     /// CISC zero-op1-tail contract without guessing from bank contents.
     pub valid_rows: u64,
 }
-
-/// DRAM is mapped at this base address from the guest's perspective.
-/// Must match `DRAM_BASE` in spike.cc.
-pub const DRAM_BASE: u64 = 0x80000000;
-
-#[inline]
-fn dram_offset(mem_len: usize, addr: u64) -> usize {
-    if let Some(off) = bebop_syscall::translate_guest_addr(addr, 1, mem_len) {
-        return off;
-    }
-
-    let mem_end = DRAM_BASE + mem_len as u64;
-    if addr >= DRAM_BASE && addr < mem_end {
-        return (addr - DRAM_BASE) as usize;
-    }
-
-    panic!(
-        "DRAM access out of range: addr=0x{:x} (valid range 0x{:x}-0x{:x})",
-        addr, DRAM_BASE, mem_end
-    );
-}
-
-#[inline]
-pub fn mem_read(mem: &[u8], addr: u64) -> u8 {
-    mem[dram_offset(mem.len(), addr)]
-}
-
-#[inline]
-pub fn mem_write(mem: &mut [u8], addr: u64, v: u8) {
-    let off = dram_offset(mem.len(), addr);
-    mem[off] = v;
-}

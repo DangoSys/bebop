@@ -42,6 +42,8 @@ pub enum Commands {
     Build(BuildCommand),
     /// Run a workload on a built simulator artifact.
     Run(RunCommand),
+    #[command(about = "Disassemble DASM records from standard input")]
+    Dasm,
 }
 
 #[derive(Debug, Args)]
@@ -170,6 +172,8 @@ fn main() {
     let result = match cli.command {
         Commands::Build(command) => simulation::build(command),
         Commands::Run(command) => simulation::run(command),
+        Commands::Dasm => bebop_dasm::process_dasm(std::io::stdin().lock(), std::io::stdout().lock())
+            .map_err(|error| <snafu::Whatever as snafu::FromString>::without_source(error.to_string())),
     };
 
     let exit_code = match result {

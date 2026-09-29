@@ -4,7 +4,7 @@ mod test_case;
 mod workloads_toml;
 
 pub use list::write_nextest_terse_list;
-pub use scan::{filter_tests, scan_elf_files, scan_elf_files_by_names, scan_elf_files_by_stems};
+pub use scan::{filter_tests, scan_elf_files, scan_elf_files_by_names};
 pub use test_case::ElfTestCase;
 pub use workloads_toml::{load_workload_spec, WorkloadTomlError};
 
@@ -55,33 +55,6 @@ fn discover_from_workload_toml(
     if !bb_tests_root.exists() {
         return Err(DiscoveryError::RootMissing { path: bb_tests_root });
     }
-    if let Some(backend) = &args.rushb_backend {
-        let tests = spec
-            .tests
-            .iter()
-            .map(|name| {
-                let stem = Path::new(name)
-                    .file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .ok_or_else(|| DiscoveryError::RushBStem { stem: name.clone() })?;
-                rushb_stem(stem, backend)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let (test_cases, missing, duplicates) = scan_elf_files_by_stems(&bb_tests_root, extension, &tests);
-        if !missing.is_empty() {
-            return Err(DiscoveryError::WorkloadTomlMissing {
-                path: toml_path.to_path_buf(),
-                missing,
-            });
-        }
-        if !duplicates.is_empty() {
-            return Err(DiscoveryError::WorkloadTomlDuplicate {
-                path: toml_path.to_path_buf(),
-                duplicates,
-            });
-        }
-        return Ok(test_cases);
-    }
 
     let (test_cases, missing, duplicates) = scan_elf_files_by_names(&bb_tests_root, extension, &spec.tests);
     if !missing.is_empty() {
@@ -97,19 +70,6 @@ fn discover_from_workload_toml(
         });
     }
     Ok(test_cases)
-}
-
-fn rushb_stem(stem: &str, backend: &str) -> Result<String, DiscoveryError> {
-    if backend != "bemu" && backend != "verilator" {
-        return Err(DiscoveryError::RushBBackend {
-            backend: backend.into(),
-        });
-    }
-    let base = stem
-        .strip_suffix("-baremetal")
-        .or_else(|| stem.strip_suffix("-linux"))
-        .ok_or_else(|| DiscoveryError::RushBStem { stem: stem.into() })?;
-    Ok(format!("{base}-rushB-{backend}-run"))
 }
 
 fn apply_case_list(tests: Vec<ElfTestCase>, args: &RegressionArgs) -> Result<Vec<ElfTestCase>, DiscoveryError> {
@@ -180,12 +140,6 @@ pub enum DiscoveryError {
         path: PathBuf,
         duplicates: Vec<(String, Vec<PathBuf>)>,
     },
-    RushBBackend {
-        backend: String,
-    },
-    RushBStem {
-        stem: String,
-    },
 }
 
 impl std::fmt::Display for DiscoveryError {
@@ -238,12 +192,6 @@ impl std::fmt::Display for DiscoveryError {
                     path.display(),
                     details
                 )
-            }
-            DiscoveryError::RushBBackend { backend } => {
-                write!(f, "Unsupported rushB backend: {backend}")
-            }
-            DiscoveryError::RushBStem { stem } => {
-                write!(f, "rushB workload must end in -baremetal or -linux: {stem}")
             }
         }
     }

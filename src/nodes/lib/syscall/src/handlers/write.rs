@@ -3,30 +3,33 @@ use crate::utils::guest_range;
 use std::io::Write;
 
 pub fn handle_write(state: &mut SyscallState, fd: u64, buf_addr: u64, count: usize, memory: &[u8]) -> (u64, bool) {
-    if fd == 1 || fd == 2 {
-        let Some(offset) = guest_range(buf_addr, count, memory.len()) else {
-            return ((-1i64 as u64), false);
+    let mut data = Vec::with_capacity(count);
+    while data.len() < count {
+        let Some(address) = buf_addr.checked_add(data.len() as u64) else {
+            return ((-14_i64) as u64, false);
         };
-        let data = &memory[offset..offset + count];
-
-        if let Ok(s) = std::str::from_utf8(data) {
-            print!("{}", s);
-            std::io::stdout().flush().ok();
-        } else {
-            std::io::stdout().write_all(data).ok();
-        }
-        (count as u64, false)
+        let bytes = (4096 - address as usize % 4096).min(count - data.len());
+        let Some(offset) = guest_range(address, bytes, memory.len()) else {
+            return ((-14_i64) as u64, false);
+        };
+        data.extend_from_slice(&memory[offset..offset + bytes]);
+    }
+    let result = if fd == 1 {
+        let mut output = std::io::stdout().lock();
+        output.write(&data).and_then(|count| output.flush().map(|()| count))
+    } else if fd == 2 {
+        let mut output = std::io::stderr().lock();
+        output.write(&data).and_then(|count| output.flush().map(|()| count))
     } else if let Some(file) = state.open_files.get_mut(&fd) {
-        let Some(offset) = guest_range(buf_addr, count, memory.len()) else {
-            return ((-1i64 as u64), false);
-        };
-        let data = &memory[offset..offset + count];
-
-        match file.write(data) {
-            Ok(n) => (n as u64, false),
-            Err(_) => ((-1i64 as u64), false),
-        }
+        file.write(&data)
     } else {
-        ((-1i64 as u64), false)
+        return ((-9_i64) as u64, false);
+    };
+    match result {
+        Ok(count) => (count as u64, false),
+        Err(error) => (
+            (-i64::from(error.raw_os_error().expect("host I/O error must carry errno"))) as u64,
+            false,
+        ),
     }
 }

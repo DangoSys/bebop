@@ -177,10 +177,7 @@ fn require_nix_riscv() -> NixRiscv {
         .join("configs")
         .join("DDR3_1Gb_x8_1333.ini");
     let required_files = vec![
-        include_dir.join("fesvr/memif.h"),
-        include_dir.join("fesvr/elfloader.h"),
         include_dir.join("dramsim3.h"),
-        lib_dir.join("libfesvr.a"),
         lib_dir.join("libdramsim3.so"),
         lib_dir.join("libz.so"),
         dramsim3_config.clone(),
@@ -196,7 +193,6 @@ fn emit_link_config(native_lib_dir: &Path, riscv: &NixRiscv) {
     println!("cargo:rustc-link-search=native={}", native_lib_dir.display());
     println!("cargo:rustc-link-search=native={}", riscv.lib_dir.display());
     println!("cargo:rustc-link-lib=static=bebop_verilator_native");
-    println!("cargo:rustc-link-lib=static=fesvr");
     println!("cargo:rustc-link-lib=stdc++");
     println!("cargo:rustc-link-lib=dylib=dramsim3");
     println!("cargo:rustc-link-lib=lz4");

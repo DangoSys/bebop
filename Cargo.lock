@@ -150,6 +150,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bebop-keyboard"
+version = "0.1.0"
+
+[[package]]
+name = "bebop-microphone"
+version = "0.1.0"
+
+[[package]]
 name = "bebop-p2e"
 version = "0.1.0"
 dependencies = [
@@ -165,6 +173,10 @@ name = "bebop-plic"
 version = "0.1.0"
 
 [[package]]
+name = "bebop-rtc"
+version = "0.1.0"
+
+[[package]]
 name = "bebop-rtl-trace"
 version = "0.1.0"
 dependencies = [
@@ -172,7 +184,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "bebop-rushb"
+name = "bebop-speaker"
 version = "0.1.0"
 
 [[package]]
@@ -193,12 +205,15 @@ dependencies = [
  "bebop-dasm",
  "bebop-fd-redirect",
  "bebop-rtl-trace",
- "bebop-rushb",
  "bebop-uart",
  "cc",
  "libc",
  "snafu",
 ]
+
+[[package]]
+name = "bebop-vga"
+version = "0.1.0"
 
 [[package]]
 name = "bitflags"

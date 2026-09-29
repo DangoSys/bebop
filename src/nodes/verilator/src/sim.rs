@@ -107,10 +107,6 @@ impl Simulator {
             }
         }
     }
-
-    pub(crate) fn context_for_rushb(&self) -> *mut VerilatorContext {
-        self.context
-    }
 }
 
 unsafe fn set_command_args(context: *mut VerilatorContext, args: &[String]) -> io::Result<()> {

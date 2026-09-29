@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::common::artifacts::ArtifactManager;
 use crate::common::discovery::ElfTestCase;
-use crate::common::runner::backend::{is_rushb_bemu, is_rushb_verilator, BackendRunner};
+use crate::common::runner::backend::BackendRunner;
 
 #[derive(Clone, Debug)]
 pub struct P2eBackend {
@@ -32,9 +32,6 @@ impl BackendRunner for P2eBackend {
     }
 
     fn build_command(&self, cmd: &mut Command, _bebop_bin: &Path, elf_path: &Path, artifacts: &ArtifactManager) {
-        if is_rushb_bemu(elf_path) || is_rushb_verilator(elf_path) {
-            panic!("p2e does not support rushB runners: {}", elf_path.display());
-        }
         cmd.arg("run").arg("p2e");
         cmd.arg("--image").arg(elf_path);
         cmd.arg("--bitstream").arg(&self.bitstream);

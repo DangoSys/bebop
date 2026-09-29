@@ -2,30 +2,14 @@ use std::cell::Cell;
 
 mod chip_config;
 
-pub use chip_config::rushb_endpoint;
-pub use chip_config::{tile_topology, TileTopology, Topology};
+pub use chip_config::{core_signature, tile_count, tile_topology, TileTopology, Topology};
 
 thread_local! {
     static TOPOLOGY: Cell<Option<&'static Topology>> = const { Cell::new(None) };
-    static VIRTUAL_BANK_COUNT: Cell<Option<usize>> = const { Cell::new(None) };
 }
 
 pub fn configure_core(core_index: usize) {
     TOPOLOGY.with(|slot| slot.set(Some(chip_config::topology_for_core(core_index))));
-    VIRTUAL_BANK_COUNT.with(|slot| slot.set(Some(chip_config::virtual_bank_count_for_core(core_index))));
-}
-
-pub fn configure_core_with_virtual_bank_count(core_index: usize, virtual_bank_count: usize) {
-    configure_core(core_index);
-    assert!(
-        shared_vbank_base() > private_vbank_upper_bound(),
-        "shared virtual bank range overlaps private virtual banks"
-    );
-    assert!(
-        virtual_bank_count >= shared_vbank_base(),
-        "virtual bank count ends before the shared bank base"
-    );
-    VIRTUAL_BANK_COUNT.with(|slot| slot.set(Some(virtual_bank_count)));
 }
 
 fn with_topology<R>(f: impl FnOnce(&Topology) -> R) -> R {
@@ -36,10 +20,11 @@ pub fn bank_num() -> usize {
     with_topology(|t| t.mem_config.bank_num)
 }
 pub fn vector_len() -> usize {
-    with_topology(|t| t.vector_len)
+    with_topology(|topology| topology.vector_len)
 }
+
 pub fn virtual_bank_num() -> usize {
-    VIRTUAL_BANK_COUNT.with(|slot| slot.get().unwrap_or_else(|| bank_num()))
+    with_topology(|topology| topology.virtual_bank_count)
 }
 pub fn private_vbank_upper_bound() -> usize {
     with_topology(|t| t.mem_config.private_vbank_upper_bound)
@@ -142,4 +127,11 @@ pub mod ball_domain {
                 .unwrap_or_else(|_| panic!("{name} parameter for {ball_class} is not an integer"))
         })
     }
+}
+
+/// Private-bank geometry used by an in-process RTL DiffTest monitor.
+/// Geometry follows chip.pb baked at build time.
+pub fn private_bank_geometry() -> (usize, usize) {
+    configure_core(0);
+    (bank_size(), bank_row_bytes())
 }

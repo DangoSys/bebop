@@ -1,11 +1,12 @@
 mod chip;
 mod sim;
 
-#[path = "../native/ffi/mod.rs"]
-mod ffi;
-
-#[path = "../native/spike.rs"]
-mod spike;
+mod accel;
+mod pk;
+mod process;
+#[path = "../root/mod.rs"]
+pub mod root;
+mod stdio;
 
 #[path = "emu/bank/mod.rs"]
 mod bank;
@@ -19,18 +20,7 @@ mod inst;
 mod trace;
 
 pub use bebop_bemu_profile::{format_report as format_profile_report, print_report as print_profile_report};
-pub use config::{tile_topology, TileTopology};
-pub use ffi::SharedMemory;
-pub use sim::BemuInstance;
+pub use config::{private_bank_geometry, tile_topology, TileTopology};
+pub use root::tile::Tile;
+pub use sim::Core;
 pub use trace::TraceConfig;
-
-/// Private-bank geometry used by an in-process RTL DiffTest monitor.
-/// Geometry follows chip.pb baked at build time.
-pub fn private_bank_geometry() -> (usize, usize) {
-    config::configure_core(0);
-    (config::bank_size(), config::bank_row_bytes())
-}
-
-pub fn spike_library_dir() -> &'static std::path::Path {
-    std::path::Path::new(env!("BEBOP_BEMU_SPIKE_LIB_DIR"))
-}

@@ -6,7 +6,6 @@ autobins = false
 
 [lib]
 path = "src/lib.rs"
-crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 snafu = "0.8"
@@ -15,7 +14,6 @@ bebop-uart = { path = "../lib/uart" }
 bebop-dasm = { path = "../lib/dasm" }
 bebop-fd-redirect = { path = "../lib/fd-redirect" }
 bebop-rtl-trace = { path = "../lib/rtl-trace" }
-bebop-rushb = { path = "../lib/rushB" }
 
 [build-dependencies]
 cc = { version = "1", features = ["parallel"] }

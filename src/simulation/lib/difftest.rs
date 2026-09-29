@@ -1,10 +1,11 @@
 use bebop_bank_hash::{cancel, failure, finish, progress, start, subject_matched};
-use bebop_bemu::{tile_topology, BemuInstance, SharedMemory, TraceConfig as BemuTraceConfig};
+use bebop_bemu::root::chip::Chip;
+use bebop_bemu::{tile_topology, Core, Tile, TraceConfig as BemuTraceConfig};
 use snafu::{FromString, ResultExt, Whatever};
 use std::path::Path;
 
 struct GoldenHart {
-    bemu: BemuInstance,
+    bemu: Core,
     waiting: bool,
 }
 
@@ -24,19 +25,20 @@ impl DiffSession {
             if !topology.has_buckyball {
                 return Ok(Vec::new());
             }
-            let memory = SharedMemory::new(
-                3 * (1 << 30),
+            let memory = Tile::new(
+                &Chip::new(3 * (1 << 30), topology.cores.len()),
+                0,
                 topology.cores.len(),
+                Vec::new(),
                 topology.shared_physical_bank_count,
                 topology.shared_bank_size,
                 topology.virtual_bank_count,
             );
-            let virtual_bank_count = (topology.shared_physical_bank_count != 0).then_some(topology.virtual_bank_count);
             let mut golden = Vec::with_capacity(topology.cores.len());
             for (hart_id, (_, core_index)) in topology.cores.into_iter().enumerate() {
                 let mut trace = BemuTraceConfig::new(false, false);
                 trace.btrace = true;
-                let mut bemu = BemuInstance::new_with_core_hart(
+                let mut bemu = Core::new_with_core_hart(
                     &log_dir.join("golden").join(format!("hart-{hart_id}")),
                     trace,
                     false,
@@ -44,10 +46,9 @@ impl DiffSession {
                     core_index,
                     hart_id,
                     Some(memory.clone()),
-                    virtual_bank_count,
                 )
                 .whatever_context("failed to create BEMU Golden Model")?;
-                bemu.load_elf(elf)?;
+                bemu.load_elf(elf, false)?;
                 bemu.init_hart(false)?;
                 golden.push(GoldenHart { bemu, waiting: false });
             }

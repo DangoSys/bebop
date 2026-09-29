@@ -26,9 +26,6 @@ pub struct RegressionArgs {
     #[arg(long)]
     pub arch_config: Option<String>,
 
-    #[arg(long)]
-    pub rushb_backend: Option<String>,
-
     #[cfg(feature = "p2e")]
     #[arg(long)]
     pub p2e_bitstream: Option<PathBuf>,

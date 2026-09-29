@@ -34,8 +34,7 @@ pub fn run_backend_elf_test(
         eprintln!("  Artifact dir: {}", artifacts.root().display());
     }
 
-    let program = backend.command_program(bebop_bin, elf_path);
-    let mut cmd = Command::new(&program);
+    let mut cmd = Command::new(bebop_bin);
     backend.configure_command_dir(&mut cmd, elf_path);
     backend.configure_command_env(&mut cmd, elf_path);
     backend.build_command(&mut cmd, bebop_bin, elf_path, &artifacts);

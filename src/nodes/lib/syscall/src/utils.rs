@@ -1,6 +1,5 @@
 use crate::constants::GUEST_MEM_BASE;
-use once_cell::sync::Lazy;
-use std::sync::Mutex;
+use std::cell::RefCell;
 
 #[derive(Clone, Copy)]
 struct GuestMapping {
@@ -9,7 +8,10 @@ struct GuestMapping {
     len: u64,
 }
 
-static GUEST_MAPPINGS: Lazy<Mutex<Vec<GuestMapping>>> = Lazy::new(|| Mutex::new(Vec::new()));
+thread_local! {
+    // Process::syscall installs the executing guest's mappings before dispatch.
+    static GUEST_MAPPINGS: RefCell<Vec<GuestMapping>> = const { RefCell::new(Vec::new()) };
+}
 
 pub fn align_up(value: u64, align: u64) -> u64 {
     (value + align - 1) & !(align - 1)
@@ -20,30 +22,31 @@ pub fn align_down(value: u64, align: u64) -> u64 {
 }
 
 pub fn guest_range(addr: u64, len: usize, mem_len: usize) -> Option<usize> {
-    let end = addr.checked_add(len as u64)?;
-    let mappings = GUEST_MAPPINGS.lock().ok()?;
-    for mapping in mappings.iter().rev() {
-        let map_end = mapping.virt.checked_add(mapping.len)?;
-        if addr < mapping.virt || end > map_end {
-            continue;
-        }
-        let phys = mapping.phys.checked_add(addr - mapping.virt)?;
-        if phys < GUEST_MEM_BASE {
+    GUEST_MAPPINGS.with_borrow(|mappings| {
+        let end = addr.checked_add(len as u64)?;
+        for mapping in mappings.iter().rev() {
+            let map_end = mapping.virt.checked_add(mapping.len)?;
+            if addr < mapping.virt || end > map_end {
+                continue;
+            }
+            let phys = mapping.phys.checked_add(addr - mapping.virt)?;
+            if phys < GUEST_MEM_BASE {
+                return None;
+            }
+            let offset = phys.checked_sub(GUEST_MEM_BASE)? as usize;
+            if offset.checked_add(len)? <= mem_len {
+                return Some(offset);
+            }
             return None;
         }
-        let offset = phys.checked_sub(GUEST_MEM_BASE)? as usize;
-        if offset.checked_add(len)? <= mem_len {
-            return Some(offset);
+
+        let high_end = GUEST_MEM_BASE.checked_add(mem_len as u64)?;
+        if mappings.is_empty() && addr >= GUEST_MEM_BASE && end <= high_end {
+            return Some((addr - GUEST_MEM_BASE) as usize);
         }
-        return None;
-    }
 
-    let high_end = GUEST_MEM_BASE.checked_add(mem_len as u64)?;
-    if addr >= GUEST_MEM_BASE && end <= high_end {
-        return Some((addr - GUEST_MEM_BASE) as usize);
-    }
-
-    None
+        None
+    })
 }
 
 pub fn translate_guest_addr(addr: u64, len: usize, mem_len: usize) -> Option<usize> {
@@ -51,17 +54,18 @@ pub fn translate_guest_addr(addr: u64, len: usize, mem_len: usize) -> Option<usi
 }
 
 pub fn set_guest_mappings(mappings: &[(u64, u64, u64)]) {
-    let mut current = GUEST_MAPPINGS.lock().unwrap();
-    current.clear();
-    current.extend(
-        mappings
-            .iter()
-            .map(|&(virt, phys, len)| GuestMapping { virt, phys, len }),
-    );
+    GUEST_MAPPINGS.with_borrow_mut(|current| {
+        current.clear();
+        current.extend(
+            mappings
+                .iter()
+                .map(|&(virt, phys, len)| GuestMapping { virt, phys, len }),
+        );
+    });
 }
 
 pub fn add_guest_mapping(virt: u64, phys: u64, len: u64) {
-    GUEST_MAPPINGS.lock().unwrap().push(GuestMapping { virt, phys, len });
+    GUEST_MAPPINGS.with_borrow_mut(|current| current.push(GuestMapping { virt, phys, len }));
 }
 
 pub fn guest_cstr(addr: u64, max_len: usize, memory: &[u8]) -> Option<Vec<u8>> {

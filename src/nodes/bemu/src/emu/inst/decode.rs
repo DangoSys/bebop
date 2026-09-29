@@ -56,3 +56,6 @@ pub fn pbank(ctx: &ExecContext, vbank: u64) -> usize {
 pub fn pbank_group(ctx: &ExecContext, vbank: u64, group: u64) -> usize {
     ctx.physical_bank(vbank, group)
 }
+
+pub const FUNCT7_MSET: u32 = 32;
+pub const FUNCT7_MVIN_MMIO: u32 = 35;

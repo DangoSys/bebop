@@ -49,4 +49,3 @@ pub const ERR_NOTTY: i64 = -25;
 // mmap flags
 pub const MAP_PRIVATE: u64 = 0x02;
 pub const MAP_ANONYMOUS: u64 = 0x20;
-pub const ANON_RESERVE_COMMIT_LIMIT: u64 = 64 * 1024 * 1024;

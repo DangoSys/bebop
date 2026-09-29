@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 #[cfg(feature = "bemu")]
-use bebop_bemu::{format_profile_report, print_profile_report, BemuInstance, TraceConfig};
+use bebop_bemu::{format_profile_report, print_profile_report, Core, TraceConfig};
 
 pub struct BemuRunConfig {
     pub elf: PathBuf,
@@ -47,10 +47,10 @@ pub fn run(config: BemuRunConfig) -> Result<(), Whatever> {
         // Step 1: Initialize BEMU
         let trace_config = TraceConfig::new(config.itrace, config.mtrace);
 
-        let mut bemu = BemuInstance::new(&config.log_dir, trace_config, config.disasm, config.tool_profile)?;
+        let mut bemu = Core::new(&config.log_dir, trace_config, config.disasm, config.tool_profile)?;
 
         // Step 2: Load workload
-        bemu.load_elf(&config.elf)?;
+        bemu.load_elf(&config.elf, config.pk)?;
 
         // Step 3: Initialize hart
         bemu.init_hart(config.pk)?;

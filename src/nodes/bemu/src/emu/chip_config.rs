@@ -1,4 +1,3 @@
-use bebop_rushb::decode_core_id;
 use prost::Message;
 use std::sync::OnceLock;
 
@@ -11,6 +10,7 @@ pub struct Topology {
     pub mem_config: MemConfig,
     pub ball_domain: BallDomainConfig,
     pub vector_len: usize,
+    pub virtual_bank_count: usize,
 }
 
 #[derive(Clone)]
@@ -41,11 +41,6 @@ pub struct TileTopology {
     pub shared_bank_size: usize,
 }
 
-pub struct RushBEndpoint {
-    pub core_index: usize,
-    pub virtual_bank_count: usize,
-}
-
 fn chip() -> &'static Chip {
     static CHIP: OnceLock<Chip> = OnceLock::new();
     CHIP.get_or_init(|| Chip::decode(CHIP_PB).unwrap_or_else(|e| panic!("decode chip.pb: {e}")))
@@ -68,6 +63,7 @@ fn to_topology(core: &CoreInstance) -> Topology {
         .as_ref()
         .unwrap_or_else(|| panic!("core {} missing mmio", core.index));
     Topology {
+        virtual_bank_count: virtual_bank_count_for_core(core.index as usize),
         vector_len: core.gp_domain.as_ref().map_or(0, |gp_domain| gp_domain.v_len as usize),
         mem_config: MemConfig {
             bank_num: bank.num as usize,
@@ -122,39 +118,6 @@ pub fn virtual_bank_count_for_core(core_index: usize) -> usize {
         }
     }
     count.unwrap_or_else(|| panic!("core {core_index} belongs to no tile"))
-}
-
-pub fn rushb_endpoint(core_id: u32) -> RushBEndpoint {
-    let (tile_id, local_id) = decode_core_id(core_id);
-    let c = chip();
-    let tile = c.tiles.get(tile_id as usize).unwrap_or_else(|| {
-        panic!(
-            "rushB Core {core_id}: tile {tile_id} out of range (n={})",
-            c.tiles.len()
-        )
-    });
-    let core_index = *tile.core_indices.get(local_id as usize).unwrap_or_else(|| {
-        panic!(
-            "rushB Core {core_id}: local index {local_id} out of range for tile {tile_id} (n={})",
-            tile.core_indices.len()
-        )
-    }) as usize;
-    let core = c.cores.get(core_index).unwrap_or_else(|| {
-        panic!(
-            "rushB Core {core_id}: config index {core_index} out of range (n={})",
-            c.cores.len()
-        )
-    });
-    if core.balldomain.as_ref().map_or(true, |ball| ball.mappings.is_empty()) {
-        panic!("rushB Core {core_id}: config index {core_index} has no Buckyball mappings");
-    }
-    if tile.virtual_bank_count == 0 {
-        panic!("rushB Core {core_id}: tile {tile_id} virtual_bank_count is 0");
-    }
-    RushBEndpoint {
-        core_index,
-        virtual_bank_count: tile.virtual_bank_count as usize,
-    }
 }
 
 pub fn tile_topology(tile_index: usize) -> TileTopology {
@@ -228,4 +191,57 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
         shared_physical_bank_count,
         shared_bank_size: bank_entries * (bank_width / 8),
     }
+}
+
+pub fn tile_count() -> usize {
+    chip().tiles.len()
+}
+
+pub fn core_signature(core_index: usize) -> u64 {
+    let core = &chip().cores[core_index];
+    let bank = mem_of(core).bank.as_ref().expect("core bank configuration");
+    let mut bytes = core.pkg.as_bytes().to_vec();
+    bytes.push(0);
+    for value in [bank.num, bank.width, bank.entries] {
+        bytes.extend_from_slice(&u64::from(value).to_le_bytes());
+    }
+    let mut isa = core
+        .balldomain
+        .as_ref()
+        .expect("core instruction set")
+        .isa
+        .iter()
+        .collect::<Vec<_>>();
+    isa.sort_by_key(|entry| entry.funct7);
+    for entry in isa {
+        bytes.extend_from_slice(entry.mnemonic.as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&entry.funct7.to_le_bytes());
+    }
+    let mut mappings = core
+        .balldomain
+        .as_ref()
+        .expect("core instruction set")
+        .mappings
+        .iter()
+        .collect::<Vec<_>>();
+    mappings.sort_by_key(|mapping| mapping.ball_class.rsplit('.').next().unwrap());
+    for mapping in mappings {
+        bytes.extend_from_slice(mapping.ball_class.rsplit('.').next().unwrap().as_bytes());
+        bytes.push(0);
+        for value in [mapping.in_bw, mapping.out_bw] {
+            bytes.extend_from_slice(&u64::from(value).to_le_bytes());
+        }
+        let mut params = mapping.ball_params.iter().collect::<Vec<_>>();
+        params.sort_by_key(|(name, _)| *name);
+        for (name, value) in params {
+            bytes.extend_from_slice(name.as_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(value.as_bytes());
+            bytes.push(0);
+        }
+    }
+    bytes.into_iter().fold(0xcbf29ce484222325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    })
 }

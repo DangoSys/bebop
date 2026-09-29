@@ -33,69 +33,6 @@ pub fn scan_elf_files(root: &Path, extension: Option<&str>) -> Vec<ElfTestCase> 
     tests
 }
 
-/// Walk `root` and collect test cases whose stem is in `stems`.
-/// Stems are matched without file extension; extension filtering is applied
-/// when `extension` is `Some(_)`.
-///
-/// Returns the matched test cases (in the same order as `stems`, with
-/// duplicates collapsed) and the list of stems that could not be found.
-pub fn scan_elf_files_by_stems(
-    root: &Path,
-    extension: Option<&str>,
-    stems: &[String],
-) -> (Vec<ElfTestCase>, Vec<String>, Vec<(String, Vec<std::path::PathBuf>)>) {
-    use std::collections::BTreeMap;
-
-    let requested: std::collections::HashSet<_> = stems.iter().cloned().collect();
-    let mut found: BTreeMap<String, Vec<ElfTestCase>> = BTreeMap::new();
-
-    for entry in WalkDir::new(root)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-
-        if !path.is_file() {
-            continue;
-        }
-
-        if let Some(ext) = extension {
-            if path.extension() != Some(OsStr::new(ext)) {
-                continue;
-            }
-        }
-
-        let Some(test_case) = ElfTestCase::from_path(path.to_path_buf()) else {
-            continue;
-        };
-
-        if requested.contains(&test_case.stem) {
-            found.entry(test_case.stem.clone()).or_default().push(test_case);
-        }
-    }
-
-    let duplicates = found
-        .iter()
-        .filter(|(_, cases)| cases.len() > 1)
-        .map(|(stem, cases)| (stem.clone(), cases.iter().map(|case| case.path.clone()).collect()))
-        .collect();
-
-    let mut selected = Vec::new();
-    let mut missing = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for stem in stems {
-        if !seen.insert(stem.clone()) {
-            continue;
-        }
-        match found.get(stem) {
-            Some(cases) => selected.push(cases[0].clone()),
-            None => missing.push(stem.clone()),
-        }
-    }
-    (selected, missing, duplicates)
-}
-
 /// Walk `root` and collect test cases whose complete file name is in `names`.
 /// A regression manifest identifies a workload by this file name, which must
 /// be unique under the output root.

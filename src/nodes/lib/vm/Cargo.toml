@@ -1,0 +1,21 @@
+[package]
+name = "bebop-vm"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["window"]
+window = ["dep:sdl2", "dep:font8x8", "dep:clap", "dep:vt100"]
+
+[[bin]]
+name = "bebop-vm"
+path = "src/main.rs"
+required-features = ["window"]
+
+[dependencies]
+sdl2 = { version = "0.38", features = ["use-pkgconfig"], optional = true }
+font8x8 = { version = "0.3", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+vt100 = { version = "0.15", optional = true }
+
+[workspace]

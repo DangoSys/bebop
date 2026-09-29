@@ -1,6 +1,6 @@
 //===- 16_mvout.rs - MVOUT instruction (bank to memory) --------------------===//
 
-use super::super::bank::{bank_size, MATRIX_SIZE};
+use super::super::bank::bank_size;
 use super::decode::{pbank, pbank_group, rs1_b0, rs1_iter, xs2_mem_stride};
 use super::instruction::{ExecContext, Instruction};
 
@@ -41,10 +41,8 @@ impl Instruction for Mvout {
                         panic!("mvout: bank range: bank_offset={bank_offset} line_bytes=16 depth={depth}");
                     }
                     let addr = mem_addr + i as u64 * groups as u64 * 16 * stride + group as u64 * 16;
-                    for j in 0..16 {
-                        let value = ctx.banks[p][bank_offset + j];
-                        ctx.write_memory(addr + j as u64, value);
-                    }
+                    let bytes: [u8; 16] = ctx.banks[p][bank_offset..bank_offset + 16].try_into().unwrap();
+                    ctx.memory.write_buffer(addr, &bytes);
                     crate::trace::mtrace(crate::trace::MTraceEvent {
                         is_write: false,
                         is_shared: crate::config::is_shared_vbank(bank_id),
@@ -63,8 +61,7 @@ impl Instruction for Mvout {
             }
         } else {
             let p = pbank(ctx, bank_id);
-            let matrix_mode_acc = cols == 4 && depth <= MATRIX_SIZE as u64;
-            let line_bytes = if matrix_mode_acc { 64usize } else { 16usize };
+            let line_bytes = 16usize;
 
             for i in 0..depth {
                 let bank_offset = (i as usize) * line_bytes;
@@ -72,10 +69,8 @@ impl Instruction for Mvout {
                     panic!("mvout: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
                 }
                 let addr = mem_addr + i * line_bytes as u64 * stride;
-                for j in 0..line_bytes {
-                    let value = ctx.banks[p][bank_offset + j];
-                    ctx.write_memory(addr + j as u64, value);
-                }
+                let bytes: [u8; 16] = ctx.banks[p][bank_offset..bank_offset + 16].try_into().unwrap();
+                ctx.memory.write_buffer(addr, &bytes);
                 crate::trace::mtrace(crate::trace::MTraceEvent {
                     is_write: false,
                     is_shared: crate::config::is_shared_vbank(bank_id),
