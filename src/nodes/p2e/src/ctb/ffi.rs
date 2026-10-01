@@ -24,6 +24,8 @@ mod raw {
     use std::os::raw::c_char;
 
     extern "C" {
+        #[cfg(vvac_btrace_nb)]
+        pub fn ctb_btrace_snapshot_wrapper(scope_name: *const c_char, values: *mut u32) -> bool;
         /// C wrapper: ctb_builder_create_wrapper()
         pub fn ctb_builder_create_wrapper() -> *mut ICtbMgr;
 
@@ -429,7 +431,45 @@ pub struct CtbManager {
     ctb: *mut ICtbMgr,
 }
 
+#[derive(Clone, Debug)]
+pub struct BTraceSnapshot {
+    pub hart_id: u64,
+    pub produced: u64,
+    pub idle: bool,
+}
+
 impl CtbManager {
+    pub fn btrace_snapshots(&self, case_home: &std::path::Path) -> Result<Vec<BTraceSnapshot>, String> {
+        #[cfg(not(vvac_btrace_nb))]
+        {
+            let _ = case_home;
+            Err("P2E nonblocking trace is not linked; rebuild P2E with --diff in a fresh OUT_PATH".to_string())
+        }
+        #[cfg(vvac_btrace_nb)]
+        {
+            let scopes = std::fs::read_to_string(case_home.join("p2e_btrace_scopes")).map_err(|e| e.to_string())?;
+            let mut snapshots = Vec::new();
+            for scope in scopes.lines() {
+                let scope_c = CString::new(scope).map_err(|e| e.to_string())?;
+                let mut values = [0_u32; 5];
+                // SAFETY: scope_c and all five writable output words outlive the synchronous call.
+                let success = unsafe { raw::ctb_btrace_snapshot_wrapper(scope_c.as_ptr(), values.as_mut_ptr()) };
+                if !success {
+                    return Err(format!("BTrace snapshot failed for scope {scope}"));
+                }
+                snapshots.push(BTraceSnapshot {
+                    hart_id: (u64::from(values[1]) << 32) | u64::from(values[0]),
+                    produced: (u64::from(values[3]) << 32) | u64::from(values[2]),
+                    idle: values[4] != 0,
+                });
+            }
+            if snapshots.is_empty() {
+                return Err("P2E BTrace snapshot scope list is empty".to_string());
+            }
+            Ok(snapshots)
+        }
+    }
+
     pub fn new() -> Result<Self, String> {
         #[cfg(not(vvac_linked))]
         {

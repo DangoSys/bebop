@@ -1,8 +1,10 @@
-use bebop_bank_hash::{cancel, failure, finish, progress, start, subject_matched};
+use bebop_bank_hash::{cancel, failure, finish, progress, start, subject_counts, subject_matched};
 use bebop_bemu::root::chip::Chip;
 use bebop_bemu::{tile_topology, Core, Tile, TraceConfig as BemuTraceConfig};
 use snafu::{FromString, ResultExt, Whatever};
+use std::collections::BTreeMap;
 use std::path::Path;
+use std::time::Instant;
 
 struct GoldenHart {
     bemu: Core,
@@ -69,9 +71,15 @@ impl DiffSession {
         })
     }
 
-    pub fn sync_golden(&mut self) -> Result<(), Whatever> {
+    pub fn sync_golden(&mut self, deadline: Option<Instant>) -> Result<(), Whatever> {
         let target = progress().subject;
         while !subject_matched() {
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Err(Whatever::without_source(format!(
+                    "BTrace comparison drain timed out: {:?}",
+                    progress()
+                )));
+            }
             if self.golden.iter().all(|hart| hart.bemu.finished()) {
                 return Err(Whatever::without_source(format!(
                     "BEMU Golden Model finished before RTL hash boundary {target}"
@@ -111,6 +119,25 @@ impl DiffSession {
     pub fn finish(mut self) -> Result<(), Whatever> {
         self.active = false;
         finish()
+    }
+
+    pub fn drain_status(&mut self, expected: &BTreeMap<u64, u64>, deadline: Instant) -> Result<bool, Whatever> {
+        let received = subject_counts();
+        for (&hart, &count) in &received {
+            let target = expected
+                .get(&hart)
+                .ok_or_else(|| Whatever::without_source(format!("BTrace received unexpected hart {hart}")))?;
+            if count > *target {
+                return Err(Whatever::without_source(format!(
+                    "BTrace received too many events: hart={hart} expected={target} received={count}"
+                )));
+            }
+        }
+        self.sync_golden(Some(deadline))?;
+        Ok(expected
+            .iter()
+            .all(|(hart, count)| received.get(hart).copied().unwrap_or(0) == *count)
+            && subject_matched())
     }
 }
 
