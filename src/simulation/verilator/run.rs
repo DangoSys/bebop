@@ -156,7 +156,7 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
         }
         #[cfg(feature = "bemu")]
         if let Some(diff) = diff_session.as_mut() {
-            diff.sync_golden()?;
+            diff.sync_golden(None)?;
         }
     }
     console.poll_tx();
@@ -169,7 +169,7 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
 
     #[cfg(feature = "bemu")]
     let diff_passed = if let Some(mut diff) = diff_session {
-        diff.sync_golden()?;
+        diff.sync_golden(None)?;
         diff.finish()?;
         true
     } else {

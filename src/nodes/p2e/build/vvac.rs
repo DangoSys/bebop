@@ -2,7 +2,17 @@ use duct::cmd;
 use std::fs;
 use std::path::Path;
 
-pub fn run_vvac(out_dir: &Path, sourceme: &Path, flist: &Path, top: &str) {
+pub fn run_vvac(out_dir: &Path, sourceme: &Path, flist: &Path, top: &str, diff: bool) {
+    let trace_args = if diff {
+        fs::write(
+            out_dir.join("p2e_trace_functions.cfg"),
+            "module: BTraceDPI\nfunction: dpi_btrace\nchannel: vc_default\ntype: nb\n",
+        )
+        .expect("write nonblocking BTrace configuration");
+        " -tf_cfg p2e_trace_functions.cfg"
+    } else {
+        ""
+    };
     let vvac_cmd = format!(
         r#"clang_format_bin="$(command -v clang-format || true)"
 clang_format_bin="${{clang_format_bin%/*}}"
@@ -33,10 +43,11 @@ export PATH
 unset CMAKE_C_COMPILER CMAKE_CXX_COMPILER NIX_CC
 export CC="$cc_bin"
 export CXX="$cxx_bin"
-vvac -bc -f {flist} -top {top}"#,
+vvac -bc -f {flist} -top {top}{trace_args}"#,
         sourceme = sourceme.display(),
         flist = flist.display(),
         top = top,
+        trace_args = trace_args,
     );
 
     cmd!("bash", "-c", &vvac_cmd)
@@ -50,6 +61,70 @@ vvac -bc -f {flist} -top {top}"#,
                 out_dir.join("vvac_build.log").display()
             )
         });
+    if diff {
+        verify_btrace(out_dir);
+    }
+}
+
+fn db_value<'a>(block: &'a str, name: &str) -> &'a str {
+    block
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(name).map(str::trim))
+        .unwrap_or_else(|| panic!("missing VVAC database field {name}"))
+}
+
+pub fn verify_btrace(out_dir: &Path) {
+    let db = fs::read_to_string(out_dir.join("vvacDir/db.txt")).expect("read VVAC database");
+    let declarations = db
+        .split("channel.db :")
+        .next()
+        .unwrap()
+        .split("  func_name : ")
+        .skip(1)
+        .collect::<Vec<_>>();
+    let trace_id = declarations
+        .iter()
+        .position(|block| block.lines().next() == Some("dpi_btrace"))
+        .expect("VVAC did not generate dpi_btrace");
+    assert_eq!(
+        db_value(declarations[trace_id], "is_nb :"),
+        "1",
+        "BTrace DPI is still blocking"
+    );
+    let snapshot_id = declarations
+        .iter()
+        .position(|block| block.lines().next() == Some("btrace_snapshot"))
+        .expect("VVAC did not generate btrace_snapshot");
+    let scope_section = db
+        .split("scope.db :")
+        .nth(1)
+        .unwrap()
+        .split("funcCall.db :")
+        .next()
+        .unwrap();
+    let scopes = scope_section
+        .split("  name : ")
+        .skip(1)
+        .map(|block| block.lines().next().unwrap())
+        .collect::<Vec<_>>();
+    let calls = db.split("funcCall.db :").nth(1).unwrap();
+    let mut snapshot_scopes = Vec::new();
+    for call in calls.split("  decl_id : ").skip(1) {
+        let decl_id = call.lines().next().unwrap().parse::<usize>().unwrap();
+        if decl_id == trace_id {
+            assert_eq!(db_value(call, "work_mode :"), "1", "BTrace call is still blocking");
+        }
+        if decl_id == snapshot_id {
+            let scope_id = db_value(call, "scope_id :").parse::<usize>().unwrap();
+            snapshot_scopes.push(scopes[scope_id]);
+        }
+    }
+    assert!(
+        !snapshot_scopes.is_empty(),
+        "VVAC generated no BTrace snapshot instances"
+    );
+    fs::write(out_dir.join("p2e_btrace_scopes"), snapshot_scopes.join("\n") + "\n")
+        .expect("write BTrace snapshot scopes");
 }
 
 pub fn add_missing_empty_modules(out_dir: &Path) -> bool {

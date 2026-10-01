@@ -29,6 +29,7 @@ const SOURCE_ME: &str = "sourceme.sh";
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(vvac_linked)");
+    println!("cargo:rustc-check-cfg=cfg(vvac_btrace_nb)");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build/link.rs");
     println!("cargo:rerun-if-changed=build/vsrc.rs");
@@ -55,22 +56,24 @@ fn main() {
         Ok("0") | Err(env::VarError::NotPresent) => false,
         value => panic!("P2E_DIFF must be 0 or 1, got {value:?}"),
     };
-    let trace_mode = if diff { "btrace" } else { "none" };
+    let trace_mode = if diff { "btrace_nb_v1" } else { "none" };
     println!("cargo:rerun-if-changed={}", libctb_dst.display());
     println!("cargo:rerun-if-changed={}", trace_mode_path.display());
 
     if libctb_dst.exists() {
-        if env::var_os("P2E_DIFF").is_some() {
-            let cached_mode =
-                std::fs::read_to_string(&trace_mode_path).expect("missing P2E trace mode; rebuild in a fresh OUT_PATH");
-            assert_eq!(
-                cached_mode, trace_mode,
-                "P2E trace mode changed; rebuild in a fresh OUT_PATH"
-            );
+        let cached_mode =
+            std::fs::read_to_string(&trace_mode_path).expect("missing P2E trace mode; rebuild in a fresh OUT_PATH");
+        assert_eq!(
+            cached_mode, trace_mode,
+            "P2E trace mode changed; rebuild in a fresh OUT_PATH"
+        );
+        if diff {
+            vvac::verify_btrace(&out_dir);
+            println!("cargo:rustc-cfg=vvac_btrace_nb");
         }
         println!("cargo:warning=Found existing libvCtb.so, skipping VVAC build");
         println!("cargo:warning=Building C++ wrapper for Rust FFI...");
-        link::build_cpp_wrapper(&manifest_dir, &out_dir);
+        link::build_cpp_wrapper(&manifest_dir, &out_dir, diff);
         link::link_vvac(&libctb_dst);
         return;
     }
@@ -117,14 +120,14 @@ fn main() {
     vvac::remove_empty_module_instantiations(&build_dir);
 
     println!("cargo:warning=Running vvac (first pass) to generate empty module stubs...");
-    vvac::run_vvac(&out_dir, &sourceme, &flist, P2E_TOP);
+    vvac::run_vvac(&out_dir, &sourceme, &flist, P2E_TOP, diff);
 
     println!("cargo:warning=Adding missing empty modules to VVAC filelist...");
     let needs_rebuild = vvac::add_missing_empty_modules(&out_dir);
 
     if needs_rebuild {
         println!("cargo:warning=Running vvac (second pass) with complete filelist...");
-        vvac::run_vvac(&out_dir, &sourceme, &flist, P2E_TOP);
+        vvac::run_vvac(&out_dir, &sourceme, &flist, P2E_TOP, diff);
     }
 
     println!("cargo:warning=Copying libvCtb.so from vvac output...");
@@ -142,7 +145,10 @@ fn main() {
     vvac::fix_library_rpath(&out_dir);
 
     println!("cargo:warning=Building C++ wrapper for Rust FFI...");
-    link::build_cpp_wrapper(&manifest_dir, &out_dir);
+    link::build_cpp_wrapper(&manifest_dir, &out_dir, diff);
+    if diff {
+        println!("cargo:rustc-cfg=vvac_btrace_nb");
+    }
 
     println!("cargo:warning=Linking vvac and C++ wrapper...");
     link::link_vvac(&libctb_dst);

@@ -101,6 +101,7 @@ struct Session {
     writer: BufWriter<File>,
     output: PathBuf,
     progress: Progress,
+    subject_by_hart: BTreeMap<u64, u64>,
     failure: Option<String>,
 }
 
@@ -127,6 +128,7 @@ pub fn start(output: PathBuf) -> Result<(), Whatever> {
         writer,
         output,
         progress: Progress::default(),
+        subject_by_hart: BTreeMap::new(),
         failure: None,
     });
     Ok(())
@@ -145,6 +147,7 @@ pub fn observe(record: &BTraceRecord) {
     let pair = match record.source {
         BTraceSource::Rtl => {
             state.progress.subject += 1;
+            *state.subject_by_hart.entry(record.hart_id).or_default() += 1;
             if let Some(golden) = state.golden.remove(&key) {
                 Some((record.clone(), golden))
             } else {
@@ -199,6 +202,16 @@ pub fn subject_matched() -> bool {
         .expect("DiffTest session is active")
         .subject
         .is_empty()
+}
+
+pub fn subject_counts() -> BTreeMap<u64, u64> {
+    session()
+        .lock()
+        .unwrap()
+        .as_ref()
+        .expect("DiffTest session is active")
+        .subject_by_hart
+        .clone()
 }
 
 pub fn failure() -> Option<String> {

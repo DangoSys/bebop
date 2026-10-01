@@ -150,7 +150,7 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     bebop_p2e::wait_for_flash(&flash_done_flag, &mut vdbg, || Ok(())).whatever_context("P2E flash failed")?;
 
     let _vdbg = vdbg.exit_on_drop(sim_exit_flag.clone());
-    let _ctb = bebop_p2e::init_ctb(&case_home, &rtcfg_path).whatever_context("failed to initialize P2E CTB")?;
+    let ctb = bebop_p2e::init_ctb(&case_home, &rtcfg_path).whatever_context("failed to initialize P2E CTB")?;
     #[cfg(feature = "bemu")]
     let diff_started = config.diff.as_ref().map(|_| Instant::now());
     #[cfg(feature = "bemu")]
@@ -164,26 +164,67 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let result = bebop_p2e::wait_for_completion(|| {
         #[cfg(feature = "bemu")]
         if let Some(diff) = diff_session.as_mut() {
-            diff.sync_golden().map_err(|error| error.to_string())?;
+            diff.sync_golden(None).map_err(|error| error.to_string())?;
         }
         Ok(())
     })
     .map_err(|error| Whatever::without_source(format!("P2E simulation failed: {error}")))?;
     let executable_timing = bebop_p2e::ffi::executable_timing();
-    drop(console);
-
-    bebop_p2e::ffi::finish_cycle_trace()
-        .map_err(|e| Whatever::without_source(format!("failed to finalize P2E cycle trace: {e}")))?;
     let simulation_finished = Instant::now();
     #[cfg(feature = "bemu")]
+    if let Some(diff) = diff_session.as_mut() {
+        let drain_started = Instant::now();
+        let drain_deadline = drain_started + std::time::Duration::from_secs(60);
+        let mut expected = None;
+        let mut snapshots = Vec::new();
+        loop {
+            if expected.is_none() {
+                snapshots = ctb
+                    .btrace_snapshots(&case_home)
+                    .map_err(|e| Whatever::without_source(format!("failed to query BTrace: {e}")))?;
+                if snapshots.iter().all(|s| s.idle) {
+                    let mut counts = std::collections::BTreeMap::new();
+                    for snapshot in &snapshots {
+                        if counts.insert(snapshot.hart_id, snapshot.produced).is_some() {
+                            snafu::whatever!("duplicate BTrace hart {}", snapshot.hart_id);
+                        }
+                    }
+                    expected = Some(counts);
+                }
+            }
+            if let Some(counts) = &expected {
+                if diff.drain_status(counts, drain_deadline)? {
+                    println!(
+                        "BTrace drain completed: expected={counts:?}, elapsed={:.3} s",
+                        drain_started.elapsed().as_secs_f64()
+                    );
+                    break;
+                }
+            } else {
+                diff.sync_golden(Some(drain_deadline))?;
+            }
+            if drain_started.elapsed() >= std::time::Duration::from_secs(60) {
+                snafu::whatever!(
+                    "BTrace drain timed out: hardware={snapshots:?}, received={:?}, comparison={:?}",
+                    bebop_bank_hash::subject_counts(),
+                    bebop_bank_hash::progress()
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+    #[cfg(feature = "bemu")]
     let (diff_passed, diff_elapsed) = if let Some(mut diff) = diff_session {
-        diff.sync_golden()?;
+        diff.sync_golden(None)?;
         diff.finish()?;
         (true, Some(diff_started.expect("diff session start exists").elapsed()))
     } else {
         (false, None)
     };
     let diff_finished = Instant::now();
+    drop(console);
+    bebop_p2e::ffi::finish_cycle_trace()
+        .map_err(|e| Whatever::without_source(format!("failed to finalize P2E cycle trace: {e}")))?;
     write_trace_summary(&config.log_dir).whatever_context("failed to write P2E RTL trace summary")?;
 
     std::fs::write(&uart_log_path, &result.uart_log).whatever_context("failed to write P2E UART log")?;
