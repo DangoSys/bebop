@@ -29,7 +29,7 @@ const SOURCE_ME: &str = "sourceme.sh";
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(vvac_linked)");
-    println!("cargo:rustc-check-cfg=cfg(vvac_btrace_nb)");
+    println!("cargo:rustc-check-cfg=cfg(P2E_DIFF)");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build/link.rs");
     println!("cargo:rerun-if-changed=build/vsrc.rs");
@@ -69,7 +69,7 @@ fn main() {
         );
         if diff {
             vvac::verify_btrace(&out_dir);
-            println!("cargo:rustc-cfg=vvac_btrace_nb");
+            println!("cargo:rustc-cfg=P2E_DIFF");
         }
         println!("cargo:warning=Found existing libvCtb.so, skipping VVAC build");
         println!("cargo:warning=Building C++ wrapper for Rust FFI...");
@@ -147,7 +147,7 @@ fn main() {
     println!("cargo:warning=Building C++ wrapper for Rust FFI...");
     link::build_cpp_wrapper(&manifest_dir, &out_dir, diff);
     if diff {
-        println!("cargo:rustc-cfg=vvac_btrace_nb");
+        println!("cargo:rustc-cfg=P2E_DIFF");
     }
 
     println!("cargo:warning=Linking vvac and C++ wrapper...");

@@ -3,14 +3,14 @@
 #include "ICtb.h"
 #include <iostream>
 #include <string>
-#ifdef BUCKYBALL_P2E_TRACE_STATUS
+#ifdef P2E_DIFF
 #include "expFun.h"
 #endif
 
 // C wrapper functions for Rust FFI
 extern "C" {
 
-#ifdef BUCKYBALL_P2E_TRACE_STATUS
+#ifdef P2E_DIFF
 bool ctb_btrace_snapshot_wrapper(const char *scope_name, uint32_t *values) {
   const auto scope = vvac::svGetScopeFromName(scope_name);
   if (scope == -1) {

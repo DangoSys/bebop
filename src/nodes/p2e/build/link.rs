@@ -24,11 +24,7 @@ pub fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path, diff: bool) {
         "-fPIC",
         "-std=c++11",
         &include_arg,
-        if diff {
-            "-DBUCKYBALL_P2E_TRACE_STATUS"
-        } else {
-            "-UBUCKYBALL_P2E_TRACE_STATUS"
-        },
+        if diff { "-DP2E_DIFF" } else { "-UP2E_DIFF" },
         wrapper_src.to_str().unwrap(),
         "-o",
         wrapper_obj.to_str().unwrap()

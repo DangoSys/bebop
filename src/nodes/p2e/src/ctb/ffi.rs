@@ -24,7 +24,7 @@ mod raw {
     use std::os::raw::c_char;
 
     extern "C" {
-        #[cfg(vvac_btrace_nb)]
+        #[cfg(P2E_DIFF)]
         pub fn ctb_btrace_snapshot_wrapper(scope_name: *const c_char, values: *mut u32) -> bool;
         /// C wrapper: ctb_builder_create_wrapper()
         pub fn ctb_builder_create_wrapper() -> *mut ICtbMgr;
@@ -440,12 +440,12 @@ pub struct BTraceSnapshot {
 
 impl CtbManager {
     pub fn btrace_snapshots(&self, case_home: &std::path::Path) -> Result<Vec<BTraceSnapshot>, String> {
-        #[cfg(not(vvac_btrace_nb))]
+        #[cfg(not(P2E_DIFF))]
         {
             let _ = case_home;
             Err("P2E nonblocking trace is not linked; rebuild P2E with --diff in a fresh OUT_PATH".to_string())
         }
-        #[cfg(vvac_btrace_nb)]
+        #[cfg(P2E_DIFF)]
         {
             let scopes = std::fs::read_to_string(case_home.join("p2e_btrace_scopes")).map_err(|e| e.to_string())?;
             let mut snapshots = Vec::new();
