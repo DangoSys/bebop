@@ -29,6 +29,23 @@ use std::path::PathBuf;
 
 mod simulation;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VerificationMode {
+    None,
+    Access,
+    DifftestN,
+}
+impl VerificationMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Access => "access",
+            Self::DifftestN => "difftest-n",
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "bebop", about = "Bebop CLI")]
 pub struct Cli {
@@ -71,8 +88,8 @@ pub enum BuildTarget {
         rtl_dir: PathBuf,
         #[arg(long, value_name = "DIR")]
         out_dir: PathBuf,
-        #[arg(long, help = "Build a P2E+BEMU Bank DiffTest executable")]
-        diff: bool,
+        #[arg(long, value_enum)]
+        verification_mode: VerificationMode,
     },
 }
 
@@ -142,8 +159,8 @@ pub enum RunTarget {
         wave: bool,
         #[arg(long, help = "Start waveform dump from this cycle")]
         wave_start: Option<u64>,
-        #[arg(long, requires = "image_elf", help = "Compare P2E bank state against BEMU")]
-        diff: bool,
+        #[arg(long, value_enum)]
+        verification_mode: VerificationMode,
         #[arg(long, value_name = "ELF", help = "ELF corresponding to --image")]
         image_elf: Option<PathBuf>,
         #[arg(long, help = "Enable RTL instruction trace")]

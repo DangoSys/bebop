@@ -33,6 +33,8 @@ impl BackendRunner for P2eBackend {
 
     fn build_command(&self, cmd: &mut Command, _bebop_bin: &Path, elf_path: &Path, artifacts: &ArtifactManager) {
         cmd.arg("run").arg("p2e");
+        cmd.arg("--verification-mode")
+            .arg(if self.diff { "difftest-n" } else { "none" });
         cmd.arg("--image").arg(elf_path);
         cmd.arg("--bitstream").arg(&self.bitstream);
         cmd.arg("--log-dir").arg(artifacts.log_dir());
@@ -50,7 +52,7 @@ impl BackendRunner for P2eBackend {
                 "P2E DiffTest workload ELF not found: {}",
                 reference.display()
             );
-            cmd.arg("--diff").arg("--image-elf").arg(reference);
+            cmd.arg("--image-elf").arg(reference);
         }
     }
 

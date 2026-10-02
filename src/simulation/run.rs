@@ -95,7 +95,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             multi_fpga,
             wave,
             wave_start,
-            diff,
+            verification_mode,
             image_elf,
             itrace,
             mtrace,
@@ -113,8 +113,11 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
                     multi_fpga,
                     wave,
                     wave_start,
-                    diff: diff.then(|| crate::simulation::p2e::run::DiffConfig {
-                        image_elf: image_elf.expect("--diff requires --image-elf"),
+                    verification_mode,
+                    diff: (verification_mode != crate::VerificationMode::None).then(|| {
+                        crate::simulation::p2e::run::DiffConfig {
+                            image_elf: image_elf.expect("verification requires --image-elf"),
+                        }
                     }),
                     trace: crate::simulation::p2e::run::P2eTraceConfig {
                         itrace,
@@ -135,7 +138,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
                     multi_fpga,
                     wave,
                     wave_start,
-                    diff,
+                    verification_mode,
                     image_elf,
                     itrace,
                     mtrace,

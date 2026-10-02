@@ -51,9 +51,12 @@ pub fn read_i32_nn_at(banks: &TrackedBanks<'_>, p: usize, base: usize, n: usize)
 
 pub fn write_i32_nn(banks: &mut TrackedBanks<'_>, p: usize, mat: &[Vec<i32>], n: usize) {
     for (i, row) in mat.iter().enumerate().take(n) {
-        for (j, v) in row.iter().enumerate().take(n) {
-            let off = i * I32_ROW_STRIDE + j * 4;
-            banks[p][off..off + 4].copy_from_slice(&v.to_le_bytes());
+        for (group, lanes) in row[..n].chunks(4).enumerate() {
+            let mut data = [0; 16];
+            for (lane, value) in lanes.iter().enumerate() {
+                data[lane * 4..lane * 4 + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            banks.write_row(p, i * 4 + group, data, (1u32 << (lanes.len() * 4)) - 1);
         }
     }
 }
@@ -88,20 +91,24 @@ pub fn read_i32_nn_groups_at(banks: &TrackedBanks<'_>, ps: &[usize], base: usize
 
 pub fn write_i32_nn_groups(banks: &mut TrackedBanks<'_>, ps: &[usize], mat: &[Vec<i32>], n: usize) {
     for (i, row) in mat.iter().enumerate().take(n) {
-        for (j, v) in row.iter().enumerate().take(n) {
-            let group = j / 4;
-            let lane = j % 4;
-            let off = i * I8_ROW_STRIDE + lane * 4;
-            banks[ps[group]][off..off + 4].copy_from_slice(&v.to_le_bytes());
+        for (group, lanes) in row[..n].chunks(4).enumerate() {
+            let mut data = [0; 16];
+            for (lane, value) in lanes.iter().enumerate() {
+                data[lane * 4..lane * 4 + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            banks.write_row(ps[group], i, data, (1u32 << (lanes.len() * 4)) - 1);
         }
     }
 }
 
 pub fn write_i32_nn_groups_at(banks: &mut TrackedBanks<'_>, ps: &[usize], base: usize, mat: &[Vec<i32>], n: usize) {
     for (i, row) in mat.iter().enumerate().take(n) {
-        for (j, v) in row.iter().enumerate().take(n) {
-            let off = (base + i) * I8_ROW_STRIDE + (j % 4) * 4;
-            banks[ps[j / 4]][off..off + 4].copy_from_slice(&v.to_le_bytes());
+        for (group, lanes) in row[..n].chunks(4).enumerate() {
+            let mut data = [0; 16];
+            for (lane, value) in lanes.iter().enumerate() {
+                data[lane * 4..lane * 4 + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            banks.write_row(ps[group], base + i, data, (1u32 << (lanes.len() * 4)) - 1);
         }
     }
 }

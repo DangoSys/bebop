@@ -75,6 +75,7 @@ pub struct PrivateBank {
     bytes: Vec<u8>,
     initialized: Vec<bool>,
     hash: Option<BankHashCache>,
+    pub access_identity: (u64, u32, u32, u32),
 }
 
 struct BankHashCache {
@@ -86,6 +87,7 @@ struct BankHashCache {
 impl PrivateBank {
     pub fn new(size: usize, hash: bool) -> Self {
         Self {
+            access_identity: (0, 0, 0, 0),
             bytes: vec![0; size],
             initialized: vec![true; size],
             hash: hash.then(|| BankHashCache {
@@ -179,6 +181,10 @@ impl Index<usize> for PrivateBank {
 
 impl IndexMut<usize> for PrivateBank {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        assert!(
+            !bebop_bank_hash::access::enabled(),
+            "unmodeled SPM byte write in access mode"
+        );
         self.dirty(index, index + 1);
         self.initialized[index] = true;
         &mut self.bytes[index]
@@ -197,6 +203,10 @@ macro_rules! impl_range_index {
 
         impl IndexMut<$range> for PrivateBank {
             fn index_mut(&mut self, index: $range) -> &mut Self::Output {
+                assert!(
+                    !bebop_bank_hash::access::enabled(),
+                    "unmodeled SPM slice write in access mode"
+                );
                 let start = $start(&index, self.bytes.len());
                 let end = $end(&index, self.bytes.len());
                 self.dirty(start, end);
@@ -255,6 +265,42 @@ impl<'a> TrackedBanks<'a> {
             shared_banks: Some(shared_banks),
             scoreboard,
             inst_id,
+        }
+    }
+
+    pub fn write_row(&mut self, physical: usize, addr: usize, data: [u8; 16], mask: u32) {
+        self.record_write(physical);
+        let private_count = self.banks.len();
+        let bank = if physical < private_count {
+            &mut self.banks[physical]
+        } else {
+            &mut self.shared_banks.as_deref_mut().expect("shared banks")[physical - private_count]
+        };
+        for (lane, value) in data.iter().enumerate() {
+            if mask & (1 << lane) != 0 {
+                bank.bytes[addr * 16 + lane] = *value;
+                bank.initialized[addr * 16 + lane] = true;
+            }
+        }
+        bank.dirty(addr * 16, addr * 16 + 16);
+        if bebop_bank_hash::access::enabled() {
+            let (hart, shared, logical, group) = bank.access_identity;
+            bebop_bank_hash::access::observe(
+                false,
+                bebop_bank_hash::access::WriteRecord {
+                    stream_hart: hart,
+                    hart,
+                    inst: self.inst_id,
+                    shared,
+                    bank: logical,
+                    group,
+                    physical: physical as u32,
+                    sequence: 0,
+                    addr: addr as u32,
+                    mask,
+                    data,
+                },
+            );
         }
     }
 

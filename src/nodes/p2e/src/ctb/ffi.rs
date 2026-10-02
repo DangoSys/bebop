@@ -24,6 +24,9 @@ mod raw {
     use std::os::raw::c_char;
 
     extern "C" {
+        pub fn ctb_execution_snapshot_wrapper(scope_name: *const c_char, values: *mut u32) -> bool;
+        #[cfg(P2E_ACCESS)]
+        pub fn ctb_access_snapshot_wrapper(scope_name: *const c_char, values: *mut u32) -> bool;
         #[cfg(P2E_DIFF)]
         pub fn ctb_btrace_snapshot_wrapper(scope_name: *const c_char, values: *mut u32) -> bool;
         /// C wrapper: ctb_builder_create_wrapper()
@@ -42,6 +45,10 @@ mod raw {
 #[derive(Debug, Default)]
 struct RuntimeState {
     initialized: bool,
+    execution_started: Option<Instant>,
+    execution_cycles: Option<u64>,
+    execution_finished: Option<Instant>,
+    execution_base: u64,
     uart_log: Vec<u8>,
     exit_code: Option<i32>,
     uart_files: HashMap<u32, File>,
@@ -64,6 +71,36 @@ static STATE: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
 
 fn state() -> &'static Mutex<RuntimeState> {
     STATE.get_or_init(|| Mutex::new(RuntimeState::default()))
+}
+
+pub const DUT_CONFIG_SHA256: &str = env!("P2E_DUT_CONFIG_SHA256");
+pub const VERIFICATION_MODE: &str = env!("P2E_VERIFICATION_MODE");
+
+pub fn begin_execution(cycle: u64) {
+    std::hint::black_box(dpi_execution_end as *const ());
+    let mut guard = state().lock().unwrap();
+    guard.execution_base = cycle;
+    guard.execution_started = Some(Instant::now());
+}
+#[no_mangle]
+pub extern "C" fn dpi_execution_end(_hart: u32, lo: u32, hi: u32) {
+    let mut guard = state().lock().unwrap();
+    guard.execution_cycles = Some((u64::from(hi) << 32) | u64::from(lo));
+    guard.execution_finished = Some(Instant::now());
+}
+pub fn execution_finished() -> Instant {
+    state()
+        .lock()
+        .unwrap()
+        .execution_finished
+        .expect("missing DUT exit timestamp")
+}
+pub fn execution_timing() -> (Instant, u64) {
+    let guard = state().lock().unwrap();
+    (
+        guard.execution_started.expect("missing DUT start event"),
+        guard.execution_cycles.expect("missing DUT cycle count") - guard.execution_base,
+    )
 }
 
 pub fn reset_runtime_state() {
@@ -439,13 +476,67 @@ pub struct BTraceSnapshot {
 }
 
 impl CtbManager {
-    pub fn btrace_snapshots(&self, case_home: &std::path::Path) -> Result<Vec<BTraceSnapshot>, String> {
-        #[cfg(not(P2E_DIFF))]
+    pub fn execution_cycle(&self, case_home: &std::path::Path) -> Result<u64, String> {
+        #[cfg(not(vvac_linked))]
         {
             let _ = case_home;
-            Err("P2E nonblocking trace is not linked; rebuild P2E with --diff in a fresh OUT_PATH".to_string())
+            Err("VVAC not linked".into())
         }
-        #[cfg(P2E_DIFF)]
+        #[cfg(vvac_linked)]
+        {
+            let scopes = std::fs::read_to_string(case_home.join("p2e_execution_scopes")).map_err(|e| e.to_string())?;
+            let mut cycles = Vec::new();
+            for scope in scopes.lines() {
+                let name = CString::new(scope).unwrap();
+                let mut words = [0; 2];
+                if !unsafe { raw::ctb_execution_snapshot_wrapper(name.as_ptr(), words.as_mut_ptr()) } {
+                    return Err(format!("execution snapshot failed: {scope}"));
+                }
+                cycles.push((u64::from(words[1]) << 32) | u64::from(words[0]));
+            }
+            let first = *cycles.first().expect("no execution counter");
+            assert!(
+                cycles.iter().all(|cycle| *cycle == first),
+                "benchmark requires a common DUT clock/reset domain"
+            );
+            Ok(first)
+        }
+    }
+
+    pub fn access_snapshots(&self, case_home: &std::path::Path) -> Result<Vec<((u64, u32, u32), u64, bool)>, String> {
+        #[cfg(not(all(P2E_ACCESS, vvac_linked)))]
+        {
+            let _ = case_home;
+            Err("access verification is not compiled".into())
+        }
+        #[cfg(all(P2E_ACCESS, vvac_linked))]
+        {
+            let scopes = std::fs::read_to_string(case_home.join("p2e_access_scopes")).map_err(|e| e.to_string())?;
+            let mut snapshots = Vec::new();
+            for scope in scopes.lines() {
+                let name = CString::new(scope).unwrap();
+                let mut v = [0; 7];
+                if !unsafe { raw::ctb_access_snapshot_wrapper(name.as_ptr(), v.as_mut_ptr()) } {
+                    return Err(format!("access snapshot failed: {scope}"));
+                }
+                snapshots.push((
+                    ((u64::from(v[1]) << 32) | u64::from(v[0]), v[2], v[3]),
+                    (u64::from(v[5]) << 32) | u64::from(v[4]),
+                    v[6] != 0,
+                ));
+            }
+            assert!(!snapshots.is_empty(), "no access producers");
+            Ok(snapshots)
+        }
+    }
+
+    pub fn btrace_snapshots(&self, case_home: &std::path::Path) -> Result<Vec<BTraceSnapshot>, String> {
+        #[cfg(not(all(P2E_DIFF, vvac_linked)))]
+        {
+            let _ = case_home;
+            Err("P2E nonblocking trace is not linked; rebuild P2E with --verification-mode difftest-n in a fresh OUT_PATH".to_string())
+        }
+        #[cfg(all(P2E_DIFF, vvac_linked))]
         {
             let scopes = std::fs::read_to_string(case_home.join("p2e_btrace_scopes")).map_err(|e| e.to_string())?;
             let mut snapshots = Vec::new();
@@ -517,5 +608,18 @@ impl CtbManager {
         } else {
             Err("CTB initialization failed".to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod overall_tests {
+    #[test]
+    fn measures_cycles_relative_to_loaded_image() {
+        super::reset_runtime_state();
+        super::begin_execution((1u64 << 32) - 10);
+        super::dpi_execution_end(0, 30, 1);
+        let (start, cycles) = super::execution_timing();
+        assert_eq!(cycles, 40);
+        assert!(super::execution_finished() >= start);
     }
 }

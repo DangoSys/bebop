@@ -1,7 +1,7 @@
 use crate::ffi::{self, CtbManager};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Child;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct SimulationResult {
@@ -37,19 +37,18 @@ pub fn init_ctb(case_home: &Path, rtcfg_path: &Path) -> Result<CtbManager, Strin
 }
 
 pub fn wait_for_completion(mut poll: impl FnMut() -> Result<(), String>) -> Result<SimulationResult, String> {
-    let started = Instant::now();
-    let poll_interval = Duration::from_millis(100);
+    let poll_interval = Duration::from_millis(1);
 
     loop {
         poll()?;
         if ffi::check_exit() {
             let exit_code = ffi::exit_code();
             let uart_log = ffi::uart_log();
-            let cycles = 1000;
+            let (execution_started, cycles) = ffi::execution_timing();
 
             return Ok(SimulationResult {
                 exit_code,
-                elapsed: started.elapsed(),
+                elapsed: execution_started.elapsed(),
                 cycles,
                 uart_log,
             });
@@ -106,6 +105,11 @@ init_fpga $fpga_location
 puts "\n========== Step 3: Loading Image =========="
 load_image $fpga_location 0 $image
 
+# Host excludes programming, image loading and reference initialization from execution.
+set ready [open "execution_ready.flag" w]
+close $ready
+while {{![file exists "execution_go.flag"]}} {{ after 1 }}
+
 # Step 4: Run workload
 puts "\n========== Step 4: Running Workload =========="
 run_workload 100000 $wave $wave_start
@@ -130,13 +134,11 @@ exit
 
 pub struct VdbgProcess {
     child: Child,
-    exit_flag: Option<PathBuf>,
 }
 
 impl Drop for VdbgProcess {
     fn drop(&mut self) {
-        if let Some(exit_flag) = &self.exit_flag {
-            std::fs::write(exit_flag, "").expect("failed to signal vdbg exit");
+        if self.child.try_wait().expect("query vdbg status").is_some() {
             return;
         }
         let process_group = i32::try_from(self.child.id()).expect("vdbg PID must fit pid_t");
@@ -148,9 +150,26 @@ impl Drop for VdbgProcess {
 }
 
 impl VdbgProcess {
-    pub fn exit_on_drop(mut self, exit_flag: PathBuf) -> Self {
-        self.exit_flag = Some(exit_flag);
-        self
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    pub fn finish(&mut self, exit_flag: &Path) -> Result<(), String> {
+        std::fs::write(exit_flag, "").map_err(|e| e.to_string())?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            if let Some(status) = self.child.try_wait().map_err(|e| e.to_string())? {
+                return if status.success() {
+                    Ok(())
+                } else {
+                    Err(format!("vdbg exited with {status}"))
+                };
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err("vdbg shutdown timed out".into());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
@@ -176,7 +195,7 @@ pub fn start_vdbg_background(tcl_path: &Path) -> Result<VdbgProcess, String> {
         .spawn()
         .map_err(|e| format!("Failed to start vdbg: {}", e))?;
 
-    Ok(VdbgProcess { child, exit_flag: None })
+    Ok(VdbgProcess { child })
 }
 
 pub fn source_environment() -> Result<(), String> {

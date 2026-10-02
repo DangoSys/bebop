@@ -103,6 +103,7 @@ struct Session {
     progress: Progress,
     subject_by_hart: BTreeMap<u64, u64>,
     failure: Option<String>,
+    comparison_time_s: f64,
 }
 
 static SESSION: OnceLock<Mutex<Option<Session>>> = OnceLock::new();
@@ -130,6 +131,7 @@ pub fn start(output: PathBuf) -> Result<(), Whatever> {
         progress: Progress::default(),
         subject_by_hart: BTreeMap::new(),
         failure: None,
+        comparison_time_s: 0.0,
     });
     Ok(())
 }
@@ -170,7 +172,9 @@ pub fn observe(record: &BTraceRecord) {
         }
     };
     if let Some((subject, golden)) = pair {
+        let started = std::time::Instant::now();
         let comparison = comparator::compare(key, Some(&subject), Some(&golden));
+        state.comparison_time_s += started.elapsed().as_secs_f64();
         if let Err(error) = write(&mut state.writer, &state.output, &comparison) {
             state.failure = Some(error.to_string());
             return;
@@ -293,4 +297,23 @@ pub fn bank_hash(bytes: &[u8], row_bytes: usize) -> u32 {
 pub fn combine_bank_hash(status_hash: u32, group_id: u32, physical_hash: u32) -> u32 {
     let mixed = physical_hash ^ group_id.rotate_left(7) ^ 0x9e37_79b9;
     status_hash.rotate_left(5) ^ mixed ^ mixed.rotate_left(13)
+}
+
+pub fn comparison_time_s() -> f64 {
+    session()
+        .lock()
+        .unwrap()
+        .as_ref()
+        .expect("active diff session")
+        .comparison_time_s
+}
+
+pub fn matched_count() -> u64 {
+    session()
+        .lock()
+        .unwrap()
+        .as_ref()
+        .expect("active diff session")
+        .compared
+        .len() as u64
 }

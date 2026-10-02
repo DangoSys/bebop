@@ -18,8 +18,7 @@ impl Instruction for Mvin2d {
         let valid_bytes = if (xs2 >> 62) & 1 == 0 { 16 } else { 8 };
 
         crate::config::is_shared_vbank(bank_id);
-        if height == 0 || pixel_bytes == 0 || source_width == 0 || valid_bytes as u64 > pixel_bytes
-        {
+        if height == 0 || pixel_bytes == 0 || source_width == 0 || valid_bytes as u64 > pixel_bytes {
             panic!("mvin_2d: invalid geometry");
         }
         if xs2 >> 63 != 0 {
@@ -43,13 +42,16 @@ impl Instruction for Mvin2d {
                 let row = dst_base + y * width + x;
                 let source = mem_addr + y * source_row_bytes + x * pixel_bytes;
                 let offset = row as usize * 16;
-                for lane in 0..16 {
-                    ctx.banks[bank][offset + lane] = if lane < valid_bytes as usize {
-                        ctx.read_memory(source + lane as u64)
-                    } else {
-                        0
-                    };
+                let mut data = [0; 16];
+                for lane in 0..valid_bytes as usize {
+                    data[lane] = ctx.read_memory(source + lane as u64);
                 }
+                let mask = if bebop_bank_hash::access::enabled() {
+                    (1u32 << valid_bytes) - 1
+                } else {
+                    0xffff
+                };
+                ctx.banks.write_row(bank, row as usize, data, mask);
                 crate::trace::mtrace(crate::trace::MTraceEvent {
                     is_write: true,
                     is_shared: crate::config::is_shared_vbank(bank_id),

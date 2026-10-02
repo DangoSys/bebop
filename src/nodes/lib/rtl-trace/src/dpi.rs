@@ -5,6 +5,7 @@ use crate::{state, trace};
 // DPI-C exports (called from RTL via extern "C")
 
 pub(crate) fn force_link() {
+    std::hint::black_box(dpi_access_write as *const ());
     let _ = dpi_bdb_set_clk as extern "C" fn(u64);
     let _ = dpi_itrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
     let _ = dpi_mtrace
@@ -162,4 +163,47 @@ pub extern "C" fn jtag_tick(
 ) -> u8 {
     // Stub implementation - JTAG not currently used
     0
+}
+
+#[no_mangle]
+pub extern "C" fn dpi_access_write(
+    owner_lo: u32,
+    owner_hi: u32,
+    hart_lo: u32,
+    hart_hi: u32,
+    inst_lo: u32,
+    inst_hi: u32,
+    shared: u32,
+    physical: u32,
+    bank: u32,
+    group: u32,
+    seq_lo: u32,
+    seq_hi: u32,
+    addr: u32,
+    mask: u32,
+    data0: u32,
+    data1: u32,
+    data2: u32,
+    data3: u32,
+) {
+    let mut data = [0; 16];
+    for (i, word) in [data0, data1, data2, data3].iter().enumerate() {
+        data[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+    }
+    bebop_bank_hash::access::observe(
+        true,
+        bebop_bank_hash::access::WriteRecord {
+            stream_hart: u64_from_words(owner_lo, owner_hi),
+            hart: u64_from_words(hart_lo, hart_hi),
+            inst: u64_from_words(inst_lo, inst_hi),
+            shared,
+            physical,
+            bank,
+            group,
+            sequence: u64_from_words(seq_lo, seq_hi),
+            addr,
+            mask,
+            data,
+        },
+    );
 }

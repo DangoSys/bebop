@@ -42,7 +42,7 @@ impl Instruction for Mvin {
                     let addr = mem_addr + row as u64 * groups as u64 * 16 * stride + group as u64 * 16;
                     let mut bytes = [0; 16];
                     ctx.memory.read_buffer(addr, &mut bytes);
-                    ctx.banks[p][bank_offset..bank_offset + 16].copy_from_slice(&bytes);
+                    ctx.banks.write_row(p, bank_offset / 16, bytes, 0xffff);
                     crate::trace::mtrace(crate::trace::MTraceEvent {
                         is_write: true,
                         is_shared: crate::config::is_shared_vbank(bank_id),
@@ -73,7 +73,7 @@ impl Instruction for Mvin {
                 }
                 let mut bytes = [0; 16];
                 ctx.memory.read_buffer(addr, &mut bytes);
-                ctx.banks[p][bank_offset..bank_offset + 16].copy_from_slice(&bytes);
+                ctx.banks.write_row(p, bank_offset / 16, bytes, 0xffff);
                 crate::trace::mtrace(crate::trace::MTraceEvent {
                     is_write: true,
                     is_shared: crate::config::is_shared_vbank(bank_id),

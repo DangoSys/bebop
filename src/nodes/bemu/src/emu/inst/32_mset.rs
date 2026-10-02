@@ -55,13 +55,19 @@ impl Instruction for Mset {
                     allocated.push(p);
                 }
             }
-            for p in allocated {
+            for (group, p) in allocated.into_iter().enumerate() {
+                ctx.banks[p].access_identity = (ctx.hart_id as u64, shared_bank as u32, v, group as u32);
                 if shared_bank {
                     if clear {
                         ctx.banks.initialize(p, 0);
                     }
                 } else {
                     ctx.banks.allocate(p, clear);
+                    if clear && bebop_bank_hash::access::enabled() {
+                        for row in 0..crate::config::bank_size() / 16 {
+                            ctx.banks.write_row(p, row, [0; 16], 0xffff);
+                        }
+                    }
                 }
             }
             *ctx.config_mut(bank_id) = BankConfig {

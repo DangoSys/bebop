@@ -3,12 +3,20 @@
 #include "ICtb.h"
 #include <iostream>
 #include <string>
-#ifdef P2E_DIFF
 #include "expFun.h"
-#endif
 
 // C wrapper functions for Rust FFI
 extern "C" {
+
+bool ctb_execution_snapshot_wrapper(const char *scope_name, uint32_t *values) {
+  const auto scope = vvac::svGetScopeFromName(scope_name);
+  if (scope == -1) return false;
+  const auto previous = vvac::svSetScope(scope);
+  execution_snapshot(&values[0], &values[1]);
+  const auto error = vvac::GetLastError();
+  vvac::svSetScope(previous);
+  return error == 0;
+}
 
 #ifdef P2E_DIFF
 bool ctb_btrace_snapshot_wrapper(const char *scope_name, uint32_t *values) {
@@ -18,6 +26,18 @@ bool ctb_btrace_snapshot_wrapper(const char *scope_name, uint32_t *values) {
   }
   const auto previous = vvac::svSetScope(scope);
   btrace_snapshot(&values[0], &values[1], &values[2], &values[3], &values[4]);
+  const auto error = vvac::GetLastError();
+  vvac::svSetScope(previous);
+  return error == 0;
+}
+#endif
+
+#ifdef P2E_ACCESS
+bool ctb_access_snapshot_wrapper(const char *scope_name, uint32_t *values) {
+  const auto scope = vvac::svGetScopeFromName(scope_name);
+  if (scope == -1) return false;
+  const auto previous = vvac::svSetScope(scope);
+  access_snapshot(&values[0], &values[1], &values[2], &values[3], &values[4], &values[5], &values[6]);
   const auto error = vvac::GetLastError();
   vvac::svSetScope(previous);
   return error == 0;

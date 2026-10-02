@@ -40,7 +40,11 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
             println!("Built executable: {}", dest.display());
             Ok(())
         }
-        BuildTarget::P2e { rtl_dir, out_dir, diff } => {
+        BuildTarget::P2e {
+            rtl_dir,
+            out_dir,
+            verification_mode,
+        } => {
             if !rtl_dir.is_dir() {
                 let message = format!("RTL directory does not exist: {}", rtl_dir.display());
                 return Err(Whatever::without_source(message));
@@ -50,7 +54,11 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
                 .whatever_context("failed to canonicalize RTL directory")?;
             std::fs::create_dir_all(&out_dir).whatever_context("failed to create output directory")?;
             println!("Building p2e: {} -> {}", rtl_dir.display(), out_dir.display());
-            let features = if diff { "p2e,bemu" } else { "p2e" };
+            let features = if verification_mode != crate::VerificationMode::None {
+                "p2e,bemu"
+            } else {
+                "p2e"
+            };
             let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
             cmd!(
                 "cargo",
@@ -65,7 +73,7 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
             )
             .env("VSRC_PATH", &rtl_dir)
             .env("OUT_PATH", &out_dir)
-            .env("P2E_DIFF", if diff { "1" } else { "0" })
+            .env("P2E_VERIFICATION_MODE", verification_mode.as_str())
             .run()
             .whatever_context("failed to build p2e")?;
 

@@ -30,13 +30,14 @@ const SOURCE_ME: &str = "sourceme.sh";
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(vvac_linked)");
     println!("cargo:rustc-check-cfg=cfg(P2E_DIFF)");
+    println!("cargo:rustc-check-cfg=cfg(P2E_ACCESS)");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build/link.rs");
     println!("cargo:rerun-if-changed=build/vsrc.rs");
     println!("cargo:rerun-if-changed=build/vvac.rs");
     println!("cargo:rerun-if-env-changed=VSRC_PATH");
     println!("cargo:rerun-if-env-changed=OUT_PATH");
-    println!("cargo:rerun-if-env-changed=P2E_DIFF");
+    println!("cargo:rerun-if-env-changed=P2E_VERIFICATION_MODE");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let bebop_root = manifest_dir
@@ -51,29 +52,48 @@ fn main() {
     };
     let libctb_dst = out_dir.join("libvCtb.so");
     let trace_mode_path = out_dir.join("p2e_trace_mode");
-    let diff = match env::var("P2E_DIFF").as_deref() {
-        Ok("1") => true,
-        Ok("0") | Err(env::VarError::NotPresent) => false,
-        value => panic!("P2E_DIFF must be 0 or 1, got {value:?}"),
-    };
-    let trace_mode = if diff { "btrace_nb_v1" } else { "none" };
+    let mode = env::var("P2E_VERIFICATION_MODE").unwrap_or_else(|_| "none".to_string());
+    assert!(
+        ["none", "access", "difftest-n"].contains(&mode.as_str()),
+        "invalid verification mode"
+    );
+    println!("cargo:rustc-env=P2E_VERIFICATION_MODE={mode}");
+    let trace_mode = mode.as_str();
+    if mode == "difftest-n" {
+        println!("cargo:rustc-cfg=P2E_DIFF");
+    }
+    if mode == "access" {
+        println!("cargo:rustc-cfg=P2E_ACCESS");
+    }
     println!("cargo:rerun-if-changed={}", libctb_dst.display());
     println!("cargo:rerun-if-changed={}", trace_mode_path.display());
 
+    println!("cargo:rustc-env=P2E_DUT_CONFIG_SHA256=unlinked");
     if libctb_dst.exists() {
+        let fingerprint = std::fs::read_to_string(out_dir.join("dut-config.sha256")).expect("DUT fingerprint");
+        println!("cargo:rustc-env=P2E_DUT_CONFIG_SHA256={fingerprint}");
+        if let Ok(rtl) = env::var("VSRC_PATH") {
+            assert_eq!(
+                std::fs::read_to_string(PathBuf::from(&rtl).join("verification-mode")).unwrap(),
+                mode,
+                "RTL mode changed"
+            );
+            assert_eq!(
+                std::fs::read_to_string(PathBuf::from(rtl).join("dut-config.sha256")).unwrap(),
+                fingerprint,
+                "DUT config changed; use a fresh OUT_PATH"
+            );
+        }
         let cached_mode =
             std::fs::read_to_string(&trace_mode_path).expect("missing P2E trace mode; rebuild in a fresh OUT_PATH");
         assert_eq!(
             cached_mode, trace_mode,
             "P2E trace mode changed; rebuild in a fresh OUT_PATH"
         );
-        if diff {
-            vvac::verify_btrace(&out_dir);
-            println!("cargo:rustc-cfg=P2E_DIFF");
-        }
+        vvac::verify_trace(&out_dir, &mode);
         println!("cargo:warning=Found existing libvCtb.so, skipping VVAC build");
         println!("cargo:warning=Building C++ wrapper for Rust FFI...");
-        link::build_cpp_wrapper(&manifest_dir, &out_dir, diff);
+        link::build_cpp_wrapper(&manifest_dir, &out_dir, &mode);
         link::link_vvac(&libctb_dst);
         return;
     }
@@ -88,6 +108,19 @@ fn main() {
         }
     };
     let build_dir = PathBuf::from(&vsrc_path);
+    assert_eq!(
+        std::fs::read_to_string(build_dir.join("verification-mode")).expect("RTL mode manifest"),
+        mode,
+        "RTL verification mode mismatch"
+    );
+    std::fs::create_dir_all(&out_dir).expect("create P2E output");
+    std::fs::copy(build_dir.join("dut-config"), out_dir.join("dut-config")).expect("copy DUT configuration");
+    std::fs::copy(build_dir.join("dut-config.sha256"), out_dir.join("dut-config.sha256"))
+        .expect("copy DUT fingerprint");
+    println!(
+        "cargo:rustc-env=P2E_DUT_CONFIG_SHA256={}",
+        std::fs::read_to_string(build_dir.join("dut-config.sha256")).unwrap()
+    );
 
     let sourceme = manifest_dir.join(SOURCE_ME);
     vsrc::assert_exists(&sourceme, "missing p2e sourceme script");
@@ -113,21 +146,21 @@ fn main() {
 
     std::fs::create_dir_all(&out_dir).expect("create p2e out directory");
     let flist = out_dir.join("p2e_vvac_filelist.f");
-    vsrc::write_flist(&flist, &vsrcs, diff);
+    vsrc::write_flist(&flist, &vsrcs, &mode);
     println!("cargo:warning=P2E trace mode: {trace_mode}");
 
     println!("cargo:warning=Removing empty module instantiations from Verilog...");
     vvac::remove_empty_module_instantiations(&build_dir);
 
     println!("cargo:warning=Running vvac (first pass) to generate empty module stubs...");
-    vvac::run_vvac(&out_dir, &sourceme, &flist, P2E_TOP, diff);
+    vvac::run_vvac(&out_dir, &sourceme, &flist, P2E_TOP, &mode);
 
     println!("cargo:warning=Adding missing empty modules to VVAC filelist...");
     let needs_rebuild = vvac::add_missing_empty_modules(&out_dir);
 
     if needs_rebuild {
         println!("cargo:warning=Running vvac (second pass) with complete filelist...");
-        vvac::run_vvac(&out_dir, &sourceme, &flist, P2E_TOP, diff);
+        vvac::run_vvac(&out_dir, &sourceme, &flist, P2E_TOP, &mode);
     }
 
     println!("cargo:warning=Copying libvCtb.so from vvac output...");
@@ -145,10 +178,7 @@ fn main() {
     vvac::fix_library_rpath(&out_dir);
 
     println!("cargo:warning=Building C++ wrapper for Rust FFI...");
-    link::build_cpp_wrapper(&manifest_dir, &out_dir, diff);
-    if diff {
-        println!("cargo:rustc-cfg=P2E_DIFF");
-    }
+    link::build_cpp_wrapper(&manifest_dir, &out_dir, &mode);
 
     println!("cargo:warning=Linking vvac and C++ wrapper...");
     link::link_vvac(&libctb_dst);

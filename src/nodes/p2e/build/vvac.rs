@@ -2,11 +2,15 @@ use duct::cmd;
 use std::fs;
 use std::path::Path;
 
-pub fn run_vvac(out_dir: &Path, sourceme: &Path, flist: &Path, top: &str, diff: bool) {
-    let trace_args = if diff {
+pub fn run_vvac(out_dir: &Path, sourceme: &Path, flist: &Path, top: &str, mode: &str) {
+    let trace_args = if mode != "none" {
         fs::write(
             out_dir.join("p2e_trace_functions.cfg"),
-            "module: BTraceDPI\nfunction: dpi_btrace\nchannel: vc_default\ntype: nb\n",
+            match mode {
+                "difftest-n" => "module: BTraceDPI\nfunction: dpi_btrace\nchannel: vc_default\ntype: nb\n",
+                "access" => "module: AccessWriteDPI\nfunction: dpi_access_write\nchannel: vc_default\ntype: nb\n",
+                _ => unreachable!(),
+            },
         )
         .expect("write nonblocking BTrace configuration");
         " -tf_cfg p2e_trace_functions.cfg"
@@ -61,9 +65,7 @@ vvac -bc -f {flist} -top {top}{trace_args}"#,
                 out_dir.join("vvac_build.log").display()
             )
         });
-    if diff {
-        verify_btrace(out_dir);
-    }
+    verify_trace(out_dir, mode);
 }
 
 fn db_value<'a>(block: &'a str, name: &str) -> &'a str {
@@ -73,7 +75,7 @@ fn db_value<'a>(block: &'a str, name: &str) -> &'a str {
         .unwrap_or_else(|| panic!("missing VVAC database field {name}"))
 }
 
-pub fn verify_btrace(out_dir: &Path) {
+pub fn verify_trace(out_dir: &Path, mode: &str) {
     let db = fs::read_to_string(out_dir.join("vvacDir/db.txt")).expect("read VVAC database");
     let declarations = db
         .split("channel.db :")
@@ -82,19 +84,6 @@ pub fn verify_btrace(out_dir: &Path) {
         .split("  func_name : ")
         .skip(1)
         .collect::<Vec<_>>();
-    let trace_id = declarations
-        .iter()
-        .position(|block| block.lines().next() == Some("dpi_btrace"))
-        .expect("VVAC did not generate dpi_btrace");
-    assert_eq!(
-        db_value(declarations[trace_id], "is_nb :"),
-        "1",
-        "BTrace DPI is still blocking"
-    );
-    let snapshot_id = declarations
-        .iter()
-        .position(|block| block.lines().next() == Some("btrace_snapshot"))
-        .expect("VVAC did not generate btrace_snapshot");
     let scope_section = db
         .split("scope.db :")
         .nth(1)
@@ -108,23 +97,56 @@ pub fn verify_btrace(out_dir: &Path) {
         .map(|block| block.lines().next().unwrap())
         .collect::<Vec<_>>();
     let calls = db.split("funcCall.db :").nth(1).unwrap();
-    let mut snapshot_scopes = Vec::new();
-    for call in calls.split("  decl_id : ").skip(1) {
-        let decl_id = call.lines().next().unwrap().parse::<usize>().unwrap();
-        if decl_id == trace_id {
-            assert_eq!(db_value(call, "work_mode :"), "1", "BTrace call is still blocking");
+    for forbidden in match mode {
+        "none" => &["dpi_btrace", "btrace_snapshot", "dpi_access_write", "access_snapshot"][..],
+        "access" => &["dpi_btrace", "btrace_snapshot"][..],
+        "difftest-n" => &["dpi_access_write", "access_snapshot"][..],
+        _ => panic!("invalid verification mode"),
+    } {
+        assert!(
+            !declarations
+                .iter()
+                .any(|block| block.lines().next() == Some(*forbidden)),
+            "unexpected verification callback {forbidden} in {mode}"
+        );
+    }
+    let mut functions = vec![("execution_snapshot", "p2e_execution_scopes", false)];
+    match mode {
+        "none" => {}
+        "access" => {
+            functions.push(("dpi_access_write", "", true));
+            functions.push(("access_snapshot", "p2e_access_scopes", false));
         }
-        if decl_id == snapshot_id {
+        "difftest-n" => {
+            functions.push(("dpi_btrace", "", true));
+            functions.push(("btrace_snapshot", "p2e_btrace_scopes", false));
+        }
+        _ => panic!("invalid verification mode"),
+    }
+    for (name, output, nonblocking) in functions {
+        let id = declarations
+            .iter()
+            .position(|block| block.lines().next() == Some(name))
+            .unwrap_or_else(|| panic!("missing VVAC function {name}"));
+        if nonblocking {
+            assert_eq!(db_value(declarations[id], "is_nb :"), "1", "{name} must be nonblocking");
+        }
+        let mut instances = Vec::new();
+        for call in calls.split("  decl_id : ").skip(1) {
+            if call.lines().next().unwrap().parse::<usize>().unwrap() != id {
+                continue;
+            }
+            if nonblocking {
+                assert_eq!(db_value(call, "work_mode :"), "1", "{name} must be nonblocking");
+            }
             let scope_id = db_value(call, "scope_id :").parse::<usize>().unwrap();
-            snapshot_scopes.push(scopes[scope_id]);
+            instances.push(scopes[scope_id]);
+        }
+        assert!(!instances.is_empty(), "no VVAC instances of {name}");
+        if !output.is_empty() {
+            fs::write(out_dir.join(output), instances.join("\n") + "\n").unwrap();
         }
     }
-    assert!(
-        !snapshot_scopes.is_empty(),
-        "VVAC generated no BTrace snapshot instances"
-    );
-    fs::write(out_dir.join("p2e_btrace_scopes"), snapshot_scopes.join("\n") + "\n")
-        .expect("write BTrace snapshot scopes");
 }
 
 pub fn add_missing_empty_modules(out_dir: &Path) -> bool {

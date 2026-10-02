@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path, diff: bool) {
+pub fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path, mode: &str) {
     let wrapper_src = manifest_dir.join("src/ctb/ctb_wrapper.cpp");
     let wrapper_obj = out_dir.join("ctb_wrapper.o");
     let wrapper_lib = out_dir.join("libctb_wrapper.a");
@@ -24,7 +24,11 @@ pub fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path, diff: bool) {
         "-fPIC",
         "-std=c++11",
         &include_arg,
-        if diff { "-DP2E_DIFF" } else { "-UP2E_DIFF" },
+        match mode {
+            "difftest-n" => "-DP2E_DIFF",
+            "access" => "-DP2E_ACCESS",
+            _ => "-UP2E_DIFF",
+        },
         wrapper_src.to_str().unwrap(),
         "-o",
         wrapper_obj.to_str().unwrap()
