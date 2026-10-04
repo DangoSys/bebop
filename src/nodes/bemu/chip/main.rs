@@ -1,0 +1,10 @@
+//! Default `bebop-chip-<chip>` entry: run one PB-described tile, with its task controller if any.
+use bebop_bemu::root::tile::{run::Args, task_run::run};
+use clap::Parser;
+
+fn main() {
+    if let Err(error) = run(Args::parse()) {
+        eprintln!("error: {error}");
+        std::process::exit(1);
+    }
+}

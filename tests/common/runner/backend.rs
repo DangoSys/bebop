@@ -1,5 +1,5 @@
 use assert_cmd::Command;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::super::artifacts::ArtifactManager;
@@ -13,6 +13,11 @@ pub trait BackendRunner {
     }
 
     fn timeout(&self) -> Duration;
+
+    /// The binary that runs one workload; by default the resolved runner itself.
+    fn runner_bin(&self, default: &Path, _elf_path: &Path) -> PathBuf {
+        default.to_path_buf()
+    }
 
     fn configure_command_env(&self, _cmd: &mut Command, _elf_path: &Path) {}
 

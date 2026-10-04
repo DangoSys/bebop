@@ -21,6 +21,7 @@ rvsim = { path = "../../../../../../bebop/src/nodes/bemu/rvcpu" }
 rvv = { path = "../../../../../../bebop/src/nodes/bemu/rvv" }
 bebop-dasm = { path = "../../../../../../bebop/src/nodes/lib/dasm" }
 clap = { version = "4", features = ["derive"] }
+toml = "0.8"
 snafu = "0.8"
 prost = "0.13"
 bebop-elf = { path = "../../../../../../bebop/src/nodes/lib/elf" }

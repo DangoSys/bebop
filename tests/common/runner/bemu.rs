@@ -1,5 +1,5 @@
 use assert_cmd::Command;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::common::artifacts::ArtifactManager;
@@ -38,6 +38,14 @@ impl BackendRunner for BemuBackend {
 
     fn timeout(&self) -> Duration {
         Duration::from_secs(300)
+    }
+
+    /// Baremetal workloads run on the chip's tile runner; a pk (Linux user-mode) process runs on
+    /// the single-core bebop-bemu built beside it.
+    fn runner_bin(&self, default: &Path, elf_path: &Path) -> PathBuf {
+        let linux = elf_path.file_stem().is_some_and(|stem| stem.to_string_lossy().ends_with("-linux"));
+        let core = default.with_file_name("bebop-bemu");
+        if linux && core.is_file() { core } else { default.to_path_buf() }
     }
 
     fn match_case(&self, test_case: &ElfTestCase) -> bool {
