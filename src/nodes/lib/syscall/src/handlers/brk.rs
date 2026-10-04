@@ -1,8 +1,9 @@
 use crate::constants::{GUEST_MEM_BASE, MMAP_TOP_RESERVED, PAGE_SIZE};
 use crate::state::SyscallState;
 use crate::utils::{align_down, align_up};
+use bebop_memory::Memory;
 
-pub fn handle_brk(state: &mut SyscallState, addr: u64, memory: &[u8]) -> (u64, bool) {
+pub fn handle_brk(state: &mut SyscallState, addr: u64, memory: &dyn Memory) -> (u64, bool) {
     let mem_low = if state.mem_low == 0 {
         GUEST_MEM_BASE
     } else {

@@ -1,5 +1,11 @@
 use super::trace::with_current_trace;
 
+pub fn mtrace_enabled() -> bool {
+    let mut enabled = false;
+    with_current_trace(|trace| enabled = trace.mtrace);
+    enabled
+}
+
 pub struct MTraceEvent {
     pub is_write: bool,
     pub is_shared: bool,
@@ -17,6 +23,9 @@ pub struct MTraceEvent {
 
 pub fn mtrace(event: MTraceEvent) {
     with_current_trace(|trace| {
+        if !trace.mtrace {
+            return;
+        }
         let event_name = if event.is_write { "write" } else { "read" };
         let data = event
             .is_write
@@ -28,8 +37,8 @@ pub fn mtrace(event: MTraceEvent) {
             })
             .unwrap_or_default();
         let json = format!(
-            r#"{{"type":"mtrace","clk":{},"event":"{}","channel":{},"hart_id":{},"rob_id":{},"is_shared":{},"vbank_id":{},"pbank_id":{},"group_id":{},"addr":"0x{:08x}"{}}}"#,
-            trace.bemu_clk(),
+            r#"{{"type":"mtrace","event_index":{},"event":"{}","channel":{},"hart_id":{},"rob_id":{},"is_shared":{},"vbank_id":{},"pbank_id":{},"group_id":{},"addr":"0x{:08x}"{}}}"#,
+            trace.event_index(),
             event_name,
             event.channel,
             event.hart_id,

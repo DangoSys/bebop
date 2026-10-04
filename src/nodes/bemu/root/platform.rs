@@ -1,11 +1,15 @@
 use bebop_clint::Clint;
 use bebop_plic::Plic;
+use bebop_uart::CycleTraceCollector;
 use rvsim::bus::{Bus, BusError, HartBus, Width};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     fs::File,
     io::{BufWriter, Write},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicI64, Ordering},
+        Arc, Mutex,
+    },
 };
 
 pub const DRAM_BASE: u64 = 0x8000_0000;
@@ -18,35 +22,34 @@ struct Uart {
     rx: VecDeque<u8>,
     tx: Vec<u8>,
     log: Option<BufWriter<File>>,
+    cycle_trace: Option<CycleTraceCollector>,
 }
 
 pub(crate) struct Platform {
     pub(crate) interconnect: Option<super::interconnect::port::Port>,
-    pub(crate) memory: Vec<u8>,
+    pub(crate) memory: Arc<super::memory::Ddr>,
     pub(crate) pages: Arc<Mutex<super::memory::Pages>>,
-    pub(crate) clint: Clint,
+    pub(crate) clint: Arc<Clint>,
     pub(crate) microphone: bebop_microphone::Microphone,
     pub(crate) speaker: bebop_speaker::Speaker,
     pub(crate) keyboard: bebop_keyboard::Keyboard,
     pub(crate) vga: bebop_vga::Vga,
     pub(crate) rtc: bebop_rtc::Rtc,
-    cycles: Vec<u64>,
     clock: u64,
     plic: Plic,
     uarts: Vec<Uart>,
     pub(crate) capture_uart: bool,
     pub(crate) console_uart: bool,
-    pub(crate) exit_codes: Vec<Option<i32>>,
-    pub(crate) reservations: HashMap<u64, (u64, Width)>,
+    pub(crate) exit_codes: Arc<Vec<AtomicI64>>,
 }
 
 impl Platform {
     pub(crate) fn new(size: usize, harts: usize) -> Self {
         Self {
-            memory: vec![0; size],
+            memory: Arc::new(super::memory::Ddr::new(size)),
             pages: Arc::new(Mutex::new(super::memory::Pages::new(size))),
             interconnect: None,
-            clint: Clint::new(harts),
+            clint: Arc::new(Clint::new(harts)),
             microphone: bebop_microphone::Microphone::default(),
             speaker: bebop_speaker::Speaker::default(),
             keyboard: bebop_keyboard::Keyboard::default(),
@@ -59,7 +62,6 @@ impl Platform {
                     .try_into()
                     .expect("RTC range"),
             ),
-            cycles: vec![0; harts],
             clock: 0,
             plic: Plic::default(),
             uarts: (0..harts)
@@ -67,30 +69,23 @@ impl Platform {
                     rx: VecDeque::new(),
                     tx: Vec::new(),
                     log: None,
+                    cycle_trace: None,
                 })
                 .collect(),
             capture_uart: false,
             console_uart: true,
-            exit_codes: vec![None; harts],
-            reservations: HashMap::new(),
+            exit_codes: Arc::new((0..harts).map(|_| AtomicI64::new(i64::MIN)).collect()),
         }
     }
 
-    pub(crate) fn inputs(&mut self, hart: usize, cycles: u64) -> rvsim::hart::Inputs {
-        self.cycles[hart] += cycles;
-        let next = self.clock.max(self.cycles[hart]);
+    pub(crate) fn sync_clock(&mut self) {
+        let next = self.clint.cycles();
         let elapsed = next - self.clock;
-        self.clint.tick(elapsed);
         let ns = elapsed.checked_mul(100).expect("simulation time overflow"); // 10 MHz timebase.
         self.microphone.tick(ns);
         self.speaker.tick(ns);
         self.rtc.tick(ns);
         self.clock = next;
-        rvsim::hart::Inputs {
-            cycles,
-            time: self.clint.time(),
-            interrupts: self.clint.pending(hart),
-        }
     }
 
     pub(crate) fn push_uart(&mut self, hart: usize, byte: u8) {
@@ -106,13 +101,17 @@ impl Platform {
             .collect()
     }
 
-    pub(crate) fn uart_log(&mut self, hart: usize, file: File) {
+    pub(crate) fn uart_log(&mut self, hart: usize, file: File, cycle_trace: CycleTraceCollector) {
         self.uarts[hart].log = Some(BufWriter::new(file));
+        self.uarts[hart].cycle_trace = Some(cycle_trace);
     }
 
     pub(crate) fn flush_uart(&mut self, hart: usize) -> std::io::Result<()> {
         if let Some(log) = self.uarts[hart].log.as_mut() {
             log.flush()?;
+        }
+        if let Some(trace) = self.uarts[hart].cycle_trace.take() {
+            trace.finish().map_err(std::io::Error::other)?;
         }
         Ok(())
     }
@@ -120,16 +119,13 @@ impl Platform {
 
 impl Bus for Platform {
     fn read(&mut self, address: u64, width: Width) -> Result<u64, BusError> {
+        self.sync_clock();
         use super::interconnect::port::{BASE, SIZE};
         if (BASE..BASE + SIZE).contains(&address) {
             return self.interconnect.as_ref().ok_or(BusError)?.read(address - BASE, width);
         }
         if address >= DRAM_BASE {
-            let offset = (address - DRAM_BASE) as usize;
-            let source = self.memory.get(offset..offset + width as usize).ok_or(BusError)?;
-            let mut value = [0; 8];
-            value[..width as usize].copy_from_slice(source);
-            return Ok(u64::from_le_bytes(value));
+            return self.memory.read(address, width);
         }
         if (bebop_clint::BASE..bebop_clint::BASE + bebop_clint::SIZE).contains(&address) {
             return self
@@ -179,19 +175,17 @@ impl Bus for Platform {
     }
 
     fn write(&mut self, address: u64, width: Width, value: u64) -> Result<(), BusError> {
+        self.sync_clock();
         use super::interconnect::port::{BASE, SIZE};
         if (BASE..BASE + SIZE).contains(&address) {
-            return self.interconnect.as_mut().ok_or(BusError)?.write(address - BASE, width, value);
+            return self
+                .interconnect
+                .as_mut()
+                .ok_or(BusError)?
+                .write(address - BASE, width, value);
         }
         if address >= DRAM_BASE {
-            let offset = (address - DRAM_BASE) as usize;
-            self.memory
-                .get_mut(offset..offset + width as usize)
-                .ok_or(BusError)?
-                .copy_from_slice(&value.to_le_bytes()[..width as usize]);
-            self.reservations
-                .retain(|_, (start, size)| *start + *size as u64 <= address || address + width as u64 <= *start);
-            return Ok(());
+            return self.memory.write(address, width, value);
         }
         if (bebop_clint::BASE..bebop_clint::BASE + bebop_clint::SIZE).contains(&address) {
             return self
@@ -242,7 +236,7 @@ impl Bus for Platform {
             let hart = ((address - SCU_BASE) / SCU_STRIDE) as usize;
             return match ((address - SCU_BASE) % SCU_STRIDE, width) {
                 (0, Width::Word | Width::Double) => {
-                    self.exit_codes[hart] = Some(value as i32);
+                    self.exit_codes[hart].store(value as i32 as i64, Ordering::Release);
                     Ok(())
                 }
                 (0x20000, Width::Byte | Width::Word) => {
@@ -252,6 +246,11 @@ impl Bus for Platform {
                     }
                     if let Some(log) = self.uarts[hart].log.as_mut() {
                         log.write_all(&byte).expect("write BEMU UART log");
+                    }
+                    if let Some(trace) = self.uarts[hart].cycle_trace.as_mut() {
+                        trace
+                            .push_uart_byte(hart as u32, byte[0])
+                            .expect("collect BEMU cycle trace");
                     }
                     if self.console_uart {
                         let mut output = std::io::stdout().lock();
@@ -267,74 +266,57 @@ impl Bus for Platform {
     }
 
     fn compare_exchange(&mut self, address: u64, width: Width, expected: u64, value: u64) -> Result<u64, BusError> {
-        if address < DRAM_BASE {
-            return Err(BusError);
-        }
-        let old = self.read(address, width)?;
-        if old == expected {
-            self.write(address, width, value)?;
-        }
-        Ok(old)
+        self.memory.compare_exchange(address, width, expected, value)
     }
 }
 
 impl HartBus for Platform {
     fn load_reserved(&mut self, hart: u64, address: u64, width: Width) -> Result<u64, BusError> {
-        if address < DRAM_BASE {
-            return Err(BusError);
-        }
-        let value = self.read(address, width)?;
-        self.reservations.insert(hart, (address, width));
-        Ok(value)
+        self.memory.load_reserved(hart, address, width)
     }
 
     fn store_conditional(&mut self, hart: u64, address: u64, width: Width, value: u64) -> Result<bool, BusError> {
-        if address < DRAM_BASE {
-            return Err(BusError);
-        }
-        self.read(address, width)?;
-        let success = self.reservations.remove(&hart) == Some((address, width));
-        if success {
-            self.write(address, width, value)?;
-        }
-        Ok(success)
+        self.memory.store_conditional(hart, address, width, value)
     }
 }
 
-pub(crate) struct Port<'a>(pub(crate) &'a std::sync::Mutex<Platform>);
+pub(crate) struct Port<'a> {
+    pub(crate) devices: &'a Mutex<Platform>,
+    pub(crate) memory: &'a super::memory::Ddr,
+}
 
 impl Bus for Port<'_> {
     fn read(&mut self, address: u64, width: Width) -> Result<u64, BusError> {
-        self.0.lock().expect("BEMU platform poisoned").read(address, width)
+        if address >= DRAM_BASE {
+            return self.memory.read(address, width);
+        }
+        self.devices
+            .lock()
+            .expect("BEMU platform poisoned")
+            .read(address, width)
     }
 
     fn write(&mut self, address: u64, width: Width, value: u64) -> Result<(), BusError> {
-        self.0
+        if address >= DRAM_BASE {
+            return self.memory.write(address, width, value);
+        }
+        self.devices
             .lock()
             .expect("BEMU platform poisoned")
             .write(address, width, value)
     }
 
     fn compare_exchange(&mut self, address: u64, width: Width, expected: u64, value: u64) -> Result<u64, BusError> {
-        self.0
-            .lock()
-            .expect("BEMU platform poisoned")
-            .compare_exchange(address, width, expected, value)
+        self.memory.compare_exchange(address, width, expected, value)
     }
 }
 
 impl HartBus for Port<'_> {
     fn load_reserved(&mut self, hart: u64, address: u64, width: Width) -> Result<u64, BusError> {
-        self.0
-            .lock()
-            .expect("BEMU platform poisoned")
-            .load_reserved(hart, address, width)
+        self.memory.load_reserved(hart, address, width)
     }
 
     fn store_conditional(&mut self, hart: u64, address: u64, width: Width, value: u64) -> Result<bool, BusError> {
-        self.0
-            .lock()
-            .expect("BEMU platform poisoned")
-            .store_conditional(hart, address, width, value)
+        self.memory.store_conditional(hart, address, width, value)
     }
 }

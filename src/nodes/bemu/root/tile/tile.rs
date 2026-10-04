@@ -4,37 +4,78 @@ use crate::{
     bank::{BankConfig, BankMap},
     inst,
 };
-use std::sync::{Arc, Mutex};
+use std::{collections::BTreeMap, sync::{Arc, Mutex}};
 
 pub struct Tile {
-    pub(crate) first_hart: usize,
+    pub(crate) clint: Arc<bebop_clint::Clint>,
+    pub(crate) exit_codes: Arc<Vec<std::sync::atomic::AtomicI64>>,
+    pub(crate) harts: Vec<usize>,
+    pub(crate) controller_hart: Option<usize>,
+    pub(crate) endpoint_harts: Vec<usize>,
+    pub(crate) worker_harts: Vec<usize>,
     pub(crate) platform: Arc<Mutex<Platform>>,
+    pub(crate) memory: Arc<crate::root::memory::Ddr>,
     pub(crate) banks: Mutex<shared_memory::State>,
     pub(crate) tasks: tasks::Tasks,
+    pub(crate) has_scheduler: bool,
+    pub(crate) private_endpoints: Mutex<BTreeMap<usize, Arc<Mutex<crate::accel::PrivateState>>>>,
 }
 
 impl Tile {
+    /// Bank storage ownership is independent of the instruction issuer.
+    pub(crate) fn bank_owner_hart(&self, issuer: usize, shared: bool) -> usize {
+        assert!(self.harts.contains(&issuer), "bank trace issuer is outside its Tile");
+        if shared { self.controller_hart.unwrap_or(self.harts[0]) } else { issuer }
+    }
+
     pub fn new(
         chip: &Chip,
-        first_hart: usize,
-        core_count: usize,
+        topology: &crate::TileTopology,
         signatures: Vec<u64>,
-        shared_physical_bank_count: usize,
-        shared_bank_size: usize,
-        virtual_bank_count: usize,
+
     ) -> Arc<Self> {
+        let harts = topology.cores.iter().map(|(_, core)| crate::config::core_hart_id(*core)).collect();
+        let controller_hart = topology.controller_core.map(crate::config::core_hart_id);
+        let endpoint_harts: Vec<_> = topology.endpoint_cores.iter().map(|(_, core)| crate::config::core_hart_id(*core)).collect();
+        let worker_harts: Vec<_> = topology.worker_cores.iter().map(|(_, core)| crate::config::core_hart_id(*core)).collect();
+        assert!(signatures.is_empty() || (controller_hart.is_some() && signatures.len() == worker_harts.len()), "task signatures require the explicit controller worker table");
+        let compute_count = endpoint_harts.len();
         Arc::new(Self {
-            first_hart,
+            clint: Arc::clone(&chip.clint),
+            exit_codes: Arc::clone(&chip.platform.lock().expect("BEMU platform poisoned").exit_codes),
+            harts,
+            controller_hart,
+            endpoint_harts,
+            worker_harts,
             platform: Arc::clone(&chip.platform),
+            memory: Arc::clone(&chip.memory),
+            has_scheduler: controller_hart.is_some() && !signatures.is_empty(),
             tasks: tasks::Tasks::new(signatures),
+            private_endpoints: Mutex::new(BTreeMap::new()),
             banks: Mutex::new(shared_memory::State {
-                storage: (0..shared_physical_bank_count)
-                    .map(|_| inst::instruction::PrivateBank::new(shared_bank_size, false))
+                storage: (0..topology.shared_physical_bank_count)
+                    .map(|_| inst::instruction::PrivateBank::new(topology.shared_bank_size, false))
                     .collect(),
-                cfgs: vec![BankConfig::default(); core_count * virtual_bank_count],
-                map: BankMap::new(shared_physical_bank_count),
-                virtual_bank_count,
+                cfgs: vec![BankConfig::default(); compute_count * topology.virtual_bank_count],
+                map: BankMap::new(topology.shared_physical_bank_count),
+                virtual_bank_count: topology.virtual_bank_count,
             }),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn physical_harts_have_no_contiguous_tile_assumption() {
+        let topology = crate::config::tile_topology(usize::from(crate::config::tile_count()>1));
+        let tile = Tile::new(&Chip::new(4096, crate::config::hart_capacity()), &topology, Vec::new());
+        let controller = topology.controller_core.map(crate::config::core_hart_id).unwrap_or(tile.harts[0]);
+        for (_, core) in &topology.cores {println!("CORE SIGNATURE cfg{core}={:016x}",crate::config::core_signature(*core));}
+        let worker = tile.endpoint_harts[0];
+        assert_eq!(tile.bank_owner_hart(worker, true), controller);
+        assert_eq!(tile.bank_owner_hart(worker, false), worker);
+        assert_eq!(tile.banks.lock().unwrap().cfgs.len(), tile.endpoint_harts.len()*topology.virtual_bank_count);
     }
 }

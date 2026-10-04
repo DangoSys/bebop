@@ -1,12 +1,13 @@
 use crate::constants::{ERR_FAULT, ERR_INVAL, ERR_NOENT};
 use crate::utils::{guest_cstr, guest_range};
+use bebop_memory::Memory;
 
 pub fn handle_readlinkat(
     _dirfd: i64,
     path_addr: u64,
     buf_addr: u64,
     buf_size: usize,
-    memory: &mut [u8],
+    memory: &dyn Memory,
 ) -> (u64, bool) {
     if buf_size == 0 {
         return ((ERR_FAULT as u64), false);
@@ -27,7 +28,7 @@ pub fn handle_readlinkat(
     if path == "/proc/self/exe" {
         let exe = b"/proc/self/exe";
         let n = exe.len().min(buf_size);
-        memory[buf_offset..buf_offset + n].copy_from_slice(&exe[..n]);
+        memory.write_buffer(buf_offset, &exe[..n]);
         return (n as u64, false);
     }
 
@@ -47,7 +48,7 @@ pub fn handle_readlinkat(
                 Ok(target) => {
                     let target_bytes = target.to_string_lossy().as_bytes().to_vec();
                     let n = target_bytes.len().min(buf_size);
-                    memory[buf_offset..buf_offset + n].copy_from_slice(&target_bytes[..n]);
+                    memory.write_buffer(buf_offset, &target_bytes[..n]);
                     (n as u64, false)
                 }
                 Err(_) => (ERR_INVAL as u64, false),

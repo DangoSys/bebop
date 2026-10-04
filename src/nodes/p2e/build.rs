@@ -29,14 +29,12 @@ const SOURCE_ME: &str = "sourceme.sh";
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(vvac_linked)");
-    println!("cargo:rustc-check-cfg=cfg(P2E_DIFF)");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build/link.rs");
     println!("cargo:rerun-if-changed=build/vsrc.rs");
     println!("cargo:rerun-if-changed=build/vvac.rs");
     println!("cargo:rerun-if-env-changed=VSRC_PATH");
     println!("cargo:rerun-if-env-changed=OUT_PATH");
-    println!("cargo:rerun-if-env-changed=P2E_DIFF");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let bebop_root = manifest_dir
@@ -51,11 +49,7 @@ fn main() {
     };
     let libctb_dst = out_dir.join("libvCtb.so");
     let trace_mode_path = out_dir.join("p2e_trace_mode");
-    let diff = match env::var("P2E_DIFF").as_deref() {
-        Ok("1") => true,
-        Ok("0") | Err(env::VarError::NotPresent) => false,
-        value => panic!("P2E_DIFF must be 0 or 1, got {value:?}"),
-    };
+    let diff = cfg!(feature = "diff");
     let trace_mode = if diff { "btrace_nb_v1" } else { "none" };
     println!("cargo:rerun-if-changed={}", libctb_dst.display());
     println!("cargo:rerun-if-changed={}", trace_mode_path.display());
@@ -69,7 +63,6 @@ fn main() {
         );
         if diff {
             vvac::verify_btrace(&out_dir);
-            println!("cargo:rustc-cfg=P2E_DIFF");
         }
         println!("cargo:warning=Found existing libvCtb.so, skipping VVAC build");
         println!("cargo:warning=Building C++ wrapper for Rust FFI...");
@@ -146,9 +139,6 @@ fn main() {
 
     println!("cargo:warning=Building C++ wrapper for Rust FFI...");
     link::build_cpp_wrapper(&manifest_dir, &out_dir, diff);
-    if diff {
-        println!("cargo:rustc-cfg=P2E_DIFF");
-    }
 
     println!("cargo:warning=Linking vvac and C++ wrapper...");
     link::link_vvac(&libctb_dst);

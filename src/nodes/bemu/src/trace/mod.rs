@@ -5,5 +5,5 @@ mod trace;
 
 pub use btrace::bemu_btrace;
 pub use itrace::{itrace, ITraceEvent};
-pub use mtrace::{mtrace, MTraceEvent};
+pub use mtrace::{mtrace, mtrace_enabled, MTraceEvent};
 pub use trace::{with_trace_ptr, TraceConfig, TraceState};

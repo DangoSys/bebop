@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 const RECORD_PREFIX: &str = "@BCT";
@@ -62,7 +64,7 @@ impl CycleTraceCollector {
         let last_end = self.last_end.expect("trace count requires last end");
         let summary = format!(
             "first_start {first_start}\nlast_end {last_end}\ntrace_span {}\ntraced_cycle_sum {}\ntrace_count {}\n",
-            last_end.saturating_sub(first_start),
+            last_end - first_start,
             self.elapsed_sum,
             self.trace_count,
         );
@@ -72,12 +74,12 @@ impl CycleTraceCollector {
     }
 
     fn consume_line(&mut self, bytes: &[u8]) -> Result<(), String> {
+        if !bytes.starts_with(RECORD_PREFIX.as_bytes()) {
+            return Ok(());
+        }
         let line = std::str::from_utf8(bytes)
             .map_err(|e| format!("cycle trace UART record is not UTF-8: {e}"))?
             .trim_end_matches(['\r', '\n']);
-        if !line.starts_with(RECORD_PREFIX) {
-            return Ok(());
-        }
 
         let fields: Vec<&str> = line.split(',').collect();
         if fields.len() != 8 || fields[0] != RECORD_PREFIX {
@@ -114,13 +116,23 @@ impl CycleTraceCollector {
             .join("-");
         let elapsed = end - start;
         let trace_path = self.cycle_dir.join(format!("trace-{path_key}.txt"));
-        fs::write(&trace_path, format!("start {start}\nend {end}\nelapsed {elapsed}\n"))
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&trace_path)
+            .map_err(|e| format!("failed to open cycle trace {}: {e}", trace_path.display()))?;
+        write!(file, "start {start}\nend {end}\nelapsed {elapsed}\n")
             .map_err(|e| format!("failed to write cycle trace {}: {e}", trace_path.display()))?;
 
         self.first_start = Some(self.first_start.map_or(start, |current| current.min(start)));
         self.last_end = Some(self.last_end.map_or(end, |current| current.max(end)));
-        self.elapsed_sum = self.elapsed_sum.saturating_add(elapsed);
-        self.trace_count = self.trace_count.saturating_add(1);
+        if depth == 1 {
+            self.elapsed_sum = self
+                .elapsed_sum
+                .checked_add(elapsed)
+                .ok_or("cycle trace sum exceeds u64")?;
+        }
+        self.trace_count += 1;
         Ok(())
     }
 }

@@ -50,6 +50,11 @@ pub fn build_cpp_wrapper(manifest_dir: &Path, out_dir: &Path, diff: bool) {
 
 pub fn link_vvac(libctb: &Path) {
     let lib_dir = libctb.parent().expect("libvCtb.so parent directory");
+    let runtime_lib_dir = lib_dir.join("vvacDir/runtimeDir/lib/lib_arm");
+    assert!(
+        runtime_lib_dir.join("libstdc++.so.6").is_file(),
+        "VVAC runtime libstdc++.so.6 missing after VVAC generation"
+    );
     let lib_dir_str = lib_dir.display().to_string();
 
     println!("cargo:warning=Setting RPATH to: {}", lib_dir_str);

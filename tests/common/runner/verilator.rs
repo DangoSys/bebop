@@ -54,7 +54,7 @@ impl BackendRunner for VerilatorBackend {
             "ARCH_CONFIG",
             self.arch_config
                 .as_deref()
-                .unwrap_or("sims.verilator.BuckyballToyVerilatorConfig"),
+                .expect("--arch-config is required for Verilator regression"),
         );
     }
 

@@ -15,6 +15,7 @@ pub fn convert_ndjson_reader<R: BufRead>(reader: R, options: &ConvertOptions) ->
     }
 
     let mut state = State::default();
+    let mut event_axis = None;
     for (idx, line) in reader.lines().enumerate() {
         let line_no = idx + 1;
         let raw = line?;
@@ -27,19 +28,51 @@ pub fn convert_ndjson_reader<R: BufRead>(reader: R, options: &ConvertOptions) ->
         let v: Value = serde_json::from_str(&raw)?;
         let obj = as_object(&v, line_no)?;
         let typ = req_str(obj, "type", line_no)?;
-        let clk = req_u64_flex(obj, "clk", line_no)?;
-        let ts = clk.checked_mul(options.tick_ns).ok_or_else(|| ConvertError::Overflow {
-            line: line_no,
-            msg: format!("timestamp overflow: clk={clk}, tick_ns={}", options.tick_ns),
-        })?;
-        handle_record(&mut state, typ, obj, line_no, ts)?;
+        let events = obj.contains_key("event_index");
+        if events && obj.contains_key("clk") || event_axis.is_some_and(|axis| axis != events) {
+            return Err(ConvertError::InvalidLine {
+                line: line_no,
+                msg: "event order and cycle timing cannot share a trace".to_string(),
+            });
+        }
+        event_axis = Some(events);
+        let ts = if events {
+            req_u64_flex(obj, "event_index", line_no)?
+        } else {
+            let clk = req_u64_flex(obj, "clk", line_no)?;
+            clk.checked_mul(options.tick_ns).ok_or_else(|| ConvertError::Overflow {
+                line: line_no,
+                msg: format!("timestamp overflow: clk={clk}, tick_ns={}", options.tick_ns),
+            })?
+        };
+        if events {
+            if !matches!(typ, "itrace" | "mtrace") {
+                return Err(ConvertError::InvalidLine {
+                    line: line_no,
+                    msg: format!("unsupported functional event: {typ}"),
+                });
+            }
+            state.events.push(json!({
+                "name": typ, "cat": "functional", "ph": "i", "s": "t",
+                "ts": ts, "pid": 1, "tid": 0, "args": obj
+            }));
+        } else {
+            handle_record(&mut state, typ, obj, line_no, ts)?;
+        }
     }
 
     ensure_closed(&state)?;
-    Ok(json!({
-      "displayTimeUnit": "ns",
-      "traceEvents": state.events
-    }))
+    if event_axis == Some(true) {
+        Ok(json!({
+            "otherData": {"axis": "event_index", "timing": false},
+            "traceEvents": state.events
+        }))
+    } else {
+        Ok(json!({
+            "displayTimeUnit": "ns",
+            "traceEvents": state.events
+        }))
+    }
 }
 
 pub fn convert_ndjson_writer<R: BufRead, W: Write>(

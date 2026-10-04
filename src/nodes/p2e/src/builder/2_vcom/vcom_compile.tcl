@@ -2,6 +2,7 @@
 # Based on p2e_ddr4_backdoor example
 
 set top_module "xepic_vvac_top"
+file delete -force p2e-cold-load.cap
 
 # Read netlist
 design_read -netlist ./xepic_vvac_top.vm
@@ -31,6 +32,7 @@ emulator_util -add {default 70}
 
 # Define writable nets for runtime control
 write_net -add {io_sys_rstn}
+write_net -add {io_soc_hold}
 
 # Add AXI/DDR interconnect signals for debugging
 # These allow us to monitor and control the AXI bus between CPU and DDR
@@ -62,11 +64,13 @@ write_net -add {io_sys_rstn}
 # Define readable nets for runtime monitoring
 # Dont Remove this net, it is used for simulation
 read_net -add {io_init_calib_complete}
+read_net -add {io_soc_hold}
 #===--------------------------------------------------------===#
 
 # Add trace for waveform capture
 # trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0 -depth 5
-trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.accelerators_0 -depth 3
+# The SoC/DDR AXI boundary exists on every chip.
+trace_net -add P2ETop.top.adapter -depth 2
 # trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile -depth 5
 
 # Add BootROM trace for debugging ROM initialization issues
@@ -94,7 +98,7 @@ create_clock -sig_name ${top_module}.P2ETop.top.user_clk -frequency 5Mhz
 set_dr_mode -add enable
 
 # Enable this when this board is reousrces are limited for design
-memory_options -add{bram_balance SMART}
+memory_options -add {bram_balance SMART}
 
 # Enable logic replication to avoid long path in multi-fpga design
 logic_replication -enable
@@ -102,3 +106,21 @@ logic_replication -enable
 # Generate FPGA design
 design_edit
 design_generation
+
+# SDK multicycle constraints must name the generated slot_clk clocks.
+foreach xdc [glob fpgaCompDir/part_b*_f*/ccu_timing.xdc] {
+    set fd [open $xdc r]
+    set constraints [read $fd]
+    close $fd
+    if {[regexp -all {slot_clock\*} $constraints] != 2} {
+        error "Unexpected SDK slot clock constraints in $xdc"
+    }
+    set constraints [string map {{slot_clock*} {slot_clk*}} $constraints]
+    set fd [open $xdc w]
+    puts -nonewline $fd $constraints
+    close $fd
+}
+
+set capability [open p2e-cold-load.cap w]
+puts $capability "p2e-cold-load-v1"
+close $capability

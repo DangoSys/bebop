@@ -1,6 +1,7 @@
 use crate::process::{align_down, align_up, guest_offset, write_guest, PAGE_SIZE};
 use crate::root::memory::Pages;
 use bebop_syscall::add_guest_mapping;
+use memory::Memory;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy)]
@@ -18,7 +19,7 @@ pub(crate) struct PkVm {
 }
 
 impl PkVm {
-    pub(crate) fn new(memory: &mut [u8], pages: Arc<Mutex<Pages>>, image: (u64, u64)) -> Result<Self, String> {
+    pub(crate) fn new(memory: &dyn Memory, pages: Arc<Mutex<Pages>>, image: (u64, u64)) -> Result<Self, String> {
         let mut vm = Self {
             root: 0,
             pages,
@@ -35,7 +36,7 @@ impl PkVm {
 
     pub(crate) fn map_range(
         &mut self,
-        memory: &mut [u8],
+        memory: &dyn Memory,
         virt: u64,
         phys: u64,
         len: u64,
@@ -65,7 +66,7 @@ impl PkVm {
 
     pub(crate) fn alloc_user_pages(
         &mut self,
-        memory: &mut [u8],
+        memory: &dyn Memory,
         virt: u64,
         len: u64,
         flags: u64,
@@ -80,25 +81,34 @@ impl PkVm {
                 "pk physical page allocator exceeds memory: addr=0x{phys:x} size={size}"
             ));
         }
-        memory[off..end].fill(0);
+        memory.fill(off, end - off, 0);
         self.map_range(memory, virt, phys, size, flags)?;
         Ok(phys)
     }
 
-    pub(crate) fn free_user_pages(&mut self, memory: &mut [u8], virt: u64, len: u64) -> Result<(), String> {
+    pub(crate) fn free_user_pages(&mut self, memory: &dyn Memory, virt: u64, len: u64) -> Result<(), String> {
         let size = align_up(len, PAGE_SIZE);
-        let phys = self
-            .virt_to_phys(virt, size)
-            .ok_or_else(|| "pk munmap range is not mapped".to_string())?;
-        for address in (virt..virt + size).step_by(PAGE_SIZE as usize) {
-            let vpn = [
-                (address >> 12) & 0x1ff,
-                (address >> 21) & 0x1ff,
-                (address >> 30) & 0x1ff,
-            ];
-            let l2 = (self.read_pte(memory, self.root, vpn[2])? >> 10) << 12;
-            let l1 = (self.read_pte(memory, l2, vpn[1])? >> 10) << 12;
-            self.write_pte(memory, l1, vpn[0], 0)?;
+        let end = virt + size;
+        let ranges: Vec<_> = self
+            .maps
+            .iter()
+            .filter_map(|map| {
+                let start = virt.max(map.virt);
+                let stop = end.min(map.virt + map.len);
+                (start < stop).then(|| (start, map.phys + start - map.virt, stop - start))
+            })
+            .collect();
+        for &(start, _, bytes) in &ranges {
+            for address in (start..start + bytes).step_by(PAGE_SIZE as usize) {
+                let vpn = [
+                    (address >> 12) & 0x1ff,
+                    (address >> 21) & 0x1ff,
+                    (address >> 30) & 0x1ff,
+                ];
+                let l2 = (self.read_pte(memory, self.root, vpn[2])? >> 10) << 12;
+                let l1 = (self.read_pte(memory, l2, vpn[1])? >> 10) << 12;
+                self.write_pte(memory, l1, vpn[0], 0)?;
+            }
         }
         let mut retained = Vec::new();
         for map in self.maps.drain(..) {
@@ -122,25 +132,27 @@ impl PkVm {
             }
         }
         self.maps = retained;
-        let mut owned = Vec::new();
-        for (address, bytes) in self.allocations.drain(..) {
-            if address >= phys + size || address + bytes <= phys {
-                owned.push((address, bytes));
-                continue;
+        for (_, phys, size) in ranges {
+            let mut owned = Vec::new();
+            for (address, bytes) in self.allocations.drain(..) {
+                if address >= phys + size || address + bytes <= phys {
+                    owned.push((address, bytes));
+                    continue;
+                }
+                if address < phys {
+                    owned.push((address, phys - address));
+                }
+                if address + bytes > phys + size {
+                    owned.push((phys + size, address + bytes - phys - size));
+                }
             }
-            if address < phys {
-                owned.push((address, phys - address));
-            }
-            if address + bytes > phys + size {
-                owned.push((phys + size, address + bytes - phys - size));
-            }
+            self.allocations = owned;
+            self.pages.lock().expect("DDR page pool poisoned").release(phys, size);
         }
-        self.allocations = owned;
-        self.pages.lock().expect("DDR page pool poisoned").release(phys, size);
         Ok(())
     }
 
-    pub(crate) fn write_user(&self, memory: &mut [u8], virt: u64, bytes: &[u8]) -> Result<(), String> {
+    pub(crate) fn write_user(&self, memory: &dyn Memory, virt: u64, bytes: &[u8]) -> Result<(), String> {
         let phys = self
             .virt_to_phys(virt, bytes.len() as u64)
             .ok_or_else(|| format!("user write to unmapped VA: addr=0x{virt:x} size={}", bytes.len()))?;
@@ -158,7 +170,7 @@ impl PkVm {
         None
     }
 
-    pub(crate) fn map_page(&mut self, memory: &mut [u8], virt: u64, phys: u64, flags: u64) -> Result<(), String> {
+    pub(crate) fn map_page(&mut self, memory: &dyn Memory, virt: u64, phys: u64, flags: u64) -> Result<(), String> {
         let vpn = [(virt >> 12) & 0x1ff, (virt >> 21) & 0x1ff, (virt >> 30) & 0x1ff];
         let l2 = self.ensure_table(memory, self.root, vpn[2])?;
         let l1 = self.ensure_table(memory, l2, vpn[1])?;
@@ -166,7 +178,7 @@ impl PkVm {
         self.write_pte(memory, l1, vpn[0], leaf)
     }
 
-    pub(crate) fn ensure_table(&mut self, memory: &mut [u8], table: u64, idx: u64) -> Result<u64, String> {
+    pub(crate) fn ensure_table(&mut self, memory: &dyn Memory, table: u64, idx: u64) -> Result<u64, String> {
         let pte = self.read_pte(memory, table, idx)?;
         if pte & 0x1 != 0 {
             return Ok(((pte >> 10) << 12) & !0xfffu64);
@@ -176,22 +188,22 @@ impl PkVm {
         Ok(child)
     }
 
-    pub(crate) fn alloc_table(&mut self, memory: &mut [u8]) -> Result<u64, String> {
+    pub(crate) fn alloc_table(&mut self, memory: &dyn Memory) -> Result<u64, String> {
         let table = self.pages.lock().expect("DDR page pool poisoned").allocate(PAGE_SIZE)?;
         self.allocations.push((table, PAGE_SIZE));
         let off = guest_offset(memory, table)?;
-        memory[off..off + PAGE_SIZE as usize].fill(0);
+        memory.fill(off, PAGE_SIZE as usize, 0);
         Ok(table)
     }
 
-    pub(crate) fn read_pte(&self, memory: &[u8], table: u64, idx: u64) -> Result<u64, String> {
+    pub(crate) fn read_pte(&self, memory: &dyn Memory, table: u64, idx: u64) -> Result<u64, String> {
         let off = guest_offset(memory, table + idx * 8)?;
         let mut bytes = [0u8; 8];
-        bytes.copy_from_slice(&memory[off..off + 8]);
+        memory.read_buffer(off, &mut bytes);
         Ok(u64::from_le_bytes(bytes))
     }
 
-    pub(crate) fn write_pte(&self, memory: &mut [u8], table: u64, idx: u64, value: u64) -> Result<(), String> {
+    pub(crate) fn write_pte(&self, memory: &dyn Memory, table: u64, idx: u64, value: u64) -> Result<(), String> {
         write_guest(memory, table + idx * 8, &value.to_le_bytes())
     }
 }

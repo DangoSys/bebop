@@ -1,0 +1,13 @@
+[package]
+name = "rvv"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+rustc_apfloat = "0.2.3"
+
+[workspace]
+
+[lints.rust]
+unsafe_code = "forbid"

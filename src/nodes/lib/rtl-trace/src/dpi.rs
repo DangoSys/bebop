@@ -9,7 +9,7 @@ pub(crate) fn force_link() {
     let _ = dpi_itrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
     let _ = dpi_mtrace
         as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
-    let _ = dpi_btrace as extern "C" fn(u32, u32, u32, u32, u32, u32);
+    let _ = dpi_btrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32);
     let _ = dpi_pmctrace as extern "C" fn(u32, u32, u32, u32);
     let _ = dpi_mem_pmctrace as extern "C" fn(u32, u32, u32, u32);
     let _ = dpi_ctrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32);
@@ -100,6 +100,8 @@ pub extern "C" fn dpi_btrace(
     inst_id_hi: u32,
     hart_id_lo: u32,
     hart_id_hi: u32,
+    owner_hart_id_lo: u32,
+    owner_hart_id_hi: u32,
     w0_vbank: u32,
     w0_hash: u32,
 ) {
@@ -108,6 +110,7 @@ pub extern "C" fn dpi_btrace(
         u64_from_words(inst_id_lo, inst_id_hi),
         u64_from_words(hart_id_lo, hart_id_hi),
         bebop_bank_hash::BTraceBank {
+            owner_hart_id: u64_from_words(owner_hart_id_lo, owner_hart_id_hi),
             vbank_id: w0_vbank,
             hash: w0_hash,
         },

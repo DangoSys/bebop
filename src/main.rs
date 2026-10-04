@@ -73,6 +73,10 @@ pub enum BuildTarget {
         out_dir: PathBuf,
         #[arg(long, help = "Build a P2E+BEMU Bank DiffTest executable")]
         diff: bool,
+        #[arg(long, help = "Resume post-route processing of an existing P2E case")]
+        resume_post_route: bool,
+        #[arg(long, value_parser = ["vsyn", "vcom"], conflicts_with = "resume_post_route", help = "Stop after resource assessment; do not produce a runnable P2E case")]
+        stop_after: Option<String>,
     },
 }
 
@@ -128,8 +132,15 @@ pub enum RunTarget {
     },
     /// Run a workload on a P2E simulator artifact.
     P2e {
-        #[arg(long, value_name = "IMAGE")]
-        image: PathBuf,
+        #[arg(
+            long,
+            value_name = "IMAGE",
+            conflicts_with = "load_manifest",
+            required_unless_present = "load_manifest"
+        )]
+        image: Option<PathBuf>,
+        #[arg(long, value_name = "JSON", conflicts_with_all = ["image", "diff", "image_elf"], required_unless_present = "image")]
+        load_manifest: Option<PathBuf>,
         #[arg(long, value_name = "BIT")]
         bitstream: PathBuf,
         #[arg(long, value_name = "DIR")]

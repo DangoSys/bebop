@@ -26,6 +26,8 @@ macro_rules! register_instructions {
 
         pub fn cycles_after_issue(funct: u32, xs1: u64, xs2: u64) -> u64 {
             match funct {
+                // Source read plus target write; mesh transport is modeled separately.
+                13 => (((xs2 >> 32) & 0xffff) + 1) * 2,
                 $(
                     <$inst as Instruction>::FUNCT => {
                         <$inst as Instruction>::latency(xs1, xs2)
@@ -38,6 +40,7 @@ macro_rules! register_instructions {
                 },
             }
         }
+
     };
 }
 
@@ -45,8 +48,25 @@ register_instructions! {
     super::f00_fence::Fence,
     super::f01_barrier::Barrier,
     super::f16_mvout::Mvout,
+    super::kernel::MvinKernel,
+    super::kernel::RunKernel,
     super::f32_mset::Mset,
     super::f33_mvin::Mvin,
     super::f34_mvin_2d::Mvin2d,
     super::f35_mvin_mmio::MvinMmio,
+}
+
+#[cfg(test)]
+mod latency_tests {
+    use super::cycles_after_issue;
+
+    #[test]
+    fn bank_transfer_uses_row_count() {
+        crate::config::configure_core(0);
+        let bytes = 256u64;
+        let rows = bytes / crate::config::bank_row_bytes() as u64;
+        assert_eq!(cycles_after_issue(33, rows << 30, 0), rows);
+        assert_eq!(cycles_after_issue(16, rows << 30, 0), rows);
+    }
+
 }

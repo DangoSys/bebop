@@ -1,5 +1,6 @@
 use crate::state::SyscallState;
 use crate::utils::guest_cstr;
+use bebop_memory::Memory;
 use std::fs::OpenOptions;
 use std::path::Path;
 
@@ -9,7 +10,7 @@ pub fn handle_openat(
     pathname_addr: u64,
     flags: i32,
     _mode: u64,
-    memory: &[u8],
+    memory: &dyn Memory,
 ) -> (u64, bool) {
     let Some(path_bytes) = guest_cstr(pathname_addr, 4096, memory) else {
         return ((-1i64 as u64), false);

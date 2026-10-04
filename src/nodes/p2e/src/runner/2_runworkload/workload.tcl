@@ -1,17 +1,26 @@
 # Run workload on FPGA
 
-proc load_image {fpga_location ddr_channel image_path} {
+proc load_image {fpga_location ddr_channel image_path offset format} {
     puts "========== Loading Image to DDR =========="
     puts "  FPGA: $fpga_location"
     puts "  Channel: $ddr_channel"
     puts "  Image: $image_path"
 
-    # Back-door write (no -start, defaults to channel offset 0 which is CPU's 0x80000000)
-    memory -write -fpga $fpga_location -channel $ddr_channel -file $image_path
+    if {[get_value io_soc_hold] ne "'b1" || [get_value io_init_calib_complete] ne "'b1"} {
+        error "DDR image load requires calibrated DDR and the SoC held in reset"
+    }
+    switch -- $format {
+        binary {
+            memory -write -fpga $fpga_location -channel $ddr_channel -file $image_path -format %fread -start $offset
+        }
+        hex {
+            if {$offset != 0} { error "Legacy hex images must load at offset zero" }
+            memory -write -fpga $fpga_location -channel $ddr_channel -file $image_path
+        }
+        default { error "Unsupported image format: $format" }
+    }
     puts "Image write completed"
 
-    # 10s
-    after 10000
 }
 
 proc run_workload {cycles wave wave_start} {

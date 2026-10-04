@@ -13,10 +13,15 @@ pub fn run(args: Args, chip_count: usize, vm_chip: Option<usize>, host_io: bool)
     if args.tile_index != 0 {
         return Err("system execution runs every configured tile; tile-index must be zero".into());
     }
-    let tile_count = config::tile_count();
-    let harts: usize = (0..tile_count)
-        .map(|tile| config::tile_topology(tile).cores.len() + 1)
-        .sum();
+    // Tile 0 is the main tile, which the host or VM side owns; compute tiles run task machines.
+    let compute_tiles: Vec<usize> = (0..config::tile_count())
+        .filter(|&tile| config::tile_topology(tile).controller_core.is_some())
+        .collect();
+    if compute_tiles.is_empty() {
+        return Err("system execution requires compute tiles".into());
+    }
+    let tile_count = compute_tiles.len();
+    let harts = config::hart_capacity();
     let chips: Vec<_> = (0..chip_count)
         .map(|_| Chip::new(args.memory_mib << 20, harts))
         .collect();
@@ -36,15 +41,13 @@ pub fn run(args: Args, chip_count: usize, vm_chip: Option<usize>, host_io: bool)
     let mut endpoints = Vec::with_capacity(chip_count * tile_count);
     // Load all guests before enabling DMA, so ELF loading cannot erase an incoming transfer.
     for (id, chip) in chips.iter().enumerate() {
-        let mut first_hart = 0;
-        for tile in 0..tile_count {
+        for &tile in &compute_tiles {
             let mut local = args.clone();
             local.tile_index = tile;
             local.log_dir = args.log_dir.join(format!("chip-{id}/tile-{tile}"));
             std::fs::create_dir_all(&local.log_dir).map_err(|e| e.to_string())?;
-            let machine = Machine::prepare(&local, chip, first_hart)?;
+            let machine = Machine::prepare(&local, chip)?;
             endpoints.push(if host_io { Some(super::host_io::Endpoint::bind(&local.log_dir)?) } else { None });
-            first_hart += config::tile_topology(tile).cores.len() + 1;
             machines.push((machine, local));
         }
     }
@@ -97,7 +100,7 @@ pub fn run(args: Args, chip_count: usize, vm_chip: Option<usize>, host_io: bool)
             if let Err(failure) = thread.join().map_err(|_| "chip thread panicked".to_string())? {
                 error.get_or_insert(failure);
             } else {
-                eprintln!("chip {} tile {}: program completed", id / tile_count, id % tile_count);
+                eprintln!("chip {} tile {}: program completed", id / tile_count, compute_tiles[id % tile_count]);
             }
         }
         fabric.stop();

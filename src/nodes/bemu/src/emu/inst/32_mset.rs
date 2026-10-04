@@ -35,13 +35,13 @@ impl Instruction for Mset {
             let mut allocated = Vec::with_capacity(groups as usize);
             if shared_bank {
                 let shared = ctx.shared.as_mut().expect("shared bank storage is unavailable");
-                shared.bank_map.delete_hart_vbank(shared.hart_id, v);
+                shared.bank_map.delete_hart_vbank(shared.local_core, v);
                 for group in 0..groups {
                     let p = shared
                         .bank_map
                         .first_free_pbank()
                         .unwrap_or_else(|| panic!("mset: no free shared physical bank"));
-                    shared.bank_map.bind_hart_group(p, shared.hart_id, v, group as u32);
+                    shared.bank_map.bind_hart_group(p, shared.local_core, v, group as u32);
                     allocated.push(ctx.banks.shared_index(p));
                 }
             } else {
@@ -72,7 +72,7 @@ impl Instruction for Mset {
         } else {
             if shared_bank {
                 let shared = ctx.shared.as_mut().expect("shared bank storage is unavailable");
-                shared.bank_map.delete_hart_vbank(shared.hart_id, v);
+                shared.bank_map.delete_hart_vbank(shared.local_core, v);
             } else {
                 ctx.bank_map.delete_vbank(v);
             }

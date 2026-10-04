@@ -1,8 +1,15 @@
 use crate::state::SyscallState;
 use crate::utils::guest_range;
+use bebop_memory::Memory;
 use std::io::Write;
 
-pub fn handle_write(state: &mut SyscallState, fd: u64, buf_addr: u64, count: usize, memory: &[u8]) -> (u64, bool) {
+pub fn handle_write(
+    state: &mut SyscallState,
+    fd: u64,
+    buf_addr: u64,
+    count: usize,
+    memory: &dyn Memory,
+) -> (u64, bool) {
     let mut data = Vec::with_capacity(count);
     while data.len() < count {
         let Some(address) = buf_addr.checked_add(data.len() as u64) else {
@@ -12,7 +19,9 @@ pub fn handle_write(state: &mut SyscallState, fd: u64, buf_addr: u64, count: usi
         let Some(offset) = guest_range(address, bytes, memory.len()) else {
             return ((-14_i64) as u64, false);
         };
-        data.extend_from_slice(&memory[offset..offset + bytes]);
+        let start = data.len();
+        data.resize(start + bytes, 0);
+        memory.read_buffer(offset, &mut data[start..]);
     }
     let result = if fd == 1 {
         let mut output = std::io::stdout().lock();

@@ -3,7 +3,7 @@ use duct::cmd;
 use snafu::{FromString, ResultExt, Whatever};
 
 #[cfg(feature = "p2e")]
-use bebop_p2e::BitstreamBuilder;
+use bebop_p2e::{BitstreamBuilder, BuildOutcome};
 
 pub fn build(command: BuildCommand) -> Result<(), Whatever> {
     match command.target {
@@ -40,7 +40,13 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
             println!("Built executable: {}", dest.display());
             Ok(())
         }
-        BuildTarget::P2e { rtl_dir, out_dir, diff } => {
+        BuildTarget::P2e {
+            rtl_dir,
+            out_dir,
+            diff,
+            resume_post_route,
+            stop_after,
+        } => {
             if !rtl_dir.is_dir() {
                 let message = format!("RTL directory does not exist: {}", rtl_dir.display());
                 return Err(Whatever::without_source(message));
@@ -65,15 +71,25 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
             )
             .env("VSRC_PATH", &rtl_dir)
             .env("OUT_PATH", &out_dir)
-            .env("P2E_DIFF", if diff { "1" } else { "0" })
             .run()
             .whatever_context("failed to build p2e")?;
 
             #[cfg(feature = "p2e")]
             {
-                BitstreamBuilder::new(out_dir.clone())
-                    .build()
-                    .map_err(Whatever::without_source)?;
+                let builder = BitstreamBuilder::new(out_dir.clone());
+                let outcome = if resume_post_route {
+                    builder.resume_post_route().map(|()| BuildOutcome::Runtime)
+                } else {
+                    builder.build(stop_after.as_deref())
+                }
+                .map_err(Whatever::without_source)?;
+                if let BuildOutcome::Assessment(stage) = outcome {
+                    println!(
+                        "P2E resource assessment completed after {stage}; no bitstream or runnable case produced: {}",
+                        out_dir.display()
+                    );
+                    return Ok(());
+                }
 
                 // copy the built executable to the output directory
                 let dest = out_dir.join("bebop-p2e");

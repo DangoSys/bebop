@@ -8,7 +8,6 @@ pub(crate) struct Task {
     pub tls: u64,
     pub gp: u64,
     pub workspace: u64,
-    pub completion: u64,
     pub csrs: Csrs,
     pub privilege: Privilege,
 }
@@ -23,6 +22,8 @@ struct Slot {
 struct State {
     slots: Vec<Slot>,
     controller_workspace: u64,
+    descriptor: [u64; 7],
+    descriptor_field: usize,
     stopped: bool,
 }
 
@@ -45,11 +46,36 @@ impl Tasks {
                     })
                     .collect(),
                 controller_workspace: 0,
+                descriptor: [0; 7],
+                descriptor_field: 0,
                 stopped: false,
             }),
             signatures,
             ready: Condvar::new(),
         }
+    }
+
+    pub fn stage(&self, field: usize, value: u64) -> Result<(), String> {
+        let mut state = self.state.lock().expect("tile task state poisoned");
+        if field != state.descriptor_field || field >= state.descriptor.len() {
+            return Err("task descriptor fields must be staged in order".into());
+        }
+        state.descriptor[field] = value;
+        state.descriptor_field += 1;
+        Ok(())
+    }
+
+    pub fn descriptor(&self) -> Result<[u64; 7], String> {
+        let mut state = self.state.lock().expect("tile task state poisoned");
+        if state.descriptor_field != state.descriptor.len() {
+            return Err("incomplete task descriptor".into());
+        }
+        state.descriptor_field = 0;
+        Ok(state.descriptor)
+    }
+
+    pub fn poll(&self, core: usize) -> u64 {
+        self.state.lock().expect("tile task state poisoned").slots[core].result
     }
 
     pub fn submit(&self, core: usize, signature: u64, task: Task) -> Result<(), String> {
@@ -67,6 +93,10 @@ impl Tasks {
         slot.result = 0;
         self.ready.notify_all();
         Ok(())
+    }
+
+    pub fn has_pending(&self, core: usize) -> bool {
+        self.state.lock().expect("tile task state poisoned").slots[core].pending.is_some()
     }
 
     pub fn take(&self, core: usize) -> Option<Task> {
@@ -99,6 +129,28 @@ impl Tasks {
         state.slots[core].result
     }
 
+    pub fn available(&self, signature: u64) -> bool {
+        let state = self.state.lock().expect("tile task state poisoned");
+        state.slots.iter().enumerate()
+            .any(|(core, slot)| !slot.active && self.signatures[core] == signature)
+    }
+
+    pub fn wait_available(&self, signature: u64) -> u64 {
+        let mut state = self.state.lock().expect("tile task state poisoned");
+        while !state.stopped {
+            if state
+                .slots
+                .iter()
+                .enumerate()
+                .any(|(core, slot)| !slot.active && self.signatures[core] == signature)
+            {
+                return 0;
+            }
+            state = self.ready.wait(state).expect("tile task state poisoned");
+        }
+        1
+    }
+
     pub fn set_workspace(&self, address: u64) {
         self.state
             .lock()
@@ -106,12 +158,11 @@ impl Tasks {
             .controller_workspace = address;
     }
 
-    pub fn workspace(&self, hart: usize) -> u64 {
+    pub fn workspace(&self, worker: Option<usize>) -> u64 {
         let state = self.state.lock().expect("tile task state poisoned");
-        if hart == 0 {
-            state.controller_workspace
-        } else {
-            state.slots[hart - 1].workspace
+        match worker {
+            Some(core) => state.slots[core].workspace,
+            None => state.controller_workspace,
         }
     }
 

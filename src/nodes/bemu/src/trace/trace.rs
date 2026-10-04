@@ -14,7 +14,7 @@ pub struct TraceState {
     pub(super) bdb_file: Option<File>,
     pub(super) itrace: bool,
     pub(super) mtrace: bool,
-    pub(super) clk: u64,
+    pub(super) event_index: u64,
     pub(super) btrace: btrace::BtraceState,
 }
 
@@ -54,16 +54,16 @@ impl TraceState {
             itrace: config.itrace,
             mtrace: config.mtrace,
             btrace: btrace::init(log_dir, config.btrace)?,
-            clk: 0,
+            event_index: 0,
         })
     }
 
-    pub fn set_bemu_clk(&mut self, clk: u64) {
-        self.clk = clk;
+    pub fn advance_event(&mut self) {
+        self.event_index += 1;
     }
 
-    pub fn bemu_clk(&self) -> u64 {
-        self.clk
+    pub fn event_index(&self) -> u64 {
+        self.event_index
     }
 
     pub fn btrace_enabled(&self) -> bool {

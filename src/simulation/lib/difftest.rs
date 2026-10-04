@@ -1,6 +1,8 @@
 use bebop_bank_hash::{cancel, failure, finish, progress, start, subject_counts, subject_matched};
 use bebop_bemu::root::chip::Chip;
-use bebop_bemu::{tile_topology, Core, Tile, TraceConfig as BemuTraceConfig};
+use bebop_bemu::{
+    core_hart_id, core_signature, hart_capacity, tile_count, tile_topology, Core, Tile, TraceConfig as BemuTraceConfig,
+};
 use snafu::{FromString, ResultExt, Whatever};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -19,6 +21,14 @@ pub struct DiffSession {
 
 impl DiffSession {
     pub fn new(elf: &Path, log_dir: &Path) -> Result<Self, Whatever> {
+        // This runner starts one ELF across one Tile. Do not silently execute a
+        // multi-Tile RTL trace against Tile0-only golden harts.
+        if tile_count() != 1 {
+            return Err(Whatever::without_source(
+                "bank diff runner currently supports exactly one Tile; multi-Tile golden orchestration is required"
+                    .into(),
+            ));
+        }
         let output = log_dir.join("diff.ndjson");
         start(output)?;
 
@@ -27,17 +37,19 @@ impl DiffSession {
             if !topology.has_buckyball {
                 return Ok(Vec::new());
             }
-            let memory = Tile::new(
-                &Chip::new(3 * (1 << 30), topology.cores.len()),
-                0,
-                topology.cores.len(),
-                Vec::new(),
-                topology.shared_physical_bank_count,
-                topology.shared_bank_size,
-                topology.virtual_bank_count,
-            );
+            let signatures = if topology.controller_core.is_some() {
+                topology
+                    .worker_cores
+                    .iter()
+                    .map(|(_, core)| core_signature(*core))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let memory = Tile::new(&Chip::new(3 * (1 << 30), hart_capacity()), &topology, signatures);
             let mut golden = Vec::with_capacity(topology.cores.len());
-            for (hart_id, (_, core_index)) in topology.cores.into_iter().enumerate() {
+            for (_, core_index) in topology.cores {
+                let hart_id = core_hart_id(core_index);
                 let mut trace = BemuTraceConfig::new(false, false);
                 trace.btrace = true;
                 let mut bemu = Core::new_with_core_hart(

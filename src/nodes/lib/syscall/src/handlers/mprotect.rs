@@ -1,7 +1,8 @@
 use crate::constants::{ERR_INVAL, ERR_NOMEM, PAGE_SIZE};
 use crate::utils::guest_range;
+use bebop_memory::Memory;
 
-pub fn handle_mprotect(addr: u64, len: u64, _prot: u64, memory: &[u8]) -> (u64, bool) {
+pub fn handle_mprotect(addr: u64, len: u64, _prot: u64, memory: &dyn Memory) -> (u64, bool) {
     if len == 0 {
         return (0, false);
     }

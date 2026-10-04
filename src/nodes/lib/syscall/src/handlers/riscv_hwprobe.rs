@@ -1,4 +1,5 @@
 use crate::utils::guest_range;
+use bebop_memory::Memory;
 
 pub fn handle_riscv_hwprobe(
     pairs_addr: u64,
@@ -6,7 +7,7 @@ pub fn handle_riscv_hwprobe(
     _cpu_count: u64,
     _cpus: u64,
     flags: u64,
-    memory: &mut [u8],
+    memory: &dyn Memory,
 ) -> (u64, bool) {
     if flags != 0 {
         return ((-1i64 as u64), false);
@@ -25,7 +26,7 @@ pub fn handle_riscv_hwprobe(
             let item_addr = pairs_addr + (i * pair_size) as u64;
             let item_offset = guest_range(item_addr, pair_size, memory.len()).unwrap();
             let mut key_bytes = [0u8; 8];
-            key_bytes.copy_from_slice(&memory[item_offset..item_offset + 8]);
+            memory.read_buffer(item_offset, &mut key_bytes);
             let key = i64::from_le_bytes(key_bytes);
 
             let (new_key, value): (i64, u64) = match key {
@@ -38,8 +39,8 @@ pub fn handle_riscv_hwprobe(
                 _ => (-1, 0),
             };
 
-            memory[item_offset..item_offset + 8].copy_from_slice(&new_key.to_le_bytes());
-            memory[item_offset + 8..item_offset + 16].copy_from_slice(&value.to_le_bytes());
+            memory.write_buffer(item_offset, &new_key.to_le_bytes());
+            memory.write_buffer(item_offset + 8, &value.to_le_bytes());
         }
     }
     (0, false)

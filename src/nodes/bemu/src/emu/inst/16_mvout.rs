@@ -62,6 +62,13 @@ impl Instruction for Mvout {
         } else {
             let p = pbank(ctx, bank_id);
             let line_bytes = 16usize;
+            if stride == 1 {
+                ctx.memory
+                    .write_buffer(mem_addr, &ctx.banks[p][..depth as usize * line_bytes]);
+                if !crate::trace::mtrace_enabled() {
+                    return 0;
+                }
+            }
 
             for i in 0..depth {
                 let bank_offset = (i as usize) * line_bytes;
@@ -69,8 +76,10 @@ impl Instruction for Mvout {
                     panic!("mvout: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
                 }
                 let addr = mem_addr + i * line_bytes as u64 * stride;
-                let bytes: [u8; 16] = ctx.banks[p][bank_offset..bank_offset + 16].try_into().unwrap();
-                ctx.memory.write_buffer(addr, &bytes);
+                if stride != 1 {
+                    let bytes: [u8; 16] = ctx.banks[p][bank_offset..bank_offset + 16].try_into().unwrap();
+                    ctx.memory.write_buffer(addr, &bytes);
+                }
                 crate::trace::mtrace(crate::trace::MTraceEvent {
                     is_write: false,
                     is_shared: crate::config::is_shared_vbank(bank_id),

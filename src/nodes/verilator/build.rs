@@ -67,7 +67,7 @@ fn main() {
     let obj_dir = out_dir.join("obj_dir");
 
     let build_dir = resolve_vsrc_path();
-    let jobs = capped_jobs();
+    let jobs = requested_jobs();
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", build_dir.display());
@@ -208,13 +208,13 @@ fn resolve_vsrc_path() -> PathBuf {
     path
 }
 
-fn capped_jobs() -> String {
+fn requested_jobs() -> String {
     let jobs = env::var("NUM_JOBS")
         .unwrap_or_else(|_| "1".to_string())
         .parse::<usize>()
         .expect("NUM_JOBS must be a positive integer");
     assert!(jobs > 0, "NUM_JOBS must be a positive integer");
-    jobs.min(16).to_string()
+    jobs.to_string()
 }
 
 fn assert_exists(path: &Path, message: &str) {

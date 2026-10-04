@@ -31,11 +31,10 @@ impl GuestAccess<'_> {
                     .pmp
                     .allows_range(physical, bytes, Access::Load, rvsim::Privilege::User)
             {
-                let platform = self.platform.0.lock().expect("BEMU platform poisoned");
-                let offset = (physical - DRAM_BASE) as usize;
-                output[..bytes]
-                    .copy_from_slice(platform.memory.get(offset..offset + bytes).expect("DMA physical load"));
-                drop(platform);
+                self.platform
+                    .memory
+                    .read_buffer(physical, &mut output[..bytes])
+                    .expect("DMA physical load");
                 output = &mut output[bytes..];
                 address += bytes as u64;
                 continue;
@@ -71,17 +70,10 @@ impl GuestAccess<'_> {
                     .pmp
                     .allows_range(physical, bytes, Access::Store, rvsim::Privilege::User)
             {
-                let mut platform = self.platform.0.lock().expect("BEMU platform poisoned");
-                let offset = (physical - DRAM_BASE) as usize;
-                platform
+                self.platform
                     .memory
-                    .get_mut(offset..offset + bytes)
-                    .expect("DMA physical store")
-                    .copy_from_slice(&input[..bytes]);
-                platform.reservations.retain(|_, (start, width)| {
-                    *start + *width as u64 <= physical || physical + bytes as u64 <= *start
-                });
-                drop(platform);
+                    .write_buffer(physical, &input[..bytes])
+                    .expect("DMA physical store");
                 input = &input[bytes..];
                 address += bytes as u64;
                 continue;

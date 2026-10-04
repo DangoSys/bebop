@@ -1,11 +1,13 @@
 use crate::constants::*;
 use crate::types::*;
+use bebop_memory::Memory;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 
 pub struct RelocCtx<'a> {
-    pub mem_base: &'a mut [u8],
+    pub mem_base: &'a dyn Memory,
+    pub memory_offset: usize,
     pub mem_base_addr: u64,
     pub min_vaddr: u64,
     pub is_pie: bool,
@@ -25,9 +27,11 @@ impl RelocCtx<'_> {
         let target_addr = self.relocate_addr(target_vaddr);
         let resolved_addr = self.relocate_addr(resolved_vaddr);
 
-        if target_addr >= self.mem_base_addr && target_addr + 8 <= self.mem_base_addr + self.mem_base.len() as u64 {
-            let target_offset = (target_addr - self.mem_base_addr) as usize;
-            self.mem_base[target_offset..target_offset + 8].copy_from_slice(&resolved_addr.to_le_bytes());
+        if target_addr >= self.mem_base_addr
+            && target_addr + 8 <= self.mem_base_addr + (self.mem_base.len() - self.memory_offset) as u64
+        {
+            let target_offset = self.memory_offset + (target_addr - self.mem_base_addr) as usize;
+            self.mem_base.write_buffer(target_offset, &resolved_addr.to_le_bytes());
         }
     }
 }
@@ -78,11 +82,13 @@ pub fn apply_dynamic_relocations(
     ctx: &mut RelocCtx,
 ) -> Result<(), String> {
     let dyn_addr = ctx.relocate_addr(dyn_phdr.p_vaddr);
-    if dyn_addr < ctx.mem_base_addr || dyn_addr + dyn_phdr.p_memsz > ctx.mem_base_addr + ctx.mem_base.len() as u64 {
+    if dyn_addr < ctx.mem_base_addr
+        || dyn_addr + dyn_phdr.p_memsz > ctx.mem_base_addr + (ctx.mem_base.len() - ctx.memory_offset) as u64
+    {
         return Ok(());
     }
 
-    let dyn_offset = (dyn_addr - ctx.mem_base_addr) as usize;
+    let dyn_offset = ctx.memory_offset + (dyn_addr - ctx.mem_base_addr) as usize;
     let mut rela_addr: Option<u64> = None;
     let mut rela_size: Option<u64> = None;
     let mut rela_ent: Option<u64> = None;
@@ -96,7 +102,9 @@ pub fn apply_dynamic_relocations(
 
         // SAFETY: bounds checked above; mem_base is loaded ELF memory; Elf64Dyn is #[repr(C)]
         // with only POD fields, so any byte pattern is valid.
-        let dyn_entry: Elf64Dyn = unsafe { std::ptr::read(ctx.mem_base[dyn_entry_offset..].as_ptr() as *const _) };
+        let mut bytes = [0u8; std::mem::size_of::<Elf64Dyn>()];
+        ctx.mem_base.read_buffer(dyn_entry_offset, &mut bytes);
+        let dyn_entry: Elf64Dyn = unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const _) };
 
         match dyn_entry.d_tag {
             DT_RELA => rela_addr = Some(dyn_entry.d_val),
@@ -111,11 +119,13 @@ pub fn apply_dynamic_relocations(
     };
 
     let rela_addr = ctx.relocate_addr(rela_vaddr);
-    if rela_addr < ctx.mem_base_addr || rela_addr + size > ctx.mem_base_addr + ctx.mem_base.len() as u64 {
+    if rela_addr < ctx.mem_base_addr
+        || rela_addr + size > ctx.mem_base_addr + (ctx.mem_base.len() - ctx.memory_offset) as u64
+    {
         return Ok(());
     }
 
-    let rela_offset = (rela_addr - ctx.mem_base_addr) as usize;
+    let rela_offset = ctx.memory_offset + (rela_addr - ctx.mem_base_addr) as usize;
     let rela_count = size / std::mem::size_of::<Elf64Rela>() as u64;
 
     for i in 0..rela_count {
@@ -126,7 +136,9 @@ pub fn apply_dynamic_relocations(
 
         // SAFETY: bounds checked above; mem_base is loaded ELF memory; Elf64Rela is #[repr(C)]
         // with only POD fields, so any byte pattern is valid.
-        let rela: Elf64Rela = unsafe { std::ptr::read(ctx.mem_base[rela_entry_offset..].as_ptr() as *const _) };
+        let mut bytes = [0u8; std::mem::size_of::<Elf64Rela>()];
+        ctx.mem_base.read_buffer(rela_entry_offset, &mut bytes);
+        let rela: Elf64Rela = unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const _) };
         apply_irelative(ctx, &rela, ifunc_map)?;
     }
 

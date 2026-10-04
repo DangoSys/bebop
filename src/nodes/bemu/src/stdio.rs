@@ -1,7 +1,12 @@
 use crate::root::platform::{Platform, SCU_BASE, SCU_STRIDE};
-use rvsim::bus::{Bus, Width};
 use bebop_syscall::{translate_guest_addr, SYS_READ, SYS_WRITE, SYS_WRITEV};
-use std::{io::{Read, Write}, os::unix::net::UnixStream, sync::Mutex};
+use memory::Memory;
+use rvsim::bus::{Bus, Width};
+use std::{
+    io::{Read, Write},
+    os::unix::net::UnixStream,
+    sync::Mutex,
+};
 
 pub(crate) struct Streams {
     input: Box<dyn Read + Send>,
@@ -11,7 +16,11 @@ pub(crate) struct Streams {
 
 impl Streams {
     pub(crate) fn new() -> Self {
-        Self { input: Box::new(std::io::stdin()), output: Box::new(std::io::stdout()), console: None }
+        Self {
+            input: Box::new(std::io::stdin()),
+            output: Box::new(std::io::stdout()),
+            console: None,
+        }
     }
 
     pub(crate) fn connect(&mut self, stream: UnixStream, hart: usize) -> std::io::Result<()> {
@@ -21,32 +30,45 @@ impl Streams {
         Ok(())
     }
 
-    pub(crate) fn syscall(&mut self, number: u64, fd: u64, address: u64, count: usize,
-                         platform: &Mutex<Platform>) -> Option<u64> {
+    pub(crate) fn syscall(
+        &mut self,
+        number: u64,
+        fd: u64,
+        address: u64,
+        count: usize,
+        platform: &Mutex<Platform>,
+    ) -> Option<u64> {
         let result = if number == SYS_READ && fd == 0 {
             let memory_len = platform.lock().expect("BEMU platform poisoned").memory.len();
-            let Some(ranges) = ranges(address, count, memory_len) else { return Some((-14_i64) as u64) };
+            let Some(ranges) = ranges(address, count, memory_len) else {
+                return Some((-14_i64) as u64);
+            };
             let mut bytes = vec![0; count];
             // Blocking host I/O must never hold the shared chip DDR lock.
             self.input.read(&mut bytes).map(|read| {
-                let mut platform = platform.lock().expect("BEMU platform poisoned");
+                let platform = platform.lock().expect("BEMU platform poisoned");
                 let mut position = 0;
                 for (offset, length) in ranges {
                     let length = length.min(read - position);
-                    platform.memory[offset..offset + length].copy_from_slice(&bytes[position..position + length]);
+                    let memory: &dyn Memory = platform.memory.as_ref();
+                    memory.write_buffer(offset, &bytes[position..position + length]);
                     position += length;
-                    if position == read { break; }
+                    if position == read {
+                        break;
+                    }
                 }
                 read
             })
         } else if matches!(number, SYS_WRITE | SYS_WRITEV) && (fd == 1 || fd == 2) {
             let bytes = {
                 let platform = platform.lock().expect("BEMU platform poisoned");
-                let memory = &platform.memory;
+                let memory: &dyn Memory = platform.memory.as_ref();
                 if number == SYS_WRITE {
                     collect(memory, address, count)
                 } else {
-                    let Some(size) = count.checked_mul(16) else { return Some((-22_i64) as u64) };
+                    let Some(size) = count.checked_mul(16) else {
+                        return Some((-22_i64) as u64);
+                    };
                     collect(memory, address, size).and_then(|iov| {
                         let mut bytes = Vec::new();
                         for item in iov.chunks_exact(16) {
@@ -58,16 +80,21 @@ impl Streams {
                     })
                 }
             };
-            let Some(bytes) = bytes else { return Some((-14_i64) as u64) };
+            let Some(bytes) = bytes else {
+                return Some((-14_i64) as u64);
+            };
             let mut stderr = std::io::stderr();
             let writer: &mut dyn Write = if fd == 1 { self.output.as_mut() } else { &mut stderr };
-            let result = writer.write(&bytes).and_then(|written| writer.flush().map(|()| written));
+            let result = writer
+                .write(&bytes)
+                .and_then(|written| writer.flush().map(|()| written));
             if fd == 2 {
                 if let (Ok(written), Some(hart)) = (&result, self.console) {
                     let mut platform = platform.lock().expect("BEMU platform poisoned");
                     for byte in &bytes[..*written] {
-                        platform.write(SCU_BASE + hart as u64 * SCU_STRIDE + 0x20000,
-                                       Width::Byte, *byte as u64).expect("write guest console");
+                        platform
+                            .write(SCU_BASE + hart as u64 * SCU_STRIDE + 0x20000, Width::Byte, *byte as u64)
+                            .expect("write guest console");
                     }
                 }
             }
@@ -94,9 +121,13 @@ fn ranges(address: u64, count: usize, memory_len: usize) -> Option<Vec<(usize, u
     Some(ranges)
 }
 
-fn collect(memory: &[u8], address: u64, count: usize) -> Option<Vec<u8>> {
+fn collect(memory: &dyn Memory, address: u64, count: usize) -> Option<Vec<u8>> {
     let ranges = ranges(address, count, memory.len())?;
     let mut bytes = Vec::with_capacity(count);
-    for (offset, length) in ranges { bytes.extend_from_slice(&memory[offset..offset + length]); }
+    for (offset, length) in ranges {
+        let start = bytes.len();
+        bytes.resize(start + length, 0);
+        memory.read_buffer(offset, &mut bytes[start..]);
+    }
     Some(bytes)
 }

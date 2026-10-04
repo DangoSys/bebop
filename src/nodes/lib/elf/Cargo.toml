@@ -7,6 +7,7 @@ edition = "2021"
 path = "src/lib.rs"
 
 [dependencies]
+bebop-memory = { path = "../memory" }
 
 [lints]
 workspace = true

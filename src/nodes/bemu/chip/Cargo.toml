@@ -16,7 +16,9 @@ path = "../../../../../../bebop/tests/test_bemu.rs"
 harness = false
 
 [dependencies]
+memory = { package = "bebop-memory", path = "../../../../../../bebop/src/nodes/lib/memory" }
 rvsim = { path = "../../../../../../bebop/src/nodes/bemu/rvcpu" }
+rvv = { path = "../../../../../../bebop/src/nodes/bemu/rvv" }
 bebop-dasm = { path = "../../../../../../bebop/src/nodes/lib/dasm" }
 clap = { version = "4", features = ["derive"] }
 snafu = "0.8"
@@ -34,6 +36,7 @@ bebop-vm = { path = "../../../../../../bebop/src/nodes/lib/vm", default-features
 bebop-rtc = { path = "../../../../../../bebop/src/nodes/lib/rtc" }
 bebop-bank-hash = { path = "../../../../../../bebop/src/nodes/lib/bank-hash" }
 bebop-bemu-profile = { path = "../../../../../../bebop/src/nodes/lib/bemu-profile" }
+bebop-uart = { path = "../../../../../../bebop/src/nodes/lib/uart" }
 
 [build-dependencies]
 prost-build = "0.13"

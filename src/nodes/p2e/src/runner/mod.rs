@@ -1,4 +1,6 @@
+mod load_manifest;
 mod runworkload;
+pub use load_manifest::{validate_cold_case, validate_loads, LoadPlan};
 
 pub use runworkload::{
     configure_vvac_environment, generate_main_tcl, init_ctb, source_environment, start_vdbg_background,

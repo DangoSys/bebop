@@ -113,20 +113,13 @@ impl InitStep {
             return Err(format!("sourceme.sh not found: {}", sourceme.display()));
         }
 
-        // Generate TCL script to load image
+        let workload = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner/2_runworkload/workload.tcl");
+        let quote = super::super::runworkload::tcl_word;
         let tcl_script = format!(
-            r#"
-# Load workload.tcl
-source {}/workload.tcl
-
-# Call load_image function
-load_image {} 0 {}
-
-exit
-"#,
-            self.fpga_comp_dir.join("../src/runner/2_runworkload").display(),
-            fpga_location,
-            image.display()
+            "source {}\nload_image {} 0 {} 0 hex\nexit\n",
+            quote(workload.to_str().ok_or("workload Tcl path must be UTF-8")?),
+            quote(fpga_location),
+            quote(image.to_str().ok_or("image path must be UTF-8")?)
         );
 
         let tcl_path = self.fpga_comp_dir.join("load_image.tcl");

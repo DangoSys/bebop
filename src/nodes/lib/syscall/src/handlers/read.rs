@@ -1,8 +1,9 @@
 use crate::state::SyscallState;
 use crate::utils::guest_range;
+use bebop_memory::Memory;
 use std::io::Read;
 
-pub fn handle_read(state: &mut SyscallState, fd: u64, buf_addr: u64, count: usize, memory: &mut [u8]) -> (u64, bool) {
+pub fn handle_read(state: &mut SyscallState, fd: u64, buf_addr: u64, count: usize, memory: &dyn Memory) -> (u64, bool) {
     let mut ranges = Vec::new();
     let mut position = 0;
     while position < count {
@@ -29,7 +30,7 @@ pub fn handle_read(state: &mut SyscallState, fd: u64, buf_addr: u64, count: usiz
             let mut position = 0;
             for (offset, bytes) in ranges {
                 let bytes = bytes.min(count - position);
-                memory[offset..offset + bytes].copy_from_slice(&buffer[position..position + bytes]);
+                memory.write_buffer(offset, &buffer[position..position + bytes]);
                 position += bytes;
                 if position == count {
                     break;

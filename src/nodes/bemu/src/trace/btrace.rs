@@ -40,14 +40,7 @@ pub(super) fn init(log_dir: &Path, enabled: bool) -> io::Result<BtraceState> {
     })
 }
 
-pub fn bemu_btrace(
-    inst_id: u64,
-    hart_id: u64,
-    w0: BTraceBank,
-    funct7: u32,
-    op_type: &str,
-    pc: u64,
-) {
+pub fn bemu_btrace(inst_id: u64, hart_id: u64, w0: BTraceBank, funct7: u32, op_type: &str, pc: u64) {
     with_current_trace(|trace| {
         let line_number = trace.btrace.next_line();
         let record = BTraceRecord::new(
@@ -57,7 +50,7 @@ pub fn bemu_btrace(
             w0,
             funct7,
             op_type,
-            BTraceTime::Cycle(trace.bemu_clk()),
+            BTraceTime::Event(trace.event_index()),
             Some(pc),
             Some(format!("{GOLDEN_RECORD_FILE}:{line_number}")),
         );

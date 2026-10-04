@@ -89,6 +89,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
         }),
         RunTarget::P2e {
             image,
+            load_manifest,
             bitstream,
             log_dir,
             fpga_location,
@@ -107,6 +108,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             {
                 crate::simulation::p2e::run::run(crate::simulation::p2e::run::P2eRunConfig {
                     image,
+                    load_manifest,
                     bitstream,
                     log_dir,
                     fpga_location,
@@ -129,6 +131,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             {
                 let _ = (
                     image,
+                    load_manifest,
                     bitstream,
                     log_dir,
                     fpga_location,

@@ -1,10 +1,12 @@
 use crate::pk::PkVm;
+use crate::root::memory::Pages;
 use crate::root::platform::DRAM_BASE;
 use bebop_dtb::DtbBuilder;
 use bebop_elf::{LoadInfo, TlsInfo};
 use bebop_syscall::{handle_syscall_with_state, set_guest_mappings, SyscallState};
+use memory::Memory;
 use rvsim::{hart::Hart, Privilege};
-use crate::root::memory::Pages;
+use std::os::unix::fs::FileExt;
 use std::sync::{Arc, Mutex};
 
 pub(crate) const PAGE_SIZE: u64 = 4096;
@@ -38,7 +40,7 @@ impl Process {
     pub(crate) fn initialize(
         &mut self,
         hart: &mut Hart,
-        memory: &mut [u8],
+        memory: &dyn Memory,
         load: LoadInfo,
         pk: bool,
         pages: Arc<Mutex<Pages>>,
@@ -100,36 +102,67 @@ impl Process {
         Ok(())
     }
 
-    pub(crate) fn syscall(&mut self, hart: &mut Hart, platform: &Mutex<crate::root::platform::Platform>) -> Result<(), String> {
+    pub(crate) fn syscall(
+        &mut self,
+        hart: &mut Hart,
+        platform: &Mutex<crate::root::platform::Platform>,
+    ) -> Result<(), String> {
         if let Some(vm) = &self.vm {
             set_guest_mappings(&vm.maps.iter().map(|m| (m.virt, m.phys, m.len)).collect::<Vec<_>>());
         } else {
             set_guest_mappings(&[]);
         }
         let old_brk = self.syscall.brk_addr;
+        let old_mmap_regions = self.syscall.mmap_regions.clone();
+        let old_mmap_base = self.syscall.mmap_base;
         let number = hart.register(17);
         let a0 = hart.register(10);
         let a1 = hart.register(11);
-        let value = if let Some(value) = self.streams.syscall(number, a0, a1, hart.register(12) as usize, platform) {
+        let value = if let Some(value) = self
+            .streams
+            .syscall(number, a0, a1, hart.register(12) as usize, platform)
+        {
             value
         } else {
-        let mut platform = platform.lock().expect("BEMU platform poisoned");
-        let memory = &mut platform.memory;
-        let (value, _) = handle_syscall_with_state(
-            &mut self.syscall,
-            number,
-            a0,
-            a1,
-            hart.register(12),
-            hart.register(13),
-            hart.register(14),
-            hart.register(15),
-            memory,
-        );
-        if let Some(vm) = &mut self.vm {
-            map_syscall_result(memory, vm, old_brk, number, a0, a1, value)?;
-        }
-        value
+            let platform = platform.lock().expect("BEMU platform poisoned");
+            let memory: &dyn Memory = platform.memory.as_ref();
+            let (mut value, _) = handle_syscall_with_state(
+                &mut self.syscall,
+                number,
+                a0,
+                a1,
+                hart.register(12),
+                hart.register(13),
+                hart.register(14),
+                hart.register(15),
+                memory,
+            );
+            if let Some(vm) = &mut self.vm {
+                if let Err(errno) = map_syscall_result(
+                    memory,
+                    vm,
+                    &self.syscall,
+                    &old_mmap_regions,
+                    old_brk,
+                    number,
+                    [
+                        a0,
+                        a1,
+                        hart.register(12),
+                        hart.register(13),
+                        hart.register(14),
+                        hart.register(15),
+                    ],
+                    value,
+                ) {
+                    self.syscall.mmap_regions = old_mmap_regions;
+                    self.syscall.mmap_base = old_mmap_base;
+                    self.syscall.brk_addr = old_brk;
+                    value = errno as u64;
+                }
+            }
+            platform.memory.clear_reservations();
+            value
         };
         hart.set_register(10, value);
         let epc = hart.csrs.read(0x341, Privilege::Machine, hart.id, 0, 0).unwrap();
@@ -139,37 +172,90 @@ impl Process {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn map_syscall_result(
-    memory: &mut [u8],
+    memory: &dyn Memory,
     pk_vm: &mut PkVm,
+    state: &SyscallState,
+    old_regions: &[(u64, u64, u64)],
     old_brk: u64,
     syscall_num: u64,
-    a0: u64,
-    a1: u64,
+    args: [u64; 6],
     result: u64,
-) -> Result<(), String> {
+) -> Result<(), i64> {
     if (result as i64) < 0 {
         return Ok(());
     }
-
+    let [a0, a1, prot, flags, fd, offset] = args;
     match syscall_num {
         SYS_BRK if result > old_brk => {
             let start = align_up(old_brk, PAGE_SIZE);
             let end = align_up(result, PAGE_SIZE);
             if end > start {
-                pk_vm.alloc_user_pages(memory, start, end - start, 0x2 | 0x4)?;
+                pk_vm
+                    .alloc_user_pages(memory, start, end - start, 0x2 | 0x4)
+                    .map_err(|_| -12)?;
             }
         }
         SYS_MMAP => {
             let len = align_up(a1, PAGE_SIZE);
-            if result != 0 && len != 0 {
-                pk_vm.alloc_user_pages(memory, result, len, 0x2 | 0x4)?;
+            // PROT_NONE reserves virtual space without allocating physical DDR pages.
+            if prot == 0 {
+                if flags & 0x10 != 0 {
+                    pk_vm.free_user_pages(memory, result, len).map_err(|_| -12)?;
+                }
+                return Ok(());
+            }
+            let pte_flags = (if prot & 3 != 0 { 0x2 } else { 0 }) | ((prot & 2) << 1) | ((prot & 4) << 1);
+            let backed_len = if flags & 0x20 == 0 {
+                let metadata = state
+                    .open_files
+                    .get(&fd)
+                    .ok_or(-9i64)?
+                    .metadata()
+                    .map_err(|error| -(error.raw_os_error().unwrap_or(5) as i64))?;
+                len.min(align_up(metadata.len().saturating_sub(offset), PAGE_SIZE))
+            } else {
+                len
+            };
+            if backed_len == 0 {
+                return Ok(());
+            }
+            let phys = pk_vm
+                .alloc_user_pages(memory, result, backed_len, pte_flags)
+                .map_err(|_| -12)?;
+            if flags & 0x20 == 0 {
+                let file = state.open_files.get(&fd).ok_or(-9i64)?;
+                let mut buffer = [0u8; 65536];
+                let mut cursor = 0;
+                while cursor < backed_len {
+                    let bytes = buffer.len().min((backed_len - cursor) as usize);
+                    let count = match file.read_at(&mut buffer[..bytes], offset + cursor) {
+                        Ok(count) => count,
+                        Err(error) => {
+                            pk_vm.free_user_pages(memory, result, len).map_err(|_| -12)?;
+                            return Err(-(error.raw_os_error().unwrap_or(5) as i64));
+                        }
+                    };
+                    if count == 0 {
+                        break;
+                    }
+                    write_guest(memory, phys + cursor, &buffer[..count]).map_err(|_| -14)?;
+                    cursor += count as u64;
+                }
             }
         }
-        SYS_MUNMAP => pk_vm.free_user_pages(memory, a0, a1)?,
-        _ => {
-            let _ = a0;
+        SYS_MUNMAP => {
+            let end = a0 + align_up(a1, PAGE_SIZE);
+            for &(base, bytes, _) in old_regions {
+                let start = a0.max(base);
+                let stop = end.min(base + bytes);
+                if start < stop {
+                    pk_vm.free_user_pages(memory, start, stop - start).map_err(|_| -12)?;
+                }
+            }
         }
+        _ => {}
     }
     Ok(())
 }
@@ -181,7 +267,7 @@ struct InitialRegs {
     a2: u64,
 }
 
-fn setup_tls(memory: &mut [u8], tls: Option<TlsInfo>) -> Result<Option<u64>, String> {
+fn setup_tls(memory: &dyn Memory, tls: Option<TlsInfo>) -> Result<Option<u64>, String> {
     let Some(tls) = tls else {
         return Ok(None);
     };
@@ -199,30 +285,28 @@ fn setup_tls(memory: &mut [u8], tls: Option<TlsInfo>) -> Result<Option<u64>, Str
     if copy_size > 0 {
         let src_offset = guest_offset(memory, tls.vaddr)?;
         let dst_offset = guest_offset(memory, tp)?;
-        let src = memory
-            .get(src_offset..src_offset + copy_size)
-            .ok_or_else(|| format!("TLS source exceeds memory: addr=0x{:x} size={copy_size}", tls.vaddr))?
-            .to_vec();
-        let dst = memory
-            .get_mut(dst_offset..dst_offset + copy_size)
-            .ok_or_else(|| format!("TLS destination exceeds memory: addr=0x{tp:x} size={copy_size}"))?;
-        dst.copy_from_slice(&src);
+        if src_offset + copy_size > memory.len() || dst_offset + copy_size > memory.len() {
+            return Err(format!("TLS copy exceeds memory: size={copy_size}"));
+        }
+        let mut src = vec![0; copy_size];
+        memory.read_buffer(src_offset, &mut src);
+        memory.write_buffer(dst_offset, &src);
     }
 
     if tls.memsz > tls.filesz {
         let bss_start = tp + tls.filesz;
         let bss_offset = guest_offset(memory, bss_start)?;
         let bss_size = (tls.memsz - tls.filesz) as usize;
-        memory
-            .get_mut(bss_offset..bss_offset + bss_size)
-            .ok_or_else(|| format!("TLS BSS exceeds memory: addr=0x{bss_start:x} size={bss_size}"))?
-            .fill(0);
+        if bss_offset + bss_size > memory.len() {
+            return Err(format!("TLS BSS exceeds memory: addr=0x{bss_start:x} size={bss_size}"));
+        }
+        memory.fill(bss_offset, bss_size, 0);
     }
 
     Ok(Some(tp))
 }
 
-fn install_dtb(memory: &mut [u8]) -> Result<u64, String> {
+fn install_dtb(memory: &dyn Memory) -> Result<u64, String> {
     let dtb = DtbBuilder::build_minimal(DRAM_BASE, memory.len() as u64, None, None);
     let mem_end = DRAM_BASE + memory.len() as u64;
     let dtb_addr = align_down(mem_end - 0x20_0000 - dtb.len() as u64, PAGE_SIZE);
@@ -230,12 +314,17 @@ fn install_dtb(memory: &mut [u8]) -> Result<u64, String> {
     Ok(dtb_addr)
 }
 
-fn setup_pk_vm(memory: &mut [u8], load: &LoadInfo, pages: Arc<Mutex<Pages>>, image: (u64, u64)) -> Result<PkVm, String> {
+fn setup_pk_vm(
+    memory: &dyn Memory,
+    load: &LoadInfo,
+    pages: Arc<Mutex<Pages>>,
+    image: (u64, u64),
+) -> Result<PkVm, String> {
     let stack_virt_bottom = USER_TOP - USER_STACK_SIZE;
     let interconnect = pages.lock().expect("DDR page pool poisoned").interconnect_buffer;
     let mut vm = PkVm::new(memory, pages, image)?;
     if let Some((physical, bytes)) = interconnect {
-        use crate::root::interconnect::port::{BASE, SIZE, BUFFER_BASE};
+        use crate::root::interconnect::port::{BASE, BUFFER_BASE, SIZE};
         vm.map_range(memory, BASE, BASE, SIZE, 0x2 | 0x4)?;
         vm.map_range(memory, BUFFER_BASE, physical, bytes, 0x2 | 0x4)?;
     }
@@ -266,7 +355,7 @@ fn setup_pk_vm(memory: &mut [u8], load: &LoadInfo, pages: Arc<Mutex<Pages>>, ima
 }
 
 fn setup_pk_stack(
-    memory: &mut [u8],
+    memory: &dyn Memory,
     vm: &PkVm,
     load: &LoadInfo,
     program_name: &str,
@@ -371,7 +460,7 @@ fn user_image_addr(load: &LoadInfo, phys_addr: u64) -> Result<u64, String> {
     Ok(load.analysis.min_vaddr + (phys_addr - DRAM_BASE))
 }
 
-pub(crate) fn write_guest(memory: &mut [u8], addr: u64, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn write_guest(memory: &dyn Memory, addr: u64, bytes: &[u8]) -> Result<(), String> {
     let offset = guest_offset(memory, addr)?;
     let end = offset + bytes.len();
     if end > memory.len() {
@@ -380,11 +469,11 @@ pub(crate) fn write_guest(memory: &mut [u8], addr: u64, bytes: &[u8]) -> Result<
             bytes.len()
         ));
     }
-    memory[offset..end].copy_from_slice(bytes);
+    memory.write_buffer(offset, bytes);
     Ok(())
 }
 
-pub(crate) fn guest_offset(memory: &[u8], addr: u64) -> Result<usize, String> {
+pub(crate) fn guest_offset(memory: &dyn Memory, addr: u64) -> Result<usize, String> {
     if addr < DRAM_BASE {
         return Err(format!("guest address below DRAM: 0x{addr:x}"));
     }

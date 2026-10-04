@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 pub struct SimulationResult {
     pub exit_code: i32,
     pub elapsed: Duration,
-    pub cycles: u64,
     pub uart_log: String,
 }
 
@@ -45,12 +44,10 @@ pub fn wait_for_completion(mut poll: impl FnMut() -> Result<(), String>) -> Resu
         if ffi::check_exit() {
             let exit_code = ffi::exit_code();
             let uart_log = ffi::uart_log();
-            let cycles = 1000;
 
             return Ok(SimulationResult {
                 exit_code,
                 elapsed: started.elapsed(),
-                cycles,
                 uart_log,
             });
         }
@@ -59,72 +56,65 @@ pub fn wait_for_completion(mut poll: impl FnMut() -> Result<(), String>) -> Resu
     }
 }
 
+pub(super) fn tcl_word(value: &str) -> String {
+    let mut quoted = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '\\' | '"' | '$' | '[' | ']' => {
+                quoted.push('\\');
+                quoted.push(ch);
+            }
+            '\n' => quoted.push_str("\\n"),
+            '\r' => quoted.push_str("\\r"),
+            '\t' => quoted.push_str("\\t"),
+            _ => quoted.push(ch),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
 pub fn generate_main_tcl(
     fpga_location: &str,
-    image: &Path,
+    plan: &super::LoadPlan,
     bitstream: &Path,
     multi_fpga: bool,
     wave: bool,
     wave_start: u64,
 ) -> Result<String, String> {
-    let script_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner");
-
-    let tcl = format!(
-        r#"# Main TCL script for P2E simulation
-# This script orchestrates the entire P2E simulation flow
-
-set fpga_location "{fpga_location}"
-set image "{image}"
-set bitstream "{bitstream}"
-set multi_fpga {multi_fpga}
-set wave {wave}
-set wave_start {wave_start}
-
-puts "=========================================="
-puts "P2E Simulation Starting"
-puts "  FPGA Location: $fpga_location"
-puts "  Multi FPGA: $multi_fpga"
-puts "  Bitstream: $bitstream"
-puts "  Image: $image"
-puts "=========================================="
-
-# Load all TCL modules
-set script_dir "{script_dir}"
-source $script_dir/0_flashbitstream/flash.tcl
-source $script_dir/1_init/init.tcl
-source $script_dir/2_runworkload/workload.tcl
-
-# Step 1: Flash bitstream
-puts "\n========== Step 1: Flashing Bitstream =========="
-flash_bitstream $fpga_location $multi_fpga
-
-# Step 2: Initialize FPGA and DDR
-puts "\n========== Step 2: Initializing FPGA =========="
-init_fpga $fpga_location
-
-# Step 3: Load image to DDR
-puts "\n========== Step 3: Loading Image =========="
-load_image $fpga_location 0 $image
-
-# Step 4: Run workload
-puts "\n========== Step 4: Running Workload =========="
-run_workload 100000 $wave $wave_start
-
-puts "\n=========================================="
-puts "P2E Simulation Completed"
-puts "=========================================="
-
-exit
-"#,
-        fpga_location = fpga_location,
-        image = image.display(),
-        bitstream = bitstream.display(),
-        multi_fpga = if multi_fpga { 1 } else { 0 },
-        wave = if wave { 1 } else { 0 },
-        wave_start = wave_start,
-        script_dir = script_dir.display(),
+    let case = bitstream
+        .parent()
+        .and_then(|path| path.parent())
+        .ok_or("bitstream must be under a cold-load case/fpgaCompDir")?;
+    super::validate_cold_case(case)?;
+    let script_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner");
+    let path_word =
+        |path: &Path| -> Result<String, String> { Ok(tcl_word(path.to_str().ok_or("Tcl paths must be UTF-8")?)) };
+    let mut tcl = format!(
+        "set fpga_location {}\nset bitstream {}\nset multi_fpga {}\nset wave {}\nset wave_start {}\n",
+        tcl_word(fpga_location),
+        path_word(bitstream)?,
+        u8::from(multi_fpga),
+        u8::from(wave),
+        wave_start
     );
-
+    for script in [
+        "0_flashbitstream/flash.tcl",
+        "1_init/init.tcl",
+        "2_runworkload/workload.tcl",
+    ] {
+        tcl.push_str(&format!("source {}\n", path_word(&script_dir.join(script))?));
+    }
+    tcl.push_str("flash_bitstream $fpga_location $multi_fpga\ninit_fpga $fpga_location\n");
+    for load in &plan.loads {
+        tcl.push_str(&format!(
+            "load_image $fpga_location 0 {} {} {}\n",
+            path_word(&load.file)?,
+            load.offset,
+            tcl_word(&load.format)
+        ));
+    }
+    tcl.push_str("release_soc\nrun_workload 100000 $wave $wave_start\nexit\n");
     Ok(tcl)
 }
 
@@ -148,6 +138,13 @@ impl Drop for VdbgProcess {
 }
 
 impl VdbgProcess {
+    pub fn check_running(&mut self) -> Result<(), String> {
+        if let Some(status) = self.child.try_wait().map_err(|e| format!("vdbg status: {e}"))? {
+            return Err(format!("vdbg exited before the workload completed: {status}"));
+        }
+        Ok(())
+    }
+
     pub fn exit_on_drop(mut self, exit_flag: PathBuf) -> Self {
         self.exit_flag = Some(exit_flag);
         self

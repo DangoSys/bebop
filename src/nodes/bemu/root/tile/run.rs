@@ -30,25 +30,20 @@ pub struct Args {
 
 pub fn run(args: Args) -> Result<(), String> {
     let topology = tile_topology(args.tile_index);
-    let chip = Chip::new(args.memory_mib << 20, topology.cores.len());
-    let memory = Tile::new(
-        &chip,
-        0,
-        topology.cores.len(),
-        Vec::new(),
-        topology.shared_physical_bank_count,
-        topology.shared_bank_size,
-        topology.virtual_bank_count,
-    );
+    let chip = Chip::new(args.memory_mib << 20, crate::config::hart_capacity());
+    let signatures = if topology.controller_core.is_some() {
+        topology.worker_cores.iter().map(|(_, index)| crate::config::core_signature(*index)).collect()
+    } else { Vec::new() };
+    let memory = Tile::new(&chip, &topology, signatures);
     let mut cores = Vec::with_capacity(topology.cores.len());
-    for (local_id, (_, core_index)) in topology.cores.into_iter().enumerate() {
+    for (_, core_index) in topology.cores {
         let mut core = Core::new_with_core_hart(
-            &args.log_dir.join(format!("hart-{local_id}")),
+            &args.log_dir.join(format!("hart-{}", crate::config::core_hart_id(core_index))),
             TraceConfig::new(args.itrace, args.mtrace),
             args.disasm,
             args.profile,
             core_index,
-            local_id,
+            crate::config::core_hart_id(core_index),
             Some(Arc::clone(&memory)),
         )
         .map_err(|error| error.to_string())?;
@@ -103,7 +98,7 @@ pub fn run(args: Args) -> Result<(), String> {
                             core.step(0).map_err(|error| error.to_string())?;
                             if let Some(report) = core.profile_report(started.elapsed()) {
                                 std::fs::write(
-                                    args.log_dir.join(format!("hart-{local_id}/tool-profile.txt")),
+                                    args.log_dir.join(format!("hart-{}/tool-profile.txt", core.hart_id())),
                                     crate::format_profile_report(&report),
                                 )
                                 .map_err(|error| error.to_string())?;

@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 mod chip_config;
 
-pub use chip_config::{core_signature, tile_count, tile_topology, TileTopology, Topology};
+pub use chip_config::{core_hart_id, hart_capacity, tile_for_core, core_signature, tile_count, tile_topology, RvvConfig, TileTopology, Topology};
 
 thread_local! {
     static TOPOLOGY: Cell<Option<&'static Topology>> = const { Cell::new(None) };
@@ -19,8 +19,8 @@ fn with_topology<R>(f: impl FnOnce(&Topology) -> R) -> R {
 pub fn bank_num() -> usize {
     with_topology(|t| t.mem_config.bank_num)
 }
-pub fn vector_len() -> usize {
-    with_topology(|topology| topology.vector_len)
+pub fn rvv() -> Option<RvvConfig> {
+    with_topology(|topology| topology.rvv.clone())
 }
 
 pub fn virtual_bank_num() -> usize {
@@ -96,7 +96,7 @@ pub mod ball_domain {
                 .ball_domain
                 .mappings
                 .iter()
-                .find(|mapping| mapping.ball_id == bid)
+                .find(|mapping| mapping.ball_id == bid && mapping.builtin.is_empty())
                 .map(|mapping| mapping.ball_class.clone())
         })
     }

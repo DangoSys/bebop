@@ -2,11 +2,17 @@ use crate::constants::*;
 use crate::reloc::{apply_dynamic_relocations, apply_pointer_fixup, apply_section_relocations, RelocCtx};
 use crate::symbols::{read_ifunc_map, read_shdrs};
 use crate::types::*;
+use bebop_memory::Memory;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 
-pub fn load_elf(path: &str, mem_base: &mut [u8], mem_base_addr: u64) -> Result<LoadInfo, String> {
+pub fn load_elf(
+    path: &str,
+    mem_base: &dyn Memory,
+    mem_base_addr: u64,
+    memory_offset: usize,
+) -> Result<LoadInfo, String> {
     let mut file = File::open(path).map_err(|e| format!("Failed to open ELF file: {}", e))?;
 
     let ehdr = read_elf_header(&mut file)?;
@@ -30,6 +36,7 @@ pub fn load_elf(path: &str, mem_base: &mut [u8], mem_base_addr: u64) -> Result<L
         &mut file,
         &scan.all_phdrs,
         mem_base,
+        memory_offset,
         mem_base_addr,
         scan.min_vaddr,
         is_pie,
@@ -46,6 +53,7 @@ pub fn load_elf(path: &str, mem_base: &mut [u8], mem_base_addr: u64) -> Result<L
 
     let mut ctx = RelocCtx {
         mem_base,
+        memory_offset,
         mem_base_addr,
         min_vaddr: scan.min_vaddr,
         is_pie,
@@ -242,7 +250,8 @@ fn scan_program_headers(file: &mut File, ehdr: &Elf64Ehdr, mem_base_addr: u64) -
 fn load_segments(
     file: &mut File,
     all_phdrs: &[Elf64Phdr],
-    mem_base: &mut [u8],
+    mem_base: &dyn Memory,
+    memory_offset: usize,
     mem_base_addr: u64,
     min_vaddr: u64,
     is_pie: bool,
@@ -258,20 +267,30 @@ fn load_segments(
             phdr.p_vaddr
         };
 
-        if addr < mem_base_addr || addr + phdr.p_memsz > mem_base_addr + mem_base.len() as u64 {
-            continue;
+        if addr < mem_base_addr || addr + phdr.p_memsz > mem_base_addr + (mem_base.len() - memory_offset) as u64 {
+            return Err(format!("ELF segment outside memory: address=0x{addr:x}"));
         }
-        let offset = (addr - mem_base_addr) as usize;
+        let offset = memory_offset + (addr - mem_base_addr) as usize;
 
         file.seek(SeekFrom::Start(phdr.p_offset))
             .map_err(|e| format!("Failed to seek to segment: {}", e))?;
-        file.read_exact(&mut mem_base[offset..offset + phdr.p_filesz as usize])
-            .map_err(|e| format!("Failed to read segment: {}", e))?;
+        if phdr.p_filesz > phdr.p_memsz {
+            return Err("ELF segment file size exceeds memory size".to_string());
+        }
+        let mut data = vec![0u8; 64 * 1024];
+        let mut position = 0;
+        while position < phdr.p_filesz as usize {
+            let bytes = data.len().min(phdr.p_filesz as usize - position);
+            file.read_exact(&mut data[..bytes])
+                .map_err(|e| format!("Failed to read segment: {}", e))?;
+            mem_base.write_buffer(offset + position, &data[..bytes]);
+            position += bytes;
+        }
 
         if phdr.p_memsz > phdr.p_filesz {
             let bss_start = offset + phdr.p_filesz as usize;
             let bss_end = offset + phdr.p_memsz as usize;
-            mem_base[bss_start..bss_end].fill(0);
+            mem_base.fill(bss_start, bss_end - bss_start, 0);
         }
     }
     Ok(())

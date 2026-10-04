@@ -69,12 +69,8 @@ impl Fabric {
                 .lock()
                 .expect("DDR page pool poisoned")
                 .reserve_interconnect(port::BUFFER_BYTES);
-            platform.interconnect = Some(port::Port::new(
-                Arc::clone(&fabric),
-                id,
-                platform.memory.len() as u64,
-                buffer,
-            ));
+            let memory_bytes = platform.memory.len() as u64;
+            platform.interconnect = Some(port::Port::new(Arc::clone(&fabric), id, memory_bytes, buffer));
         }
         fabric
     }
@@ -129,34 +125,17 @@ impl Fabric {
     }
 
     fn copy(&self, chips: &[Chip], transfer: &Transfer) -> Result<(), String> {
-        // Lock both DDRs in chip order, so peer writes and LR/SC invalidation are atomic.
-        let src = transfer.source_chip;
-        let dst = transfer.destination_chip;
-        if src == dst {
-            let mut memory = chips[src].platform.lock().expect("BEMU platform poisoned");
-            let from = memory_range(transfer.source, transfer.bytes, memory.memory.len())?;
-            let to = memory_range(transfer.destination, transfer.bytes, memory.memory.len())?;
-            memory.memory.copy_within(from, to.start);
-            memory.reservations.retain(|_, (address, width)| {
-                *address + *width as u64 <= transfer.destination || transfer.destination + transfer.bytes <= *address
-            });
-            return Ok(());
-        }
-        let low = src.min(dst);
-        let high = src.max(dst);
-        let mut first = chips[low].platform.lock().expect("BEMU platform poisoned");
-        let mut second = chips[high].platform.lock().expect("BEMU platform poisoned");
-        let (source, target) = if src == low {
-            (&mut first, &mut second)
-        } else {
-            (&mut second, &mut first)
-        };
-        let from = memory_range(transfer.source, transfer.bytes, source.memory.len())?;
-        let to = memory_range(transfer.destination, transfer.bytes, target.memory.len())?;
-        target.memory[to].copy_from_slice(&source.memory[from]);
-        target.reservations.retain(|_, (address, width)| {
-            *address + *width as u64 <= transfer.destination || transfer.destination + transfer.bytes <= *address
-        });
+        let source = &chips[transfer.source_chip].memory;
+        let target = &chips[transfer.destination_chip].memory;
+        memory_range(transfer.source, transfer.bytes, source.len())?;
+        memory_range(transfer.destination, transfer.bytes, target.len())?;
+        let mut bytes = vec![0; transfer.bytes as usize];
+        source
+            .read_buffer(transfer.source, &mut bytes)
+            .map_err(|_| "DMA source range".to_string())?;
+        target
+            .write_buffer(transfer.destination, &bytes)
+            .map_err(|_| "DMA destination range".to_string())?;
         Ok(())
     }
 }

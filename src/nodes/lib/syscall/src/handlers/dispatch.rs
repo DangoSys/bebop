@@ -1,12 +1,13 @@
 use super::{
     handle_brk, handle_clock_gettime, handle_close, handle_exit, handle_fcntl, handle_fstat, handle_getcwd,
-    handle_getrandom, handle_ioctl, handle_lseek, handle_mmap, handle_mprotect, handle_openat, handle_prlimit64,
-    handle_read, handle_readlinkat, handle_riscv_hwprobe, handle_rt_sigaction, handle_rt_sigprocmask,
-    handle_set_robust_list, handle_tgkill, handle_write, handle_writev,
+    handle_getrandom, handle_ioctl, handle_lseek, handle_mlock, handle_mlockall, handle_mmap, handle_mprotect,
+    handle_openat, handle_prlimit64, handle_read, handle_readlinkat, handle_riscv_hwprobe, handle_rt_sigaction,
+    handle_rt_sigprocmask, handle_set_robust_list, handle_tgkill, handle_write, handle_writev,
 };
 use crate::constants::*;
 use crate::state::SyscallState;
 use crate::utils::guest_cstr;
+use bebop_memory::Memory;
 
 /// Returns `(result, should_exit)`.
 // RISC-V syscall ABI fixes the argument list at a0..a5; folding into a struct burdens every caller.
@@ -19,7 +20,7 @@ pub fn handle_syscall(
     a3: u64,
     a4: u64,
     a5: u64,
-    memory: &mut [u8],
+    memory: &dyn Memory,
 ) -> (u64, bool) {
     let mut state = crate::state::SYSCALL_STATE.lock().unwrap();
     handle_syscall_with_state(&mut state, syscall_num, a0, a1, a2, a3, a4, a5, memory)
@@ -37,7 +38,7 @@ pub fn handle_syscall_with_state(
     a3: u64,
     a4: u64,
     a5: u64,
-    memory: &mut [u8],
+    memory: &dyn Memory,
 ) -> (u64, bool) {
     let trace = std::env::var("BEMU_STRACE").is_ok();
 
@@ -60,8 +61,10 @@ pub fn handle_syscall_with_state(
         SYS_EXIT | SYS_EXIT_GROUP => handle_exit(state, a0 as i32),
         SYS_BRK => handle_brk(state, a0, memory),
         SYS_MMAP => handle_mmap(state, a0, a1, a2, a3, a4 as i64, a5, memory),
-        SYS_MUNMAP => (0, false),
+        SYS_MUNMAP => super::mmap::handle_munmap(state, a0, a1),
         SYS_MPROTECT => handle_mprotect(a0, a1, a2, memory),
+        SYS_MLOCK => handle_mlock(a0, a1, memory),
+        SYS_MLOCKALL => handle_mlockall(a0),
         SYS_FSTAT => handle_fstat(state, a0 as i64, a1, memory),
         SYS_SET_TID_ADDRESS => (1, false),
         SYS_GETCWD => handle_getcwd(a0, a1 as usize, memory),
@@ -131,6 +134,8 @@ fn syscall_name(num: u64) -> &'static str {
         SYS_MUNMAP => "munmap",
         SYS_MMAP => "mmap",
         SYS_MPROTECT => "mprotect",
+        SYS_MLOCK => "mlock",
+        SYS_MLOCKALL => "mlockall",
         SYS_RISCV_HWPROBE => "riscv_hwprobe",
         SYS_PRLIMIT64 => "prlimit64",
         SYS_GETRANDOM => "getrandom",

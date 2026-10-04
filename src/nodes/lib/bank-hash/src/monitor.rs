@@ -17,6 +17,8 @@ pub enum BTraceSource {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BTraceBank {
+    // Storage attribution; the enclosing record retains the issuing hart.
+    pub owner_hart_id: u64,
     pub vbank_id: u32,
     #[serde(rename = "hash_u32")]
     pub hash: u32,
@@ -24,6 +26,7 @@ pub struct BTraceBank {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BTraceTime {
+    Event(u64),
     Cycle(u64),
     VerilatorTime(u64),
 }
@@ -41,6 +44,8 @@ pub struct BTraceRecord {
     pub op_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cycle: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_index: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verilator_time: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,9 +66,10 @@ impl BTraceRecord {
         pc: Option<u64>,
         original_record_ref: Option<String>,
     ) -> Self {
-        let (cycle, verilator_time) = match time {
-            BTraceTime::Cycle(cycle) => (Some(cycle), None),
-            BTraceTime::VerilatorTime(time) => (None, Some(time)),
+        let (cycle, verilator_time, event_index) = match time {
+            BTraceTime::Event(index) => (None, None, Some(index)),
+            BTraceTime::Cycle(cycle) => (Some(cycle), None, None),
+            BTraceTime::VerilatorTime(time) => (None, Some(time), None),
         };
 
         Self {
@@ -75,6 +81,7 @@ impl BTraceRecord {
             funct7,
             op_type: op_type.into(),
             cycle,
+            event_index,
             verilator_time,
             pc,
             original_record_ref,

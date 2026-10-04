@@ -8,18 +8,24 @@ use crate::{
 };
 use bebop_bank_hash::{combine_bank_hash, BTraceBank};
 use bebop_bemu_profile::BemuProfile;
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::{Arc, Mutex}};
 
-pub(crate) struct State {
+pub(crate) struct PrivateState {
     pub(crate) banks: Vec<inst::instruction::PrivateBank>,
     pub(crate) bank_cfgs: Vec<BankConfig>,
     pub(crate) bank_map: BankMap,
+    pub(crate) row_bytes: usize,
+}
+
+pub(crate) struct State {
+    private: Arc<Mutex<PrivateState>>,
+    pub(crate) rvv: Option<rvv::Engine>,
     pub(crate) shared_memory: Option<Arc<Tile>>,
     pub(crate) hart_id: usize,
+    pub(crate) endpoint_index: Option<usize>,
     pub(crate) bank_scoreboard: inst::instruction::BankScoreboard,
     pub(crate) deferred_bank_frees: Vec<u32>,
     pub(crate) mmio_banks: Vec<Vec<u8>>,
-    pub(crate) total_lat: u64,
     pub(crate) npu_inst_id: u64,
     pub(crate) trace: TraceState,
     pub(crate) profile: BemuProfile,
@@ -28,6 +34,7 @@ pub(crate) struct State {
 
 impl State {
     pub(crate) fn finish_bank_frees(&mut self) {
+        let mut private = self.private.lock().expect("private banks poisoned");
         for bank_id in self.deferred_bank_frees.drain(..) {
             if crate::config::is_shared_vbank(bank_id as u64) {
                 let mut shared = self
@@ -37,13 +44,13 @@ impl State {
                     .banks
                     .lock()
                     .expect("shared banks poisoned");
-                shared.map.delete_hart_vbank(self.hart_id, bank_id);
-                let core = self.hart_id % (shared.cfgs.len() / shared.virtual_bank_count);
+                shared.map.delete_hart_vbank(self.endpoint_index.expect("shared bank requires compute core"), bank_id);
+                let core = self.endpoint_index.expect("shared bank requires compute core");
                 let index = core * shared.virtual_bank_count + bank_id as usize;
                 shared.cfgs[index] = BankConfig::default();
             } else {
-                self.bank_map.delete_vbank(bank_id);
-                self.bank_cfgs[bank_id as usize] = BankConfig::default();
+                private.bank_map.delete_vbank(bank_id);
+                private.bank_cfgs[bank_id as usize] = BankConfig::default();
             }
         }
     }
@@ -53,6 +60,7 @@ impl State {
         trace_config: TraceConfig,
         profile: bool,
         hart_id: usize,
+        endpoint_index: Option<usize>,
         shared_memory: Option<Arc<Tile>>,
     ) -> Result<Self, String> {
         let btrace = trace_config.btrace;
@@ -63,18 +71,36 @@ impl State {
                 }
             }
         }
-        Ok(Self {
+        let private = Arc::new(Mutex::new(PrivateState {
             banks: (0..bank_num())
                 .map(|_| inst::instruction::PrivateBank::new(bank_size(), btrace))
                 .collect(),
             bank_cfgs: vec![BankConfig::default(); virtual_bank_num()],
             bank_map: BankMap::new(bank_num()),
+            row_bytes: crate::config::bank_row_bytes(),
+        }));
+        if let Some(tile) = &shared_memory {
+            if let Some(core) = endpoint_index {
+                let previous = tile.private_endpoints.lock().expect("private endpoints poisoned")
+                    .insert(core, Arc::clone(&private));
+                assert!(previous.is_none(), "duplicate core bank endpoint");
+            }
+        }
+        Ok(Self {
+            private,
+            rvv: crate::config::rvv().map(|config| {
+                rvv::Engine::new(
+                    config.v_len as usize,
+                    config.e_len as usize,
+                    config.i_buf_words as usize * 4,
+                )
+            }),
             shared_memory,
             hart_id,
+            endpoint_index,
             bank_scoreboard: inst::instruction::BankScoreboard::new(),
             deferred_bank_frees: Vec::new(),
             mmio_banks: vec![vec![0; mmio_bank_size()]; mmio_bank_num()],
-            total_lat: 0,
             npu_inst_id: 0,
             trace: TraceState::new(log_dir, trace_config).map_err(|e| e.to_string())?,
             profile: BemuProfile::new(profile),
@@ -86,9 +112,7 @@ impl State {
 pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs1: u64, xs2: u64, pc: u64) -> u64 {
     state.barrier_hit = false;
     let profile_started = state.profile.begin_npu();
-    let lat = inst::decode::cycles_after_issue(funct7 as u32, xs1, xs2);
-    state.total_lat += lat;
-    state.trace.set_bemu_clk(state.total_lat);
+    state.trace.advance_event();
     if !matches!(funct7, 0 | 1) {
         state.npu_inst_id = state.npu_inst_id.wrapping_add(1);
     }
@@ -97,7 +121,7 @@ pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs
     let enable = funct7 >> 4;
     let btrace = state.trace.btrace_enabled()
         && pc != 0
-        && matches!(enable, 2..=4)
+        && (funct7 == 15 || matches!(enable, 2..=4))
         && !matches!(funct7 as u32, FUNCT7_MSET | FUNCT7_MVIN_MMIO);
     if btrace {
         state.bank_scoreboard.issue(inst_id);
@@ -114,12 +138,19 @@ pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs
         })
     };
 
+    if funct7 == 13 {
+        let tile = state.shared_memory.as_ref().expect("mvover requires a Tile");
+        tile.mvover(xs1, xs2).unwrap_or_else(|error| panic!("mvover: {error}"));
+        state.profile.end_npu(funct7, profile_started);
+        return 0;
+    }
+    let mut private = state.private.lock().expect("private banks poisoned");
+    let PrivateState { banks, bank_cfgs, bank_map, .. } = &mut *private;
     let State {
-        banks,
-        bank_cfgs,
-        bank_map,
+        rvv,
         shared_memory,
         hart_id,
+        endpoint_index,
         bank_scoreboard,
         deferred_bank_frees,
         mmio_banks,
@@ -131,7 +162,7 @@ pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs
     let result = unsafe {
         with_trace_ptr(trace, || {
             let shared_range = crate::config::shared_vbank_base()..crate::config::virtual_bank_num();
-            let accesses_shared = !matches!(funct7, 0 | 1)
+            let accesses_shared = funct7 >= 16
                 && [0, 10, 20].into_iter().any(|shift| {
                     let bank = ((xs1 >> shift) & 0x3ff) as usize;
                     bank > crate::config::private_vbank_upper_bound() && shared_range.contains(&bank)
@@ -156,7 +187,7 @@ pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs
                     Some(inst::instruction::SharedBankContext {
                         cfgs,
                         bank_map: map,
-                        hart_id: *hart_id,
+                        local_core: endpoint_index.expect("shared bank requires compute core"),
                         virtual_bank_count: *virtual_bank_count,
                     }),
                 ),
@@ -169,6 +200,7 @@ pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs
                 hart_id: *hart_id,
                 inst_id,
                 memory,
+                rvv,
                 banks: tracked_banks,
                 cfgs: bank_cfgs,
                 bank_map,
@@ -186,7 +218,11 @@ pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs
     if btrace {
         bank_scoreboard.complete(inst_id);
         let op_type = format!("funct7_{}", funct7);
-        let w0_vbank = ((xs1 >> 20) & 0x3ff) as u32;
+        let w0_vbank = if funct7 == 15 {
+            result as u32
+        } else {
+            ((xs1 >> 20) & 0x3ff) as u32
+        };
         let mut status_hash = 0;
         let cols = if crate::config::is_shared_vbank(w0_vbank as u64) {
             let shared = shared_memory
@@ -195,7 +231,7 @@ pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs
                 .banks
                 .lock()
                 .expect("shared banks poisoned");
-            let core = *hart_id % (shared.cfgs.len() / shared.virtual_bank_count);
+            let core = endpoint_index.expect("shared bank requires compute core");
             shared.cfgs[core * shared.virtual_bank_count + w0_vbank as usize].cols
         } else {
             bank_cfgs[w0_vbank as usize].cols
@@ -210,7 +246,7 @@ pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs
                     .expect("shared banks poisoned");
                 let pbank_id = shared
                     .map
-                    .resolve_hart_group(*hart_id, w0_vbank, group_id)
+                    .resolve_hart_group(endpoint_index.expect("shared bank requires compute core"), w0_vbank, group_id)
                     .unwrap_or_else(|| panic!("unmapped shared vbank {w0_vbank} group {group_id}"));
                 shared.storage[pbank_id].status_hash()
             } else {
@@ -227,6 +263,10 @@ pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs
                     inst_id,
                     *hart_id as u64,
                     BTraceBank {
+                        owner_hart_id: if crate::config::is_shared_vbank(w0_vbank as u64) {
+                            shared_memory.as_ref().expect("shared bank storage is unavailable")
+                                .bank_owner_hart(*hart_id, true) as u64
+                        } else { *hart_id as u64 },
                         vbank_id: w0_vbank,
                         hash: status_hash,
                     },
@@ -237,6 +277,7 @@ pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs
             })
         };
     }
+    drop(private);
     state.finish_bank_frees();
     state.profile.end_npu(funct7, profile_started);
 

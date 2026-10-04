@@ -64,6 +64,14 @@ impl Instruction for Mvin {
         } else {
             let p = pbank(ctx, bank_id);
             let line_bytes = 16usize;
+            if stride == 1 {
+                ctx.memory
+                    .read_buffer(mem_addr, &mut ctx.banks[p][..depth as usize * line_bytes]);
+                if !crate::trace::mtrace_enabled() {
+                    ctx.config_mut(bank_id).valid_rows = depth;
+                    return 0;
+                }
+            }
 
             for i in 0..depth {
                 let addr = mem_addr + i * line_bytes as u64 * stride;
@@ -71,9 +79,11 @@ impl Instruction for Mvin {
                 if bank_offset + line_bytes > bank_size() {
                     panic!("mvin: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
                 }
-                let mut bytes = [0; 16];
-                ctx.memory.read_buffer(addr, &mut bytes);
-                ctx.banks[p][bank_offset..bank_offset + 16].copy_from_slice(&bytes);
+                if stride != 1 {
+                    let mut bytes = [0; 16];
+                    ctx.memory.read_buffer(addr, &mut bytes);
+                    ctx.banks[p][bank_offset..bank_offset + 16].copy_from_slice(&bytes);
+                }
                 crate::trace::mtrace(crate::trace::MTraceEvent {
                     is_write: true,
                     is_shared: crate::config::is_shared_vbank(bank_id),

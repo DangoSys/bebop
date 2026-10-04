@@ -211,13 +211,13 @@ extern "C" void bbsim_memory_tick(
     unsigned char *ar_ready, long long int ar_addr, int ar_id, int ar_size,
     int ar_len, unsigned char aw_valid, unsigned char *aw_ready,
     long long int aw_addr, int aw_id, int aw_size, int aw_len,
-    unsigned char w_valid, unsigned char *w_ready, int w_strb, long long w_data,
+    unsigned char w_valid, unsigned char *w_ready, int w_strb, const svBitVecVal *w_data,
     unsigned char w_last, unsigned char *r_valid, unsigned char r_ready,
-    int *r_id, int *r_resp, long long *r_data, unsigned char *r_last,
+    int *r_id, int *r_resp, svBitVecVal *r_data, unsigned char *r_last,
     unsigned char *b_valid, unsigned char b_ready, int *b_id, int *b_resp) {
   mm_t *mm = (mm_t *)channel;
   mm->tick(reset, ar_valid, ar_addr, ar_id, ar_size, ar_len, aw_valid, aw_addr,
-           aw_id, aw_size, aw_len, w_valid, w_strb, &w_data, w_last, r_ready,
+           aw_id, aw_size, aw_len, w_valid, static_cast<uint32_t>(w_strb), const_cast<svBitVecVal *>(w_data), w_last, r_ready,
            b_ready);
   *ar_ready = mm->ar_ready();
   *aw_ready = mm->aw_ready();
@@ -225,7 +225,8 @@ extern "C" void bbsim_memory_tick(
   *r_valid = mm->r_valid();
   *r_id = mm->r_id();
   *r_resp = mm->r_resp();
-  *r_data = *((long *)mm->r_data());
+  memset(r_data, 0, 16);
+  memcpy(r_data, mm->r_data(), mm->get_word_size());
   *r_last = mm->r_last();
   *b_valid = mm->b_valid();
   *b_id = mm->b_id();

@@ -3,13 +3,13 @@ use std::sync::OnceLock;
 
 include!(concat!(env!("OUT_DIR"), "/buckyball.config.rs"));
 
-const CHIP_PB: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../chip.pb"));
+const CHIP_PB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/chip.pb"));
 
 #[derive(Clone)]
 pub struct Topology {
     pub mem_config: MemConfig,
     pub ball_domain: BallDomainConfig,
-    pub vector_len: usize,
+    pub rvv: Option<RvvConfig>,
     pub virtual_bank_count: usize,
 }
 
@@ -34,6 +34,11 @@ pub struct BallDomainConfig {
 }
 
 pub struct TileTopology {
+    /// BB-enabled bank endpoints, including the controller when it has BB.
+    pub endpoint_cores: Vec<(String, usize)>,
+    /// Execution cores excluding the explicit controller, including CPU-only cores.
+    pub worker_cores: Vec<(String, usize)>,
+    pub controller_core: Option<usize>,
     pub cores: Vec<(String, usize)>,
     pub has_buckyball: bool,
     pub virtual_bank_count: usize,
@@ -62,9 +67,36 @@ fn to_topology(core: &CoreInstance) -> Topology {
         .mmio
         .as_ref()
         .unwrap_or_else(|| panic!("core {} missing mmio", core.index));
+    let rvv = if core.balldomain.as_ref().is_some_and(|domain| domain.ball_num > 0) {
+        let config = core.rvv.as_ref().expect("Buckyball core missing rvv config");
+        config.enable.expect("rvv.enable must be explicitly configured").then(|| config.clone())
+    } else {
+        None
+    };
+    let domain = core.balldomain.as_ref();
+    let kernels: Vec<_> = domain.into_iter().flat_map(|domain| &domain.mappings)
+        .filter(|mapping| !mapping.builtin.is_empty()).collect();
+    assert_eq!(kernels.len(), usize::from(rvv.is_some()),
+        "RVV-enabled cores require exactly one builtin kernel mapping");
+    for mapping in kernels {
+        assert_eq!(mapping.builtin, "kernel", "unknown builtin Ball");
+        assert_eq!(mapping.ball_name, "kernel");
+        assert_eq!(mapping.ball_class, "framework.balldomain.kernel.KernelBall");
+        assert_eq!((mapping.in_bw,mapping.out_bw,mapping.mmio_read_bw,mapping.mmio_write_bw),(0,0,0,0));
+        assert!(mapping.config_path.is_empty() && mapping.ball_dir.is_empty());
+        let config=rvv.as_ref().expect("builtin kernel requires enabled RVV");
+        let expected=[("laneNumber",config.lane_number),("vLen",config.v_len),
+            ("eLen",config.e_len),("iBufWords",config.i_buf_words),("memoryPorts",config.memory_ports)];
+        assert_eq!(mapping.ball_params.len(),expected.len());
+        for (key,value) in expected {assert_eq!(mapping.ball_params.get(key),Some(&value.to_string()));}
+        let domain=domain.unwrap();
+        assert_eq!(mapping.ball_id+1,domain.ball_num);
+        assert_eq!(domain.mappings.last().unwrap().ball_id,mapping.ball_id);
+        assert!(domain.isa.iter().any(|entry| entry.mnemonic=="RUN_KERNEL" && entry.funct7==15 && entry.bid==mapping.ball_id));
+    }
     Topology {
         virtual_bank_count: virtual_bank_count_for_core(core.index as usize),
-        vector_len: core.gp_domain.as_ref().map_or(0, |gp_domain| gp_domain.v_len as usize),
+        rvv,
         mem_config: MemConfig {
             bank_num: bank.num as usize,
             bank_width: bank.width as usize,
@@ -136,7 +168,11 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
         .shared_mem
         .as_ref()
         .unwrap_or_else(|| panic!("tile {tile_index} missing shared_mem"));
-    let first_core = &c.cores[tile.core_indices[0] as usize];
+    let compute_indices: Vec<_> = tile.core_indices.iter().copied().filter(|&index| {
+        c.cores[index as usize].balldomain.as_ref()
+            .is_some_and(|domain| domain.ball_num > 0)
+    }).collect();
+    let first_core = &c.cores[*compute_indices.first().unwrap_or(&tile.core_indices[0]) as usize];
     let bank_entries = mem_of(first_core)
         .bank
         .as_ref()
@@ -148,7 +184,7 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
         .unwrap_or_else(|| panic!("core {} missing bank", first_core.index))
         .width as usize;
     assert_eq!(bank_width % 8, 0, "tile {tile_index} bank width is not byte-aligned");
-    for &core_index in &tile.core_indices {
+    for &core_index in &compute_indices {
         let core = &c.cores[core_index as usize];
         let bank = mem_of(core)
             .bank
@@ -179,18 +215,53 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
             (role, index)
         })
         .collect();
+    let endpoint_cores = compute_indices.into_iter().map(|index| {
+        let index = index as usize;
+        (c.cores[index].role.clone(), index)
+    }).collect();
+    let controller_core = tile.controller_core_index.map(|index| {
+        assert!(tile.core_indices.contains(&index), "Tile controller is outside its core_indices");
+        index as usize
+    });
+    let worker_cores = if let Some(controller) = controller_core {
+        tile.core_indices.iter().filter(|&&index| index as usize != controller)
+            .map(|&index| (c.cores[index as usize].role.clone(), index as usize)).collect()
+    } else { Vec::new() };
     TileTopology {
+        controller_core,
+        worker_cores,
+        endpoint_cores,
         has_buckyball: tile.core_indices.iter().any(|&index| {
             c.cores[index as usize]
                 .balldomain
                 .as_ref()
-                .is_some_and(|domain| !domain.mappings.is_empty())
+                .is_some_and(|domain| domain.ball_num > 0)
         }),
         cores,
         virtual_bank_count: tile.virtual_bank_count as usize,
         shared_physical_bank_count,
         shared_bank_size: bank_entries * (bank_width / 8),
     }
+}
+
+pub fn core_hart_id(core_index: usize) -> usize {
+    chip().cores[core_index].hart_id.expect("CoreInstance.hart_id is required") as usize
+}
+
+pub fn hart_capacity() -> usize {
+    let mut harts: Vec<_> = chip().cores.iter().map(|core|
+        core.hart_id.expect("CoreInstance.hart_id is required") as usize).collect();
+    let count = harts.len();
+    harts.sort_unstable();
+    harts.dedup();
+    assert_eq!(harts.len(), count, "configured physical hart IDs must be unique");
+    harts.last().expect("chip has no configured harts") + 1
+}
+
+pub fn tile_for_core(core_index: usize) -> TileTopology {
+    let tile = chip().tiles.iter().position(|tile|
+        tile.core_indices.contains(&(core_index as u32))).expect("core belongs to no tile");
+    tile_topology(tile)
 }
 
 pub fn tile_count() -> usize {
@@ -205,26 +276,14 @@ pub fn core_signature(core_index: usize) -> u64 {
     for value in [bank.num, bank.width, bank.entries] {
         bytes.extend_from_slice(&u64::from(value).to_le_bytes());
     }
-    let mut isa = core
-        .balldomain
-        .as_ref()
-        .expect("core instruction set")
-        .isa
-        .iter()
-        .collect::<Vec<_>>();
+    let mut isa = core.balldomain.as_ref().map(|domain| domain.isa.iter().collect::<Vec<_>>()).unwrap_or_default();
     isa.sort_by_key(|entry| entry.funct7);
     for entry in isa {
         bytes.extend_from_slice(entry.mnemonic.as_bytes());
         bytes.push(0);
         bytes.extend_from_slice(&entry.funct7.to_le_bytes());
     }
-    let mut mappings = core
-        .balldomain
-        .as_ref()
-        .expect("core instruction set")
-        .mappings
-        .iter()
-        .collect::<Vec<_>>();
+    let mut mappings = core.balldomain.as_ref().map(|domain| domain.mappings.iter().collect::<Vec<_>>()).unwrap_or_default();
     mappings.sort_by_key(|mapping| mapping.ball_class.rsplit('.').next().unwrap());
     for mapping in mappings {
         bytes.extend_from_slice(mapping.ball_class.rsplit('.').next().unwrap().as_bytes());

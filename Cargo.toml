@@ -8,6 +8,7 @@ members = [
   "src/nodes/lib/microphone",
   "src/nodes/lib/speaker",
   "src/nodes/lib/keyboard",
+  "src/nodes/lib/memory",
   "src/nodes/lib/vga",
   "src/nodes/lib/rtc",
   "src/nodes/lib/fd-redirect",
@@ -57,7 +58,7 @@ required-features = ["bemu"]
 default = []
 verilator = ["dep:bebop-verilator"]
 p2e = ["dep:bebop-p2e"]
-bemu = []
+bemu = ["bebop-p2e?/diff"]
 
 [dependencies]
 bebop-verilator = { path = "src/nodes/verilator", optional = true }

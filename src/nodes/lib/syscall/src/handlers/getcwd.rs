@@ -1,7 +1,8 @@
 use crate::constants::{ERR_FAULT, ERR_INVAL};
 use crate::utils::guest_range;
+use bebop_memory::Memory;
 
-pub fn handle_getcwd(buf_addr: u64, size: usize, memory: &mut [u8]) -> (u64, bool) {
+pub fn handle_getcwd(buf_addr: u64, size: usize, memory: &dyn Memory) -> (u64, bool) {
     if size < 2 {
         return ((ERR_INVAL as u64), false);
     }
@@ -23,7 +24,7 @@ pub fn handle_getcwd(buf_addr: u64, size: usize, memory: &mut [u8]) -> (u64, boo
         return ((ERR_INVAL as u64), false);
     }
 
-    memory[off..off + cwd.len()].copy_from_slice(&cwd);
+    memory.write_buffer(off, &cwd);
     // Linux kernel's getcwd syscall returns the number of bytes written
     // (including the null terminator), NOT the buffer address.
     // glibc's wrapper converts this length to a buf pointer.

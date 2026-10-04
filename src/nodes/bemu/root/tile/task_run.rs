@@ -3,9 +3,9 @@ use crate::{config, root::chip::Chip, Core, TraceConfig};
 use std::{sync::Arc, time::Instant};
 
 pub fn run(args: Args) -> Result<(), String> {
-    let topology = config::tile_topology(args.tile_index);
-    let chip = Chip::new(args.memory_mib << 20, topology.cores.len() + 1);
-    Machine::prepare(&args, &chip, 0)?.run(&args, &std::sync::atomic::AtomicBool::new(false), None)
+    if !args.pk { return super::run::run(args); }
+    let chip = Chip::new(args.memory_mib << 20, config::hart_capacity());
+    Machine::prepare(&args, &chip)?.run(&args, &std::sync::atomic::AtomicBool::new(false), None)
 }
 
 pub(crate) struct Machine {
@@ -15,28 +15,19 @@ pub(crate) struct Machine {
 }
 
 impl Machine {
-    pub(crate) fn prepare(args: &Args, chip: &Chip, first_hart: usize) -> Result<Self, String> {
+    pub(crate) fn prepare(args: &Args, chip: &Chip) -> Result<Self, String> {
         let topology = config::tile_topology(args.tile_index);
-        let tile = Tile::new(
-            &chip,
-            first_hart,
-            topology.cores.len() + 1,
-            topology
-                .cores
-                .iter()
-                .map(|(_, index)| config::core_signature(*index))
-                .collect(),
-            topology.shared_physical_bank_count,
-            topology.shared_bank_size,
-            topology.virtual_bank_count,
-        );
+        let controller_core = topology.controller_core.ok_or_else(||
+            "PK task execution requires an explicit Tile controller".to_string())?;
+        let tile = Tile::new(chip, &topology,
+            topology.worker_cores.iter().map(|(_, index)| config::core_signature(*index)).collect());
         let mut controller = Core::new_with_core_hart(
-            &args.log_dir.join("hart-0"),
+            &args.log_dir.join(format!("hart-{}", config::core_hart_id(controller_core))),
             TraceConfig::new(args.itrace, args.mtrace),
             args.disasm,
             args.profile,
-            topology.cores[0].1,
-            0,
+            controller_core,
+            config::core_hart_id(controller_core),
             Some(Arc::clone(&tile)),
         )
         .map_err(|error| error.to_string())?;
@@ -47,15 +38,15 @@ impl Machine {
         controller.set_working_directory(args.log_dir.canonicalize().map_err(|error| error.to_string())?);
         controller.init_hart(args.pk).map_err(|error| error.to_string())?;
         let mut workers = Vec::new();
-        for (index, (_, core)) in topology.cores.into_iter().enumerate() {
+        for (_, core) in topology.worker_cores {
             workers.push(
                 Core::new_with_core_hart(
-                    &args.log_dir.join(format!("hart-{}", index + 1)),
+                    &args.log_dir.join(format!("hart-{}", config::core_hart_id(core))),
                     TraceConfig::new(args.itrace, args.mtrace),
                     args.disasm,
                     args.profile,
                     core,
-                    index + 1,
+                    config::core_hart_id(core),
                     Some(Arc::clone(&tile)),
                 )
                 .map_err(|error| error.to_string())?,
@@ -68,8 +59,12 @@ impl Machine {
         })
     }
 
-    pub(crate) fn run(self, args: &Args, cancelled: &std::sync::atomic::AtomicBool,
-                     endpoint: Option<&crate::root::host_io::Endpoint>) -> Result<(), String> {
+    pub(crate) fn run(
+        self,
+        args: &Args,
+        cancelled: &std::sync::atomic::AtomicBool,
+        endpoint: Option<&crate::root::host_io::Endpoint>,
+    ) -> Result<(), String> {
         let Self {
             mut controller,
             workers,
@@ -89,26 +84,30 @@ impl Machine {
                                 while let Some(task) = tile.tasks.take(index) {
                                     worker.start_task(task);
                                     while !worker.task_done() && !tile.tasks.stopped() {
-                                        if let Err(error) = worker.step(256) {
-                                            eprintln!("core {}: {error}", index + 1);
-                                            worker.complete_task(1);
-                                            break;
-                                        }
+                                        worker
+                                            .step(256)
+                                            .map_err(|error| format!("core {}: {error}", index + 1))?;
                                     }
                                 }
                                 worker.stop(0);
                                 worker.step(0).map_err(|error| error.to_string())?;
                                 if let Some(report) = worker.profile_report(started.elapsed()) {
                                     std::fs::write(
-                                        log_dir.join(format!("hart-{}/tool-profile.txt", index + 1)),
+                                        log_dir.join(format!("hart-{}/tool-profile.txt", worker.hart_id())),
                                         crate::format_profile_report(&report),
                                     )
                                     .map_err(|error| error.to_string())?;
                                 }
                                 Ok::<(), String>(())
                             }));
-                            if result.is_err() {
+                            if let Ok(Err(error)) = &result {
+                                eprintln!("{error}");
+                            }
+                            if !matches!(&result, Ok(Ok(()))) {
                                 tile.tasks.stop();
+                                if let Some(endpoint) = endpoint {
+                                    endpoint.stop();
+                                }
                             }
                             result.unwrap_or_else(|panic| std::panic::resume_unwind(panic))
                         })
@@ -128,8 +127,8 @@ impl Machine {
                         }
                         while !controller.finished() {
                             if !args.pk {
-                                if let Some(code) = tile.platform.lock().expect("BEMU platform poisoned").exit_codes[0]
-                                {
+                                let code = tile.exit_codes[controller.hart_id()].load(std::sync::atomic::Ordering::Acquire);
+                                if code != i64::MIN {
                                     return if code == 0 {
                                         Ok(())
                                     } else {
@@ -141,6 +140,7 @@ impl Machine {
                                 return Err("NPU core stopped unexpectedly".to_string());
                             }
                             controller.step(256).map_err(|error| error.to_string())?;
+                            controller.wait_control();
                         }
                         let code = controller.exit_code().expect("controller exit status");
                         if code != 0 {

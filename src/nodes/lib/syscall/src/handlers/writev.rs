@@ -2,13 +2,14 @@ use super::write::handle_write;
 use crate::constants::ERR_FAULT;
 use crate::state::SyscallState;
 use crate::utils::guest_range;
+use bebop_memory::Memory;
 
 pub fn handle_writev(
     state: &mut SyscallState,
     fd: u64,
     iov_addr: u64,
     iovcnt: usize,
-    memory: &mut [u8],
+    memory: &dyn Memory,
 ) -> (u64, bool) {
     let iovec_size = 16;
     let mut total_written = 0u64;
@@ -25,8 +26,8 @@ pub fn handle_writev(
 
         let mut buf_ptr_bytes = [0u8; 8];
         let mut len_bytes = [0u8; 8];
-        buf_ptr_bytes.copy_from_slice(&memory[mem_offset..mem_offset + 8]);
-        len_bytes.copy_from_slice(&memory[mem_offset + 8..mem_offset + 16]);
+        memory.read_buffer(mem_offset, &mut buf_ptr_bytes);
+        memory.read_buffer(mem_offset + 8, &mut len_bytes);
 
         let buf_addr = u64::from_le_bytes(buf_ptr_bytes);
         let count = u64::from_le_bytes(len_bytes) as usize;

@@ -69,7 +69,6 @@ pub fn run(config: BemuRunConfig) -> Result<(), Whatever> {
                 })?;
             }
         }
-        println!("[INFO] BEMU total latency: {}", bemu.total_latency());
 
         // Step 5: exit bemu simulation
         let exit_code = bemu.exit_code().unwrap_or(0);

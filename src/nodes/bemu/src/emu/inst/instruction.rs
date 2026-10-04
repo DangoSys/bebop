@@ -15,7 +15,7 @@
 //===-----------------------------------------------------------------===//-----===//
 //
 // Instruction trait enforces uniform interface for all instructions.
-// Each instruction implements exec() and latency() methods.
+// Each instruction implements exec() and a local latency model.
 //
 // ExecContext bundles all mutable state (memory, banks, configs, bank_map)
 // to simplify instruction signatures.
@@ -363,9 +363,10 @@ impl IndexMut<usize> for TrackedBanks<'_> {
 }
 
 pub struct SharedBankContext<'a> {
+    /// Tile-local BB endpoint index, independent of task slots and CSR hart IDs.
+    pub local_core: usize,
     pub cfgs: &'a mut [BankConfig],
     pub bank_map: &'a mut BankMap,
-    pub hart_id: usize,
     pub virtual_bank_count: usize,
 }
 
@@ -374,6 +375,7 @@ pub struct ExecContext<'a> {
     pub hart_id: usize,
     pub inst_id: u64,
     pub(crate) memory: crate::root::mmu::GuestAccess<'a>,
+    pub(crate) rvv: &'a mut Option<rvv::Engine>,
     pub banks: TrackedBanks<'a>,
     pub cfgs: &'a mut [BankConfig],
     pub bank_map: &'a mut BankMap,
@@ -396,7 +398,7 @@ impl ExecContext<'_> {
         if crate::config::is_shared_vbank(bank_id) {
             let shared = self.shared.as_ref().expect("shared bank storage is unavailable");
             &shared.cfgs
-                [shared.hart_id % (shared.cfgs.len() / shared.virtual_bank_count) * shared.virtual_bank_count + index]
+                [shared.local_core * shared.virtual_bank_count + index]
         } else {
             &self.cfgs[index]
         }
@@ -406,7 +408,7 @@ impl ExecContext<'_> {
         let index = usize::try_from(bank_id).expect("bank id exceeds usize");
         if crate::config::is_shared_vbank(bank_id) {
             let shared = self.shared.as_mut().expect("shared bank storage is unavailable");
-            let core = shared.hart_id % (shared.cfgs.len() / shared.virtual_bank_count);
+            let core = shared.local_core;
             &mut shared.cfgs[core * shared.virtual_bank_count + index]
         } else {
             &mut self.cfgs[index]
@@ -418,7 +420,7 @@ impl ExecContext<'_> {
             let shared = self.shared.as_ref().expect("shared bank storage is unavailable");
             let physical = shared
                 .bank_map
-                .resolve_hart_group(shared.hart_id, bank_id as u32, group as u32)
+                .resolve_hart_group(shared.local_core, bank_id as u32, group as u32)
                 .unwrap_or_else(|| panic!("shared vbank {bank_id} group {group} not mapped"));
             self.banks.banks.len() + physical
         } else {
@@ -457,8 +459,7 @@ pub trait Instruction {
 
     /// Execute the instruction, return result value
     fn exec(xs1: u64, xs2: u64, ctx: &mut ExecContext) -> u64;
-
-    /// Calculate latency (cycles from issue to complete)
+    /// Local timing contract; callers must model overlap and contention separately.
     fn latency(xs1: u64, xs2: u64) -> u64;
 }
 

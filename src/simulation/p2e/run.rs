@@ -20,7 +20,8 @@ use crate::simulation::lib::difftest::DiffSession;
 
 #[cfg(feature = "p2e")]
 pub struct P2eRunConfig {
-    pub image: PathBuf,
+    pub image: Option<PathBuf>,
+    pub load_manifest: Option<PathBuf>,
     pub bitstream: PathBuf,
     pub log_dir: PathBuf,
     pub fpga_location: String,
@@ -59,9 +60,6 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
         ));
     }
 
-    if !config.image.exists() {
-        snafu::whatever!("P2E image not found: {}", config.image.display());
-    }
     if !config.bitstream.exists() {
         snafu::whatever!("bitstream not found: {}", config.bitstream.display());
     }
@@ -84,6 +82,15 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
         .map(std::path::Path::to_path_buf)
         .ok_or_else(|| Whatever::without_source("P2E bitstream must be under <case>/fpgaCompDir".to_string()))?;
     let rtcfg_path = case_home.join("vvacDir/runtimeDir/rtcfg");
+    bebop_p2e::validate_cold_case(&case_home).whatever_context("P2E case does not support cold loading")?;
+    if config.load_manifest.is_some() && config.diff.is_some() {
+        snafu::whatever!("multi-segment load manifests do not support single-ELF DiffTest");
+    }
+    let load_plan = bebop_p2e::validate_loads(config.image.as_deref(), config.load_manifest.as_deref())
+        .whatever_context("invalid P2E load inputs")?;
+    let load_record = serde_json::to_vec_pretty(&load_plan).whatever_context("failed to encode load record")?;
+    std::fs::write(config.log_dir.join("load-inputs.json"), load_record)
+        .whatever_context("failed to save P2E load input identity")?;
     if !rtcfg_path.exists() {
         snafu::whatever!("P2E runtime config not found: {}", rtcfg_path.display());
     }
@@ -91,7 +98,7 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let uart_log_path = config.log_dir.join("uart.log");
 
     log::info!("P2E Simulation Starting");
-    log::info!("  Image: {}", config.image.display());
+    log::info!("  Load inputs: {:?}", load_plan);
     log::info!("  Bitstream: {}", bitstream.display());
     log::info!("  FPGA: {}", config.fpga_location);
     log::info!("  Runtime case: {}", case_home.display());
@@ -129,7 +136,7 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
 
     let main_tcl = bebop_p2e::generate_main_tcl(
         &config.fpga_location,
-        &config.image,
+        &load_plan,
         &bitstream,
         config.multi_fpga,
         config.wave,
@@ -149,7 +156,7 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let mut vdbg = bebop_p2e::start_vdbg_background(&main_tcl_path).whatever_context("failed to start P2E vdbg")?;
     bebop_p2e::wait_for_flash(&flash_done_flag, &mut vdbg, || Ok(())).whatever_context("P2E flash failed")?;
 
-    let _vdbg = vdbg.exit_on_drop(sim_exit_flag.clone());
+    let mut vdbg = vdbg.exit_on_drop(sim_exit_flag.clone());
     let ctb = bebop_p2e::init_ctb(&case_home, &rtcfg_path).whatever_context("failed to initialize P2E CTB")?;
     #[cfg(feature = "bemu")]
     let diff_started = config.diff.as_ref().map(|_| Instant::now());
@@ -162,6 +169,9 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     std::fs::write(&host_init_flag, "").whatever_context("failed to signal P2E host init")?;
 
     let result = bebop_p2e::wait_for_completion(|| {
+        if !bebop_p2e::ffi::check_exit() {
+            vdbg.check_running()?;
+        }
         #[cfg(feature = "bemu")]
         if let Some(diff) = diff_session.as_mut() {
             diff.sync_golden(None).map_err(|error| error.to_string())?;
@@ -232,7 +242,6 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     log::info!("P2E simulation completed");
     log::info!("  Exit code: {}", result.exit_code);
     log::info!("  Elapsed: {:?}", result.elapsed);
-    log::info!("  Cycles: {}", result.cycles);
     log::info!("  UART log: {}", uart_log_path.display());
 
     if !result.uart_log.is_empty() {

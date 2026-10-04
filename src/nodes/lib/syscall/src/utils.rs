@@ -1,4 +1,5 @@
 use crate::constants::GUEST_MEM_BASE;
+use bebop_memory::Memory;
 use std::cell::RefCell;
 
 #[derive(Clone, Copy)]
@@ -68,14 +69,16 @@ pub fn add_guest_mapping(virt: u64, phys: u64, len: u64) {
     GUEST_MAPPINGS.with_borrow_mut(|current| current.push(GuestMapping { virt, phys, len }));
 }
 
-pub fn guest_cstr(addr: u64, max_len: usize, memory: &[u8]) -> Option<Vec<u8>> {
+pub fn guest_cstr(addr: u64, max_len: usize, memory: &dyn Memory) -> Option<Vec<u8>> {
     let start = guest_range(addr, 1, memory.len())?;
     let mut bytes = Vec::new();
     for i in 0..max_len {
         if start + i >= memory.len() {
             return None;
         }
-        let b = memory[start + i];
+        let mut byte = [0];
+        memory.read_buffer(start + i, &mut byte);
+        let b = byte[0];
         if b == 0 {
             return Some(bytes);
         }

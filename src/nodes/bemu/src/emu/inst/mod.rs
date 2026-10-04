@@ -16,6 +16,7 @@ pub mod f34_mvin_2d;
 #[path = "35_mvin_mmio.rs"]
 pub mod f35_mvin_mmio;
 pub mod instruction;
+pub mod kernel;
 pub use base::{cycles_after_issue, execute_known};
 
 pub use decode::{FUNCT7_MSET, FUNCT7_MVIN_MMIO};

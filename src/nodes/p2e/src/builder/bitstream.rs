@@ -4,6 +4,12 @@ use super::pnr::PnrStep;
 use super::vcom::VcomStep;
 use super::vsyn::VsynStep;
 
+#[derive(Debug)]
+pub enum BuildOutcome {
+    Assessment(&'static str),
+    Runtime,
+}
+
 /// Bitstream builder
 ///
 /// `build_dir` contains both the design build artifacts (vvacDir) and synthesis outputs.
@@ -17,7 +23,13 @@ impl BitstreamBuilder {
         Self { build_dir }
     }
 
-    pub fn build(&self) -> Result<(), String> {
+    pub fn build(&self, stop_after: Option<&str>) -> Result<BuildOutcome, String> {
+        if !matches!(stop_after, None | Some("vsyn") | Some("vcom")) {
+            return Err("stop-after must be vsyn or vcom".to_string());
+        }
+        if stop_after.is_some() && (self.bitstream_path().exists() || self.build_dir.join("bebop-p2e").exists()) {
+            return Err("Resource assessment requires a case without an existing bitstream/runtime".to_string());
+        }
         log::info!("Starting P2E bitstream build...");
         log::info!("  Build dir: {:?}", self.build_dir);
 
@@ -30,11 +42,17 @@ impl BitstreamBuilder {
         // Step 1: vsyn
         let vsyn = VsynStep::new(self.build_dir.clone(), "xepic_vvac_top".to_string());
         vsyn.run()?;
+        if stop_after == Some("vsyn") {
+            return Ok(BuildOutcome::Assessment("vsyn"));
+        }
 
         // Step 2: vcom
         let vcom_tcl = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/builder/2_vcom/vcom_compile.tcl");
         let vcom = VcomStep::new(self.build_dir.clone(), "xepic_vvac_top".to_string(), vcom_tcl)?;
         vcom.run()?;
+        if stop_after == Some("vcom") {
+            return Ok(BuildOutcome::Assessment("vcom"));
+        }
 
         // Step 3: PNR
         let pnr = PnrStep::new(self.build_dir.clone());
@@ -43,6 +61,13 @@ impl BitstreamBuilder {
         log::info!("P2E bitstream build completed successfully");
         log::info!("Bitstream: {:?}", self.bitstream_path());
         log::info!("libvCtb.so: {:?}", self.libvctb_path());
+        Ok(BuildOutcome::Runtime)
+    }
+
+    pub fn resume_post_route(&self) -> Result<(), String> {
+        self.setup_environment()?;
+        self.verify_vvac_outputs()?;
+        PnrStep::new(self.build_dir.clone()).resume_post_route()?;
         Ok(())
     }
 

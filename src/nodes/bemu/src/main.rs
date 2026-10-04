@@ -179,9 +179,8 @@ fn run() -> Result<(), String> {
         }
         if last_progress.elapsed() >= Duration::from_secs(10) {
             eprintln!(
-                "[BEMU] elapsed {:.1}s, accelerator cycles {}",
-                started.elapsed().as_secs_f64(),
-                bemu.total_latency()
+                "[BEMU] elapsed {:.1}s",
+                started.elapsed().as_secs_f64()
             );
             last_progress = Instant::now();
         }
