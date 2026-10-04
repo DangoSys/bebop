@@ -82,7 +82,6 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
         .map(std::path::Path::to_path_buf)
         .ok_or_else(|| Whatever::without_source("P2E bitstream must be under <case>/fpgaCompDir".to_string()))?;
     let rtcfg_path = case_home.join("vvacDir/runtimeDir/rtcfg");
-    bebop_p2e::validate_cold_case(&case_home).whatever_context("P2E case does not support cold loading")?;
     if config.load_manifest.is_some() && config.diff.is_some() {
         snafu::whatever!("multi-segment load manifests do not support single-ELF DiffTest");
     }

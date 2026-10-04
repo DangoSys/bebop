@@ -152,7 +152,6 @@ impl RunWorkloadStep {
     }
 
     fn generate_run_tcl(&self) -> Result<String, String> {
-        crate::runner::validate_cold_case(&self.output_dir)?;
         if self.ddr_channel != 0 {
             return Err("cold-load runner requires DDR channel zero".into());
         }

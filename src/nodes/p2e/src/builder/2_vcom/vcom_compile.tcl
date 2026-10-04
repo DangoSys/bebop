@@ -2,7 +2,6 @@
 # Based on p2e_ddr4_backdoor example
 
 set top_module "xepic_vvac_top"
-file delete -force p2e-cold-load.cap
 
 # Read netlist
 design_read -netlist ./xepic_vvac_top.vm
@@ -120,7 +119,3 @@ foreach xdc [glob fpgaCompDir/part_b*_f*/ccu_timing.xdc] {
     puts -nonewline $fd $constraints
     close $fd
 }
-
-set capability [open p2e-cold-load.cap w]
-puts $capability "p2e-cold-load-v1"
-close $capability

@@ -6,7 +6,7 @@ pub use builder::{BitstreamBuilder, BuildOutcome};
 pub use ctb::ffi;
 pub use runner::{
     configure_vvac_environment, generate_main_tcl, init_ctb, source_environment, start_vdbg_background,
-    validate_cold_case, validate_loads, wait_for_completion, wait_for_flash, FlashBitstreamStep, InitStep, LoadPlan,
+    validate_loads, wait_for_completion, wait_for_flash, FlashBitstreamStep, InitStep, LoadPlan,
     RunWorkloadStep, SimulationResult, VdbgProcess,
 };
 

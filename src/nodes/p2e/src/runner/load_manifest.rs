@@ -4,7 +4,6 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-pub const COLD_LOAD_CAPABILITY: &str = "p2e-cold-load-v1";
 const DDR_BASE: u64 = 0x8000_0000;
 const DDR_SIZE: u64 = 16 * 1024 * 1024 * 1024;
 const FDT_SIZE: u64 = 256 * 1024;
@@ -36,21 +35,10 @@ pub struct LoadManifest {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LoadPlan {
-    pub capability: String,
     pub manifest_path: Option<PathBuf>,
     pub manifest_sha256: Option<String>,
     pub manifest: Option<LoadManifest>,
     pub loads: Vec<LoadEntry>,
-}
-
-pub fn validate_cold_case(case: &Path) -> Result<(), String> {
-    let file = case.join("p2e-cold-load.cap");
-    let capability = std::fs::read_to_string(&file)
-        .map_err(|e| format!("cold-load case capability missing: {}: {e}", file.display()))?;
-    if capability != format!("{COLD_LOAD_CAPABILITY}\n") {
-        return Err(format!("unsupported cold-load case capability: {}", file.display()));
-    }
-    Ok(())
 }
 
 pub fn file_sha256(path: &Path) -> Result<String, String> {
@@ -92,7 +80,6 @@ pub fn validate_loads(image: Option<&Path>, manifest_path: Option<&Path>) -> Res
                 format: "hex".into(),
             };
             Ok(LoadPlan {
-                capability: COLD_LOAD_CAPABILITY.into(),
                 manifest_path: None,
                 manifest_sha256: None,
                 manifest: None,
@@ -173,7 +160,6 @@ pub fn validate_loads(image: Option<&Path>, manifest_path: Option<&Path>) -> Res
                 }
             }
             Ok(LoadPlan {
-                capability: COLD_LOAD_CAPABILITY.into(),
                 manifest_path: Some(path),
                 manifest_sha256: Some(format!("{:x}", Sha256::digest(&bytes))),
                 loads: manifest.loads.clone(),

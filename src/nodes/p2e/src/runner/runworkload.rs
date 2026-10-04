@@ -82,11 +82,6 @@ pub fn generate_main_tcl(
     wave: bool,
     wave_start: u64,
 ) -> Result<String, String> {
-    let case = bitstream
-        .parent()
-        .and_then(|path| path.parent())
-        .ok_or("bitstream must be under a cold-load case/fpgaCompDir")?;
-    super::validate_cold_case(case)?;
     let script_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/runner");
     let path_word =
         |path: &Path| -> Result<String, String> { Ok(tcl_word(path.to_str().ok_or("Tcl paths must be UTF-8")?)) };
