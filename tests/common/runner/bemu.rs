@@ -33,6 +33,13 @@ impl BackendRunner for BemuBackend {
         {
             cmd.arg("--pk");
         }
+        let stem = elf_path.file_stem().expect("workload file name").to_str().expect("UTF-8 workload name");
+        let (tile, core) = bebop_bemu::workload_placement(stem).unwrap_or_else(|error| panic!("{error}"));
+        if stem.ends_with("-linux") {
+            cmd.arg("--core-index").arg(core.to_string());
+        } else {
+            cmd.arg("--tile-index").arg(tile.to_string());
+        }
         cmd.arg("--itrace").arg("--mtrace");
     }
 

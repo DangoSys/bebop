@@ -478,7 +478,7 @@ impl Core {
                 Step::Waiting => (),
                 Step::Custom(_) => unreachable!(),
             }
-            let code = self.tile.exit_codes[self.hart.id as usize].load(std::sync::atomic::Ordering::Acquire);
+            let code = self.tile.exit_code.load(std::sync::atomic::Ordering::Acquire);
             if code != i64::MIN {
                 self.exit_code = Some(code as i32);
             }
@@ -533,6 +533,42 @@ impl Core {
 #[cfg(test)]
 mod identity_tests {
     use super::*;
+    #[test]
+    fn scu_exit_from_another_hart_is_global_and_preserves_first_code() {
+        let topology = config::tile_topology(usize::from(config::tile_count() > 1));
+        let core_index = topology.cores[0].1;
+        let hart = config::core_hart_id(core_index);
+        for code in [0_u32, 37] {
+            let chip = Chip::new(4096, config::hart_capacity());
+            let tile = Tile::new(&chip, &topology, Vec::new());
+            let path = std::env::temp_dir().join(format!("bemu-scu-{}-{code}", std::process::id()));
+            let mut core = Core::new_with_core_hart(&path, TraceConfig::new(false, false),
+                false, false, core_index, hart, Some(Arc::clone(&tile))).unwrap();
+            let target_hart = usize::from(hart == 0 && config::hart_capacity() > 1);
+            let address = crate::root::platform::SCU_BASE
+                + target_hart as u64 * crate::root::platform::SCU_STRIDE;
+            let instructions = [
+                address as u32 | 0x2b7,
+                code << 20 | 0x313,
+                0x0062a023,
+                0x0000006f,
+            ];
+            let bytes: Vec<_> = instructions.into_iter().flat_map(u32::to_le_bytes).collect();
+            write_guest(tile.memory.as_ref(), DRAM_BASE, &bytes).unwrap();
+            core.hart.pc = DRAM_BASE;
+            core.step(4).unwrap();
+            assert_eq!(core.exit_code(), Some(code as i32));
+            {
+                use rvsim::bus::{Bus, Width};
+                let mut platform = tile.platform.lock().unwrap();
+                platform.write(address, Width::Word, (code ^ 1) as u64).unwrap();
+            }
+            assert_eq!(tile.exit_code.load(std::sync::atomic::Ordering::Acquire), code as i64);
+            drop(core);
+            std::fs::remove_dir_all(path).unwrap();
+        }
+    }
+
     fn issue(core: &mut Core, funct: u8, rs1: u64, rs2: u64) {
         config::configure_core(core.core_index);
         let memory = GuestAccess { platform: Port { devices: &core.tile.platform, memory: &core.tile.memory },

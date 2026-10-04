@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 mod chip_config;
 
-pub use chip_config::{core_hart_id, hart_capacity, tile_for_core, core_signature, tile_count, tile_topology, RvvConfig, TileTopology, Topology};
+pub use chip_config::{workload_placement, core_hart_id, hart_capacity, tile_for_core, core_signature, tile_count, tile_topology, RvvConfig, TileTopology, Topology};
 
 thread_local! {
     static TOPOLOGY: Cell<Option<&'static Topology>> = const { Cell::new(None) };

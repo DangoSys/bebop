@@ -3,7 +3,9 @@ use crate::{config, root::chip::Chip, Core, TraceConfig};
 use std::{sync::Arc, time::Instant};
 
 pub fn run(args: Args) -> Result<(), String> {
-    if !args.pk { return super::run::run(args); }
+    if !args.pk || config::tile_topology(args.tile_index).controller_core.is_none() {
+        return super::run::run(args);
+    }
     let chip = Chip::new(args.memory_mib << 20, config::hart_capacity());
     Machine::prepare(&args, &chip)?.run(&args, &std::sync::atomic::AtomicBool::new(false), None)
 }
@@ -127,7 +129,7 @@ impl Machine {
                         }
                         while !controller.finished() {
                             if !args.pk {
-                                let code = tile.exit_codes[controller.hart_id()].load(std::sync::atomic::Ordering::Acquire);
+                                let code = tile.exit_code.load(std::sync::atomic::Ordering::Acquire);
                                 if code != i64::MIN {
                                     return if code == 0 {
                                         Ok(())

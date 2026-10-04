@@ -35,6 +35,7 @@ pub fn run(args: Args) -> Result<(), String> {
         topology.worker_cores.iter().map(|(_, index)| crate::config::core_signature(*index)).collect()
     } else { Vec::new() };
     let memory = Tile::new(&chip, &topology, signatures);
+    let barrier_participants = topology.endpoint_cores.len();
     let mut cores = Vec::with_capacity(topology.cores.len());
     for (_, core_index) in topology.cores {
         let mut core = Core::new_with_core_hart(
@@ -56,7 +57,7 @@ pub fn run(args: Args) -> Result<(), String> {
         state: std::sync::Mutex::new((0_usize, 0_u64)),
         ready: std::sync::Condvar::new(),
         stopped: std::sync::atomic::AtomicBool::new(false),
-        core_count: cores.len(),
+        core_count: barrier_participants,
     };
     std::thread::scope(|scope| {
         let mut threads = Vec::with_capacity(cores.len());

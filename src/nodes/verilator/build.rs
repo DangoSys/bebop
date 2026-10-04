@@ -33,6 +33,7 @@ const VERILATOR_ARGS: &[&str] = &[
     "--vpi",
     "--trace",
     "-O3",
+    "-fno-dedup",
     "--x-assign",
     "fast",
     "--x-initial",

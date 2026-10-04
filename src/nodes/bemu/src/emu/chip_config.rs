@@ -304,3 +304,22 @@ pub fn core_signature(core_index: usize) -> u64 {
         (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
     })
 }
+
+/// Resolve the standard workload profile through the chip's explicit core and tile metadata.
+pub fn workload_placement(stem: &str) -> Result<(usize, usize), String> {
+    let chip = chip();
+    let profiles: Vec<_> = chip.profiles.iter().filter(|profile| {
+        ["ctest", "mlirtest", "soctest"].iter().any(|kind|
+            stem.starts_with(&format!("{}-{}-{}-", chip.name, profile.name, kind)))
+    }).collect();
+    let [profile] = profiles.as_slice() else {
+        return Err(format!("workload {stem} must identify exactly one configured compiler profile"));
+    };
+    let core = chip.cores.iter().find(|core| {
+        let name = if core.role.is_empty() { &core.pkg } else { &core.role };
+        name == &profile.name
+    }).ok_or_else(|| format!("profile {} has no configured core", profile.name))?;
+    let tile = chip.tiles.iter().position(|tile| tile.core_indices.contains(&core.index))
+        .ok_or_else(|| format!("core {} belongs to no tile", core.index))?;
+    Ok((tile, core.index as usize))
+}

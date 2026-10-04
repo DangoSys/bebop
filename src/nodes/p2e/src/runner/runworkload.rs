@@ -100,10 +100,13 @@ pub fn generate_main_tcl(
     ] {
         tcl.push_str(&format!("source {}\n", path_word(&script_dir.join(script))?));
     }
-    tcl.push_str("flash_bitstream $fpga_location $multi_fpga\ninit_fpga $fpga_location\n");
+    // hw_server places a single-FPGA case on the physical location; afterwards vdbg addresses
+    // it as the case's own FPGA 0.A. A multi-FPGA case keeps physical locations.
+    tcl.push_str("set design_fpga [expr {$multi_fpga ? $fpga_location : \"0.A\"}]\n");
+    tcl.push_str("flash_bitstream $fpga_location $design_fpga $multi_fpga\ninit_fpga $fpga_location\n");
     for load in &plan.loads {
         tcl.push_str(&format!(
-            "load_image $fpga_location 0 {} {} {}\n",
+            "load_image $design_fpga 0 {} {} {}\n",
             path_word(&load.file)?,
             load.offset,
             tcl_word(&load.format)

@@ -41,6 +41,7 @@ pub(crate) struct Platform {
     pub(crate) capture_uart: bool,
     pub(crate) console_uart: bool,
     pub(crate) exit_codes: Arc<Vec<AtomicI64>>,
+    pub(crate) exit_code: Arc<AtomicI64>,
 }
 
 impl Platform {
@@ -75,6 +76,7 @@ impl Platform {
             capture_uart: false,
             console_uart: true,
             exit_codes: Arc::new((0..harts).map(|_| AtomicI64::new(i64::MIN)).collect()),
+            exit_code: Arc::new(AtomicI64::new(i64::MIN)),
         }
     }
 
@@ -237,6 +239,9 @@ impl Bus for Platform {
             return match ((address - SCU_BASE) % SCU_STRIDE, width) {
                 (0, Width::Word | Width::Double) => {
                     self.exit_codes[hart].store(value as i32 as i64, Ordering::Release);
+                    let _ = self.exit_code.compare_exchange(
+                        i64::MIN, value as i32 as i64, Ordering::AcqRel, Ordering::Acquire,
+                    );
                     Ok(())
                 }
                 (0x20000, Width::Byte | Width::Word) => {

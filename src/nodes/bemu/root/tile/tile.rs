@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, sync::{Arc, Mutex}};
 
 pub struct Tile {
     pub(crate) clint: Arc<bebop_clint::Clint>,
-    pub(crate) exit_codes: Arc<Vec<std::sync::atomic::AtomicI64>>,
+    pub(crate) exit_code: Arc<std::sync::atomic::AtomicI64>,
     pub(crate) harts: Vec<usize>,
     pub(crate) controller_hart: Option<usize>,
     pub(crate) endpoint_harts: Vec<usize>,
@@ -42,7 +42,7 @@ impl Tile {
         let compute_count = endpoint_harts.len();
         Arc::new(Self {
             clint: Arc::clone(&chip.clint),
-            exit_codes: Arc::clone(&chip.platform.lock().expect("BEMU platform poisoned").exit_codes),
+            exit_code: Arc::clone(&chip.platform.lock().expect("BEMU platform poisoned").exit_code),
             harts,
             controller_hart,
             endpoint_harts,
