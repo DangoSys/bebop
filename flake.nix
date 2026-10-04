@@ -56,7 +56,7 @@
           shellHook = ''
             export CC="${pkgs.base.clang}/bin/clang"
             export CXX="${pkgs.base.clang}/bin/clang++"
-          '' + pkgs.riscv.shellHook + pkgs.bemu.shellHook + ''
+          '' + pkgs.riscv.shellHook + ''
             echo "================= bebop development environment activated ========================="
             echo "Enable nodes including:"
             echo "bebop: $(command -v bebop)"

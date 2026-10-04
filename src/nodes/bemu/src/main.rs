@@ -8,8 +8,9 @@ use std::time::{Duration, Instant};
 #[derive(Parser)]
 #[command(name = "bebop-bemu")]
 struct Args {
-    #[arg(long, default_value_t = 0)]
-    core_index: usize,
+    /// Defaults to the first Buckyball core, so a pk process can issue its NPU instructions.
+    #[arg(long)]
+    core_index: Option<usize>,
     #[arg(long)]
     elf: PathBuf,
     #[arg(long)]
@@ -54,12 +55,17 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let args = Args::parse();
+    let core_index = args.core_index.unwrap_or_else(|| {
+        (0..bebop_bemu::tile_count())
+            .find_map(|tile| bebop_bemu::tile_topology(tile).endpoint_cores.first().map(|(_, core)| *core))
+            .unwrap_or(0)
+    });
     let mut bemu = Core::new_with_core(
         &args.log_dir,
         TraceConfig::new(args.itrace, args.mtrace),
         args.disasm,
         args.tool_profile,
-        args.core_index,
+        core_index,
     )
     .map_err(|e| e.to_string())?;
     let chip = bemu.chip();

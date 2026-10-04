@@ -17,7 +17,7 @@ harness = false
 
 [dependencies]
 memory = { package = "bebop-memory", path = "../../../../../../bebop/src/nodes/lib/memory" }
-rvsim = { path = "../../../../../../bebop/src/nodes/bemu/rvcpu" }
+rvsim = { git = "https://github.com/DangoSys/riscv-cpu-sim", rev = "a1cdfd44707ee73549118917d1784f3b1bb22dec" }
 rvv = { path = "../../../../../../bebop/src/nodes/bemu/rvv" }
 bebop-dasm = { path = "../../../../../../bebop/src/nodes/lib/dasm" }
 clap = { version = "4", features = ["derive"] }
