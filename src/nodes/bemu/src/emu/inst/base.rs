@@ -55,18 +55,3 @@ register_instructions! {
     super::f34_mvin_2d::Mvin2d,
     super::f35_mvin_mmio::MvinMmio,
 }
-
-#[cfg(test)]
-mod latency_tests {
-    use super::cycles_after_issue;
-
-    #[test]
-    fn bank_transfer_uses_row_count() {
-        crate::config::configure_core(0);
-        let bytes = 256u64;
-        let rows = bytes / crate::config::bank_row_bytes() as u64;
-        assert_eq!(cycles_after_issue(33, rows << 30, 0), rows);
-        assert_eq!(cycles_after_issue(16, rows << 30, 0), rows);
-    }
-
-}

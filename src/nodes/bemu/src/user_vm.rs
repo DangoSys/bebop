@@ -11,14 +11,14 @@ pub(crate) struct GuestMap {
     pub(crate) len: u64,
 }
 
-pub(crate) struct PkVm {
+pub(crate) struct UserVm {
     root: u64,
     pages: Arc<Mutex<Pages>>,
     allocations: Vec<(u64, u64)>,
     pub(crate) maps: Vec<GuestMap>,
 }
 
-impl PkVm {
+impl UserVm {
     pub(crate) fn new(memory: &dyn Memory, pages: Arc<Mutex<Pages>>, image: (u64, u64)) -> Result<Self, String> {
         let mut vm = Self {
             root: 0,
@@ -28,6 +28,13 @@ impl PkVm {
         };
         vm.root = vm.alloc_table(memory)?;
         Ok(vm)
+    }
+
+    pub(crate) fn allocate_physical(&mut self, bytes: u64) -> Result<u64, String> {
+        let size = align_up(bytes, PAGE_SIZE);
+        let address = self.pages.lock().expect("DDR page pool poisoned").allocate(size)?;
+        self.allocations.push((address, size));
+        Ok(address)
     }
 
     pub(crate) fn satp(&self) -> u64 {
@@ -78,7 +85,7 @@ impl PkVm {
         let end = off + size as usize;
         if end > memory.len() {
             return Err(format!(
-                "pk physical page allocator exceeds memory: addr=0x{phys:x} size={size}"
+                "user physical page allocator exceeds memory: addr=0x{phys:x} size={size}"
             ));
         }
         memory.fill(off, end - off, 0);
@@ -208,7 +215,7 @@ impl PkVm {
     }
 }
 
-impl Drop for PkVm {
+impl Drop for UserVm {
     fn drop(&mut self) {
         let mut pages = self.pages.lock().expect("DDR page pool poisoned");
         for (address, bytes) in self.allocations.drain(..) {

@@ -1,7 +1,7 @@
 pub const BASE: u64 = 0x0200_0000;
 pub const SIZE: u64 = 0x1_0000;
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::{OnceLock, atomic::{AtomicU32, AtomicU64, Ordering}};
 
 #[repr(align(64))]
 struct Clock(AtomicU64);
@@ -9,6 +9,7 @@ struct Clock(AtomicU64);
 pub struct Clint {
     msip: Vec<AtomicU32>,
     progress: Vec<Clock>,
+    participants: OnceLock<Vec<usize>>,
     offset: AtomicU64,
     mtimecmp: Vec<AtomicU64>,
 }
@@ -18,9 +19,17 @@ impl Clint {
         Self {
             msip: (0..harts).map(|_| AtomicU32::new(0)).collect(),
             progress: (0..harts).map(|_| Clock(AtomicU64::new(0))).collect(),
+            participants: OnceLock::new(),
             offset: AtomicU64::new(0),
             mtimecmp: (0..harts).map(|_| AtomicU64::new(u64::MAX)).collect(),
         }
+    }
+
+    // Whole-chip virtual time advances only when every explicit participant has progressed.
+    pub fn coordinate(&self, harts: Vec<usize>) {
+        assert!(!harts.is_empty());
+        assert!(harts.iter().all(|id| *id < self.progress.len()));
+        self.participants.set(harts).expect("CLINT participants configured twice");
     }
 
     pub fn load(&self, offset: u64, size: usize) -> Option<u64> {
@@ -97,11 +106,11 @@ impl Clint {
     }
     #[inline]
     pub fn cycles(&self) -> u64 {
-        self.progress
-            .iter()
-            .map(|clock| clock.0.load(Ordering::Relaxed))
-            .max()
-            .unwrap()
+        if let Some(harts) = self.participants.get() {
+            harts.iter().map(|id| self.progress[*id].0.load(Ordering::Relaxed)).min().unwrap()
+        } else {
+            self.progress.iter().map(|clock| clock.0.load(Ordering::Relaxed)).max().unwrap()
+        }
     }
     #[inline]
     pub fn sample(&self, hart: usize) -> (u64, u64) {

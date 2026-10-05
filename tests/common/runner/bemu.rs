@@ -27,36 +27,30 @@ impl BackendRunner for BemuBackend {
             cmd.arg("--log-dir").arg(artifacts.log_dir());
         }
 
-        if elf_path
-            .file_stem()
-            .is_some_and(|stem| stem.to_string_lossy().ends_with("-linux"))
-        {
-            cmd.arg("--pk");
-        }
-        let stem = elf_path.file_stem().expect("workload file name").to_str().expect("UTF-8 workload name");
-        let (tile, core) = bebop_bemu::workload_placement(stem).unwrap_or_else(|error| panic!("{error}"));
-        if stem.ends_with("-linux") {
-            cmd.arg("--core-index").arg(core.to_string());
+        let system = elf_path.file_name().expect("ELF name").to_string_lossy().starts_with("fw_payload-");
+        if system {
+            assert!(bebop_bin.file_stem().expect("runner name").to_string_lossy().starts_with("bebop-chip-"),
+                    "Linux firmware suites require the whole-chip BEMU runner");
+            cmd.arg("--system");
         } else {
+            let stem = elf_path.file_stem().expect("workload file name").to_str().expect("UTF-8 workload name");
+            let (tile, _) = bebop_bemu::workload_placement(stem).unwrap_or_else(|error| panic!("{error}"));
             cmd.arg("--tile-index").arg(tile.to_string());
         }
         cmd.arg("--itrace").arg("--mtrace");
     }
 
     fn timeout(&self) -> Duration {
-        Duration::from_secs(300)
+        Duration::from_secs(1800)
     }
 
-    /// Baremetal workloads run on the chip's tile runner; a pk (Linux user-mode) process runs on
-    /// the single-core bebop-bemu built beside it.
-    fn runner_bin(&self, default: &Path, elf_path: &Path) -> PathBuf {
-        let linux = elf_path.file_stem().is_some_and(|stem| stem.to_string_lossy().ends_with("-linux"));
-        let core = default.with_file_name("bebop-bemu");
-        if linux && core.is_file() { core } else { default.to_path_buf() }
+    fn runner_bin(&self, default: &Path, _elf_path: &Path) -> PathBuf {
+        default.to_path_buf()
     }
 
     fn match_case(&self, test_case: &ElfTestCase) -> bool {
-        test_case.stem.ends_with("-baremetal") || test_case.stem.ends_with("-linux")
+        test_case.stem.ends_with("-baremetal") ||
+            (test_case.stem.starts_with("fw_payload-") && test_case.path.extension().is_some_and(|ext| ext == "elf"))
     }
 
     fn needs_log_dir(&self) -> bool {

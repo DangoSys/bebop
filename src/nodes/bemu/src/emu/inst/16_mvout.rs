@@ -30,6 +30,7 @@ impl Instruction for Mvout {
 
         let cols = ctx.config(bank_id).cols;
         let groups = cols.max(1) as usize;
+        let geometry = super::decode::DmaRows::decode(xs1, xs2, groups as u64);
 
         if groups > 1 {
             // depth is virtual-bank rows (same contract as mvin groups>1).
@@ -40,7 +41,7 @@ impl Instruction for Mvout {
                     if bank_offset + 16 > bank_size() {
                         panic!("mvout: bank range: bank_offset={bank_offset} line_bytes=16 depth={depth}");
                     }
-                    let addr = mem_addr + i as u64 * groups as u64 * 16 * stride + group as u64 * 16;
+                    let addr = geometry.source(i as u64, group as u64);
                     let bytes: [u8; 16] = ctx.banks[p][bank_offset..bank_offset + 16].try_into().unwrap();
                     ctx.memory.write_buffer(addr, &bytes);
                     crate::trace::mtrace(crate::trace::MTraceEvent {
@@ -75,7 +76,7 @@ impl Instruction for Mvout {
                 if bank_offset + line_bytes > bank_size() {
                     panic!("mvout: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
                 }
-                let addr = mem_addr + i * line_bytes as u64 * stride;
+                let addr = geometry.source(i, 0);
                 if stride != 1 {
                     let bytes: [u8; 16] = ctx.banks[p][bank_offset..bank_offset + 16].try_into().unwrap();
                     ctx.memory.write_buffer(addr, &bytes);

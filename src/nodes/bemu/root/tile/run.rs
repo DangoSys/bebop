@@ -14,8 +14,12 @@ pub struct Args {
     pub(crate) elf: PathBuf,
     #[arg(long)]
     pub(crate) log_dir: PathBuf,
-    #[arg(long)]
-    pub(crate) pk: bool,
+    #[arg(long, conflicts_with = "tile_index")]
+    pub(crate) system: bool,
+    #[arg(long, requires = "system")]
+    pub(crate) dtb: Option<PathBuf>,
+    #[arg(long, requires = "system")]
+    pub(crate) initrd: Option<PathBuf>,
     #[arg(long)]
     pub(crate) disasm: bool,
     #[arg(long = "tool-profile")]
@@ -24,11 +28,12 @@ pub struct Args {
     pub(crate) itrace: bool,
     #[arg(long)]
     pub(crate) mtrace: bool,
-    #[arg(last = true, requires = "pk")]
+    #[arg(last = true)]
     pub(crate) arguments: Vec<String>,
 }
 
 pub fn run(args: Args) -> Result<(), String> {
+    if args.system { return crate::root::chip::run_system(&args); }
     let topology = tile_topology(args.tile_index);
     let chip = Chip::new(args.memory_mib << 20, crate::config::hart_capacity());
     let signatures = if topology.controller_core.is_some() {
@@ -49,8 +54,8 @@ pub fn run(args: Args) -> Result<(), String> {
         )
         .map_err(|error| error.to_string())?;
         core.set_arguments(args.arguments.clone());
-        core.load_elf(&args.elf, args.pk).map_err(|error| error.to_string())?;
-        core.init_hart(args.pk).map_err(|error| error.to_string())?;
+        core.load_elf(&args.elf).map_err(|error| error.to_string())?;
+        core.init_hart().map_err(|error| error.to_string())?;
         cores.push(core);
     }
     let sync = Sync {

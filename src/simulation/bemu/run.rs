@@ -30,7 +30,6 @@ use bebop_bemu::{format_profile_report, print_profile_report, Core, TraceConfig}
 pub struct BemuRunConfig {
     pub elf: PathBuf,
     pub log_dir: PathBuf,
-    pub pk: bool,
     pub disasm: bool,
     pub tool_profile: bool,
     pub itrace: bool,
@@ -50,10 +49,10 @@ pub fn run(config: BemuRunConfig) -> Result<(), Whatever> {
         let mut bemu = Core::new(&config.log_dir, trace_config, config.disasm, config.tool_profile)?;
 
         // Step 2: Load workload
-        bemu.load_elf(&config.elf, config.pk)?;
+        bemu.load_elf(&config.elf)?;
 
         // Step 3: Initialize hart
-        bemu.init_hart(config.pk)?;
+        bemu.init_hart()?;
 
         // Step 4: Run bemu in a loop until finished
         let started = config.tool_profile.then(Instant::now);

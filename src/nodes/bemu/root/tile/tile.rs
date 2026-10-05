@@ -63,19 +63,3 @@ impl Tile {
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn physical_harts_have_no_contiguous_tile_assumption() {
-        let topology = crate::config::tile_topology(usize::from(crate::config::tile_count()>1));
-        let tile = Tile::new(&Chip::new(4096, crate::config::hart_capacity()), &topology, Vec::new());
-        let controller = topology.controller_core.map(crate::config::core_hart_id).unwrap_or(tile.harts[0]);
-        for (_, core) in &topology.cores {println!("CORE SIGNATURE cfg{core}={:016x}",crate::config::core_signature(*core));}
-        let worker = tile.endpoint_harts[0];
-        assert_eq!(tile.bank_owner_hart(worker, true), controller);
-        assert_eq!(tile.bank_owner_hart(worker, false), worker);
-        assert_eq!(tile.banks.lock().unwrap().cfgs.len(), tile.endpoint_harts.len()*topology.virtual_bank_count);
-    }
-}

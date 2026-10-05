@@ -3,7 +3,7 @@ mod sim;
 mod input;
 
 mod accel;
-mod pk;
+mod user_vm;
 mod process;
 #[path = "../root/mod.rs"]
 pub mod root;

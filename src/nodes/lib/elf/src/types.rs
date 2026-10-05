@@ -66,6 +66,22 @@ pub struct Elf64Sym {
     pub st_size: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OsAbi {
+    Standalone,
+    GnuUser,
+}
+
+impl OsAbi {
+    pub(crate) fn from_ident(value: u8) -> Result<Self, String> {
+        match value {
+            0 => Ok(Self::Standalone),
+            3 => Ok(Self::GnuUser),
+            other => Err(format!("unsupported ELF OSABI {other}")),
+        }
+    }
+}
+
 /// TLS information from ELF
 #[derive(Debug, Clone, Copy)]
 pub struct TlsInfo {
@@ -101,6 +117,7 @@ pub struct ElfLoadSegment {
 
 #[derive(Debug, Clone)]
 pub struct ElfAnalysis {
+    pub os_abi: OsAbi,
     pub original_entry: u64,
     pub entry: u64,
     pub min_vaddr: u64,

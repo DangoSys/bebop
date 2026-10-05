@@ -36,12 +36,6 @@ cargo run --features bemu -- run bemu \
   --elf="<elf-file-path>" \
   --log-dir="<log-dir>"
 
-# BEMU with proxy kernel
-cargo run --features bemu -- run bemu \
-  --elf="<elf-file-path>" \
-  --log-dir="<log-dir>" \
-  --pk
-
 # Verilator
 cargo run --features verilator -- run verilator \
   --elf="<elf-file-path>" \

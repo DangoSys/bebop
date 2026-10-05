@@ -9,12 +9,13 @@ use crate::common::runner::backend::BackendRunner;
 #[derive(Clone, Debug)]
 pub struct P2eBackend {
     bitstream: PathBuf,
+    fpga_location: String,
     diff: bool,
 }
 
 impl P2eBackend {
-    pub fn new(bitstream: PathBuf, diff: bool) -> Self {
-        Self { bitstream, diff }
+    pub fn new(bitstream: PathBuf, fpga_location: String, diff: bool) -> Self {
+        Self { bitstream, fpga_location, diff }
     }
 }
 
@@ -35,11 +36,12 @@ impl BackendRunner for P2eBackend {
         cmd.arg("run").arg("p2e");
         cmd.arg("--image").arg(elf_path);
         cmd.arg("--bitstream").arg(&self.bitstream);
+        cmd.arg("--fpga-location").arg(&self.fpga_location);
         cmd.arg("--log-dir").arg(artifacts.log_dir());
         if self.diff {
             let reference = if elf_path
                 .file_stem()
-                .is_some_and(|stem| stem.to_string_lossy().ends_with("-pk"))
+                .is_some_and(|stem| stem.to_string_lossy().ends_with("-linux"))
             {
                 elf_path.with_extension("elf")
             } else {
@@ -64,7 +66,7 @@ impl BackendRunner for P2eBackend {
 
     fn match_case(&self, test_case: &ElfTestCase) -> bool {
         test_case.stem.ends_with("-baremetal")
-            || (test_case.stem.starts_with("fw_payload-") && test_case.stem.ends_with("-pk"))
+            || (test_case.stem.starts_with("fw_payload-") && test_case.stem.ends_with("-linux"))
     }
 
     fn needs_log_dir(&self) -> bool {

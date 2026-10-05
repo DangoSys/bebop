@@ -73,7 +73,6 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
         RunTarget::Bemu {
             elf,
             log_dir,
-            pk,
             disasm,
             tool_profile,
             itrace,
@@ -81,7 +80,6 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
         } => crate::simulation::bemu::run::run(crate::simulation::bemu::run::BemuRunConfig {
             elf,
             log_dir,
-            pk,
             disasm,
             tool_profile,
             itrace,

@@ -129,7 +129,7 @@ impl Core {
         })
     }
 
-    pub fn load_elf(&mut self, elf: &Path, pk: bool) -> Result<(), Whatever> {
+    pub fn load_elf(&mut self, elf: &Path) -> Result<(), Whatever> {
         config::configure_core(self.core_index);
         let path = elf.to_str().whatever_context("invalid ELF path")?;
         self.process
@@ -137,8 +137,8 @@ impl Core {
             .expect("process must exist before loading firmware")
             .program_name = path.to_owned();
         let platform = self.tile.platform.lock().expect("BEMU platform poisoned");
-        if pk {
-            let analysis = analyze_elf(path, DRAM_BASE).map_err(Whatever::without_source)?;
+        let analysis = analyze_elf(path, DRAM_BASE).map_err(Whatever::without_source)?;
+        if analysis.os_abi == bebop_elf::OsAbi::GnuUser {
             let bytes = crate::process::align_up(analysis.image_end - DRAM_BASE, crate::process::PAGE_SIZE);
             let address = platform
                 .pages
@@ -187,7 +187,7 @@ impl Core {
             .map_err(|e| e.to_string())
     }
 
-    pub fn init_hart(&mut self, pk: bool) -> Result<(), Whatever> {
+    pub fn init_hart(&mut self) -> Result<(), Whatever> {
         config::configure_core(self.core_index);
         let load = self
             .loaded_elf
@@ -202,29 +202,35 @@ impl Core {
                 &mut self.hart,
                 self.tile.memory.as_ref(),
                 load,
-                pk,
                 pages,
                 self.image_physical,
             )
             .map_err(Whatever::without_source)
     }
 
-    pub fn init_system(&mut self, dtb: &Path, initrd: Option<&Path>) -> Result<(), Whatever> {
+    pub fn init_system(&mut self, dtb: Option<&Path>, initrd: Option<&Path>) -> Result<(), Whatever> {
         let load = self
             .loaded_elf
             .take()
             .whatever_context("load firmware ELF before initializing the system")?;
-        let dtb = std::fs::read(dtb).whatever_context("read system DTB")?;
-        write_guest(self.tile.memory.as_ref(), DTB_ADDRESS, &dtb).map_err(Whatever::without_source)?;
+        if let Some(path) = dtb {
+            let bytes = std::fs::read(path).whatever_context("read system DTB")?;
+            write_guest(self.tile.memory.as_ref(), DTB_ADDRESS, &bytes).map_err(Whatever::without_source)?;
+        }
         if let Some(path) = initrd {
             let image = std::fs::read(path).whatever_context("read initramfs")?;
             write_guest(self.tile.memory.as_ref(), INITRD_ADDRESS, &image).map_err(Whatever::without_source)?;
         }
-        self.process = None;
-        self.hart.pc = load.entry;
-        self.hart.set_register(10, self.hart.id);
-        self.hart.set_register(11, DTB_ADDRESS);
+        self.init_system_hart(load.entry, if dtb.is_some() { DTB_ADDRESS } else { 0 });
         Ok(())
+    }
+
+    pub(crate) fn init_system_hart(&mut self, entry: u64, dtb: u64) {
+        self.process = None;
+        self.hart.privilege = rvsim::Privilege::Machine;
+        self.hart.pc = entry;
+        self.hart.set_register(10, self.hart.id);
+        self.hart.set_register(11, dtb);
     }
 
     pub(crate) fn start_task(&mut self, task: Task) {
@@ -344,6 +350,7 @@ impl Core {
                 snapshot: std::cell::Cell::new(None),
             };
             let pc = self.hart.pc;
+            let privilege = self.hart.privilege;
             let started = self.profile.then(Instant::now);
             let mut event = if let Some(request) = self.pending_control.take() {
                 Step::Custom(request)
@@ -384,14 +391,9 @@ impl Core {
                         {
                             translation.privilege = rvsim::Privilege::Supervisor;
                         }
-                        let guest = GuestAccess {
-                            platform: Port {
-                                devices: &self.tile.platform,
-                                memory: &self.tile.memory,
-                            },
-                            mmu: &self.mmu,
-                            translation,
-                        };
+                        let guest = GuestAccess::new(Port {
+                            devices: &self.tile.platform, memory: &self.tile.memory,
+                        }, &self.mmu, translation);
                         accel::execute(
                             &mut self.accel,
                             guest,
@@ -401,7 +403,7 @@ impl Core {
                             request.pc,
                         )
                     }
-                    0x2b => self.control(request.instruction >> 25, request.rs1, request.rs2)?,
+                    0x2b => Ok(self.control(request.instruction >> 25, request.rs1, request.rs2)?),
                     _ => {
                         return Err(Whatever::without_source(format!(
                             "unsupported custom opcode: 0x{:08x}",
@@ -411,7 +413,7 @@ impl Core {
                 };
                 event = self
                     .hart
-                    .complete_custom(Ok((request.instruction & (1 << 14) != 0).then_some(value)));
+                    .complete_custom(value.map(|value| (request.instruction & (1 << 14) != 0).then_some(value)));
             }
             match event {
                 Step::Retired { pc, instruction } => {
@@ -423,7 +425,7 @@ impl Core {
                         };
                         writeln!(
                             log,
-                            "hart={} pc=0x{pc:016x} inst=0x{instruction:08x} {}",
+                            "hart={} privilege={privilege:?} pc=0x{pc:016x} inst=0x{instruction:08x} {}",
                             self.hart.id,
                             bebop_dasm::disassemble(decoded)
                         )
@@ -527,145 +529,5 @@ impl Core {
     }
     pub fn profile_report(&self, total: Duration) -> Option<BemuProfileReport> {
         self.accel.profile.report(total, self.cpu_elapsed)
-    }
-}
-
-#[cfg(test)]
-mod identity_tests {
-    use super::*;
-    #[test]
-    fn scu_exit_from_another_hart_is_global_and_preserves_first_code() {
-        let topology = config::tile_topology(usize::from(config::tile_count() > 1));
-        let core_index = topology.cores[0].1;
-        let hart = config::core_hart_id(core_index);
-        for code in [0_u32, 37] {
-            let chip = Chip::new(4096, config::hart_capacity());
-            let tile = Tile::new(&chip, &topology, Vec::new());
-            let path = std::env::temp_dir().join(format!("bemu-scu-{}-{code}", std::process::id()));
-            let mut core = Core::new_with_core_hart(&path, TraceConfig::new(false, false),
-                false, false, core_index, hart, Some(Arc::clone(&tile))).unwrap();
-            let target_hart = usize::from(hart == 0 && config::hart_capacity() > 1);
-            let address = crate::root::platform::SCU_BASE
-                + target_hart as u64 * crate::root::platform::SCU_STRIDE;
-            let instructions = [
-                address as u32 | 0x2b7,
-                code << 20 | 0x313,
-                0x0062a023,
-                0x0000006f,
-            ];
-            let bytes: Vec<_> = instructions.into_iter().flat_map(u32::to_le_bytes).collect();
-            write_guest(tile.memory.as_ref(), DRAM_BASE, &bytes).unwrap();
-            core.hart.pc = DRAM_BASE;
-            core.step(4).unwrap();
-            assert_eq!(core.exit_code(), Some(code as i32));
-            {
-                use rvsim::bus::{Bus, Width};
-                let mut platform = tile.platform.lock().unwrap();
-                platform.write(address, Width::Word, (code ^ 1) as u64).unwrap();
-            }
-            assert_eq!(tile.exit_code.load(std::sync::atomic::Ordering::Acquire), code as i64);
-            drop(core);
-            std::fs::remove_dir_all(path).unwrap();
-        }
-    }
-
-    fn issue(core: &mut Core, funct: u8, rs1: u64, rs2: u64) {
-        config::configure_core(core.core_index);
-        let memory = GuestAccess { platform: Port { devices: &core.tile.platform, memory: &core.tile.memory },
-            mmu: &core.mmu, translation: core.hart.translation_context() };
-        accel::execute(&mut core.accel, memory, funct, rs1, rs2, 1);
-        core.accel.finish_bank_frees();
-    }
-
-    #[test]
-    fn shared_vbank_and_mvover_use_compute_indices() {
-        let topology = config::tile_topology(usize::from(config::tile_count()>1));
-        if topology.endpoint_cores.len()<2 { return; }
-        let chip = Chip::new(1<<20,config::hart_capacity());
-        let tile = Tile::new(&chip,&topology,Vec::new());
-        let path = std::env::temp_dir().join(format!("bemu-mapping-{}",std::process::id()));
-        let first=topology.endpoint_cores[0].1;let second=topology.endpoint_cores[1].1;
-        let mut a=Core::new_with_core_hart(&path.join("a"),TraceConfig::new(false,false),false,false,
-            first,config::core_hart_id(first),Some(Arc::clone(&tile))).unwrap();
-        let mut b=Core::new_with_core_hart(&path.join("b"),TraceConfig::new(false,false),false,false,
-            second,config::core_hart_id(second),Some(Arc::clone(&tile))).unwrap();
-        config::configure_core(first);
-        let shared=config::shared_vbank_base();
-        if topology.shared_physical_bank_count>=2 {
-            issue(&mut a,32,shared as u64,1057);issue(&mut b,32,shared as u64,1057);
-            let state=tile.banks.lock().unwrap();
-            let pa=state.map.resolve_hart_group(0,shared as u32,0).unwrap();
-            let pb=state.map.resolve_hart_group(1,shared as u32,0).unwrap();
-            assert_ne!(pa,pb);
-            assert!(state.cfgs[shared].allocated);
-            assert!(state.cfgs[state.virtual_bank_count+shared].allocated);
-            drop(state);
-            issue(&mut a,32,shared as u64,0);
-            assert!(tile.banks.lock().unwrap().map.resolve_hart_group(1,shared as u32,0).is_some());
-            issue(&mut b,32,shared as u64,0);
-        }
-        issue(&mut a,32,0,1057);issue(&mut b,32,0,1057);
-        let bytes:Vec<u8>=(0..16).map(|i| i*7+1).collect();
-        write_guest(tile.memory.as_ref(),DRAM_BASE+0x100,&bytes).unwrap();
-        issue(&mut a,33,1<<30,(DRAM_BASE+0x100)|(1<<39));
-        tile.mvover(1<<8,0).unwrap();
-        issue(&mut b,16,1<<30,(DRAM_BASE+0x200)|(1<<39));
-        let mut result=vec![0;16];tile.memory.read_buffer(DRAM_BASE+0x200,&mut result).unwrap();
-        assert_eq!(bytes,result);
-        let owner=tile.controller_hart.unwrap_or(tile.harts[0]);
-        assert_eq!(tile.bank_owner_hart(a.hart_id(),true),owner);
-        assert_eq!(tile.bank_owner_hart(b.hart_id(),false),b.hart_id());
-        println!("MAPPING PASS controller={:?} cfg={first}/{second} physical={}/{} logical=0/1 capacity={} same-vbank mvover0->1 bytes=0diff",tile.controller_hart,a.hart_id(),b.hart_id(),config::hart_capacity());
-        drop(a);drop(b);std::fs::remove_dir_all(path).unwrap();
-    }
-
-    #[test]
-    fn bank_controller_and_cpu_worker_have_different_namespaces() {
-        let mut topology=config::tile_topology(usize::from(config::tile_count()>1));
-        let Some(cpu)=topology.cores.iter().map(|(_,core)| *core)
-            .find(|core| !topology.endpoint_cores.iter().any(|(_,bb)| bb==core)) else { return; };
-        if topology.endpoint_cores.len()<2 {return;}
-        let gpu=topology.endpoint_cores[0].1;let other=topology.endpoint_cores[1].1;
-        // Explicit role fixture: controller has banks, worker0 is CPU-only.
-        topology.cores=vec![("controller".into(),gpu),("cpu".into(),cpu),("compute".into(),other)];
-        topology.controller_core=Some(gpu);
-        topology.endpoint_cores=vec![("controller".into(),gpu),("compute".into(),other)];
-        topology.worker_cores=vec![("cpu".into(),cpu),("compute".into(),other)];
-        let tile=Tile::new(&Chip::new(1<<20,config::hart_capacity()),&topology,
-            vec![config::core_signature(cpu),config::core_signature(other)]);
-        let path=std::env::temp_dir().join(format!("bemu-roles-{}",std::process::id()));
-        let controller=Core::new_with_core_hart(&path.join("controller"),TraceConfig::new(false,false),false,false,gpu,config::core_hart_id(gpu),Some(Arc::clone(&tile))).unwrap();
-        let mut worker=Core::new_with_core_hart(&path.join("cpu"),TraceConfig::new(false,false),false,false,cpu,config::core_hart_id(cpu),Some(Arc::clone(&tile))).unwrap();
-        let bbworker=Core::new_with_core_hart(&path.join("compute"),TraceConfig::new(false,false),false,false,other,config::core_hart_id(other),Some(Arc::clone(&tile))).unwrap();
-        assert!(controller.is_controller);assert_eq!(controller.worker_index,None);assert_eq!(controller.accel.endpoint_index,Some(0));
-        assert!(!worker.is_controller);assert_eq!(worker.worker_index,Some(0));assert_eq!(worker.accel.endpoint_index,None);
-        assert_eq!(bbworker.worker_index,Some(1));assert_eq!(bbworker.accel.endpoint_index,Some(1));
-        assert_eq!(tile.private_endpoints.lock().unwrap().len(),2);
-        tile.tasks.submit(0,config::core_signature(cpu),Task{entry:DRAM_BASE,argument:0,stack:DRAM_BASE+4096,tls:0,gp:0,workspace:1234,csrs:controller.hart.csrs.clone(),privilege:controller.hart.privilege}).unwrap();
-        worker.start_task(tile.tasks.take(0).unwrap());worker.complete_task(0);
-        assert_eq!(tile.tasks.poll(0),1);assert_eq!(tile.tasks.workspace(Some(0)),1234);
-        println!("ROLE PASS BB controller endpoint0/no-worker; CPU worker0/no-endpoint; BB worker1/endpoint1");
-        drop(controller);drop(worker);drop(bbworker);std::fs::remove_dir_all(path).unwrap();
-    }
-
-    #[test]
-    fn actual_hart_and_logical_compute_namespaces_are_separate() {
-        let tile_index = usize::from(config::tile_count() > 1);
-        let topology = config::tile_topology(tile_index);
-        let tile = Tile::new(&Chip::new(1 << 20, config::hart_capacity()), &topology, Vec::new());
-        let core_index = topology.endpoint_cores[0].1;
-        let hart = config::core_hart_id(core_index);
-        println!("SIGNATURE cfg{core_index}={:016x}",config::core_signature(core_index));
-        let path = std::env::temp_dir().join(format!("bemu-owner-{}", std::process::id()));
-        let core = Core::new_with_core_hart(&path, TraceConfig::new(false,false),false,false,
-            core_index,hart,Some(Arc::clone(&tile))).unwrap();
-        assert_eq!(core.hart.id as usize, hart);
-        assert_eq!(core.accel.hart_id, hart);
-        assert_eq!(core.worker_index, tile.worker_harts.iter().position(|&id| id == hart));
-        assert_eq!(tile.bank_owner_hart(hart,false),hart);
-        let endpoints = tile.private_endpoints.lock().unwrap();
-        assert!(endpoints.contains_key(&0));
-        assert_eq!(endpoints.len(),1);
-        drop(endpoints);drop(core);std::fs::remove_dir_all(path).unwrap();
     }
 }

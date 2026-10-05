@@ -16,6 +16,7 @@ pub fn load_elf(
     let mut file = File::open(path).map_err(|e| format!("Failed to open ELF file: {}", e))?;
 
     let ehdr = read_elf_header(&mut file)?;
+    let os_abi = OsAbi::from_ident(ehdr.e_ident[7])?;
     // ET_DYN = 3 (shared object / PIE)
     let is_pie = ehdr.e_type == 3;
 
@@ -77,6 +78,7 @@ pub fn load_elf(
 
     apply_pointer_fixup(&scan.all_phdrs, &mut ctx);
     let analysis = ElfAnalysis {
+        os_abi,
         original_entry: ehdr.e_entry,
         entry,
         min_vaddr: scan.min_vaddr,
@@ -116,6 +118,7 @@ pub fn load_elf(
 pub fn analyze_elf(path: &str, mem_base_addr: u64) -> Result<ElfAnalysis, String> {
     let mut file = File::open(path).map_err(|e| format!("Failed to open ELF file: {}", e))?;
     let ehdr = read_elf_header(&mut file)?;
+    let os_abi = OsAbi::from_ident(ehdr.e_ident[7])?;
     let is_pie = ehdr.e_type == 3;
     let scan = scan_program_headers(&mut file, &ehdr, mem_base_addr)?;
     let entry = compute_entry(
@@ -127,6 +130,7 @@ pub fn analyze_elf(path: &str, mem_base_addr: u64) -> Result<ElfAnalysis, String
     );
 
     Ok(ElfAnalysis {
+        os_abi,
         original_entry: ehdr.e_entry,
         entry,
         min_vaddr: scan.min_vaddr,

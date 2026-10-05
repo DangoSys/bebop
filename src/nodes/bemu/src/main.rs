@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 #[derive(Parser)]
 #[command(name = "bebop-bemu")]
 struct Args {
-    /// Defaults to the first Buckyball core, so a pk process can issue its NPU instructions.
+    /// Defaults to the first Buckyball core, so a GNU user process can issue its NPU instructions.
     #[arg(long)]
     core_index: Option<usize>,
     #[arg(long)]
@@ -26,9 +26,7 @@ struct Args {
     /// Expose peripherals to the independent VM window over vm.sock.
     #[arg(long)]
     vm: bool,
-    #[arg(long, conflicts_with = "system")]
-    pk: bool,
-    #[arg(long, requires = "dtb")]
+    #[arg(long)]
     system: bool,
     #[arg(long, requires = "system")]
     dtb: Option<PathBuf>,
@@ -42,7 +40,7 @@ struct Args {
     itrace: bool,
     #[arg(long)]
     mtrace: bool,
-    #[arg(last = true, requires = "pk")]
+    #[arg(last = true)]
     arguments: Vec<String>,
 }
 
@@ -114,15 +112,15 @@ fn run() -> Result<(), String> {
     }
     let mut audio = BufWriter::new(std::fs::File::create(args.log_dir.join("speaker.pcm")).map_err(|e| e.to_string())?);
     bemu.set_arguments(args.arguments);
-    bemu.load_elf(&args.elf, args.pk).map_err(|e| e.to_string())?;
+    bemu.load_elf(&args.elf).map_err(|e| e.to_string())?;
     if let Some(directory) = args.working_directory {
         bemu.set_working_directory(directory.canonicalize().map_err(|e| e.to_string())?);
     }
     if args.system {
-        bemu.init_system(args.dtb.as_deref().unwrap(), args.initrd.as_deref())
+        bemu.init_system(args.dtb.as_deref(), args.initrd.as_deref())
             .map_err(|e| e.to_string())?;
     } else {
-        bemu.init_hart(args.pk).map_err(|e| e.to_string())?;
+        bemu.init_hart().map_err(|e| e.to_string())?;
     }
     let started = Instant::now();
     let mut last_progress = started;

@@ -59,3 +59,40 @@ pub fn pbank_group(ctx: &ExecContext, vbank: u64, group: u64) -> usize {
 
 pub const FUNCT7_MSET: u32 = 32;
 pub const FUNCT7_MVIN_MMIO: u32 = 35;
+
+#[derive(Clone, Copy)]
+pub struct DmaRows { pub address: u64, pub depth: u64, pub groups: u64, pub stride: u64 }
+impl DmaRows {
+    pub fn decode(xs1: u64, xs2: u64, groups: u64) -> Self {
+        let (address, stride) = xs2_mem_stride(xs2);
+        let depth = rs1_iter(xs1);
+        assert!(depth > 0 && stride > 0 && groups > 0);
+        Self { address, depth, groups, stride }
+    }
+    pub fn source(&self, row: u64, group: u64) -> u64 {
+        self.address + row * self.groups * 16 * self.stride + group * 16
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Mvin2dGeometry {
+    pub bank: u64, pub height: u64, pub address: u64, pub pixel_bytes: u64,
+    pub source_width: u64, pub dst_base: u64, pub width: u64, pub valid_bytes: u64,
+}
+impl Mvin2dGeometry {
+    pub fn decode(xs1: u64, xs2: u64) -> Self {
+        let value = Self { bank: rs1_b2(xs1), height: rs1_iter(xs1),
+            address: (xs2 & 0x000f_ffff_ffff) << 3, pixel_bytes: ((xs2 >> 36) & 0x7f) * 8,
+            source_width: (xs2 >> 43) & 0x3ff, dst_base: (xs2 >> 53) & 0x3f,
+            width: ((xs2 >> 59) & 7) + 1, valid_bytes: if (xs2 >> 62) & 1 == 0 { 16 } else { 8 } };
+        assert!(value.height > 0 && value.pixel_bytes > 0 && value.source_width > 0
+            && value.valid_bytes <= value.pixel_bytes, "mvin_2d: invalid geometry");
+        assert!(xs2 >> 63 == 0 && xs1 & 0x000f_ffff == 0, "mvin_2d: reserved bits");
+        assert!(value.dst_base + value.height * value.width <= crate::bank::bank_size() as u64 / 16,
+            "mvin_2d: destination exceeds bank");
+        value
+    }
+    pub fn source(&self, row: u64, column: u64) -> u64 {
+        self.address + row * self.source_width * self.pixel_bytes + column * self.pixel_bytes
+    }
+}

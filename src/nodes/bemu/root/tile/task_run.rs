@@ -3,7 +3,9 @@ use crate::{config, root::chip::Chip, Core, TraceConfig};
 use std::{sync::Arc, time::Instant};
 
 pub fn run(args: Args) -> Result<(), String> {
-    if !args.pk || config::tile_topology(args.tile_index).controller_core.is_none() {
+    if args.system { return crate::root::chip::run_system(&args); }
+    let analysis = bebop_elf::analyze_elf(args.elf.to_str().ok_or("invalid ELF path")?, crate::root::platform::DRAM_BASE)?;
+    if analysis.os_abi != bebop_elf::OsAbi::GnuUser || config::tile_topology(args.tile_index).controller_core.is_none() {
         return super::run::run(args);
     }
     let chip = Chip::new(args.memory_mib << 20, config::hart_capacity());
@@ -14,13 +16,15 @@ pub(crate) struct Machine {
     controller: Core,
     workers: Vec<Core>,
     tile: Arc<Tile>,
+    user_mode: bool,
 }
 
 impl Machine {
     pub(crate) fn prepare(args: &Args, chip: &Chip) -> Result<Self, String> {
+        let user_mode = bebop_elf::analyze_elf(args.elf.to_str().ok_or("invalid ELF path")?, crate::root::platform::DRAM_BASE)?.os_abi == bebop_elf::OsAbi::GnuUser;
         let topology = config::tile_topology(args.tile_index);
         let controller_core = topology.controller_core.ok_or_else(||
-            "PK task execution requires an explicit Tile controller".to_string())?;
+            "Task execution requires an explicit Tile controller".to_string())?;
         let tile = Tile::new(chip, &topology,
             topology.worker_cores.iter().map(|(_, index)| config::core_signature(*index)).collect());
         let mut controller = Core::new_with_core_hart(
@@ -35,10 +39,10 @@ impl Machine {
         .map_err(|error| error.to_string())?;
         controller.set_arguments(args.arguments.clone());
         controller
-            .load_elf(&args.elf, args.pk)
+            .load_elf(&args.elf)
             .map_err(|error| error.to_string())?;
         controller.set_working_directory(args.log_dir.canonicalize().map_err(|error| error.to_string())?);
-        controller.init_hart(args.pk).map_err(|error| error.to_string())?;
+        controller.init_hart().map_err(|error| error.to_string())?;
         let mut workers = Vec::new();
         for (_, core) in topology.worker_cores {
             workers.push(
@@ -55,6 +59,7 @@ impl Machine {
             );
         }
         Ok(Self {
+            user_mode,
             controller,
             workers,
             tile,
@@ -69,6 +74,7 @@ impl Machine {
     ) -> Result<(), String> {
         let Self {
             mut controller,
+            user_mode,
             workers,
             tile,
         } = self;
@@ -128,7 +134,7 @@ impl Machine {
                             controller.set_stdio(endpoint.accept(cancelled)?)?;
                         }
                         while !controller.finished() {
-                            if !args.pk {
+                            if !user_mode {
                                 let code = tile.exit_code.load(std::sync::atomic::Ordering::Acquire);
                                 if code != i64::MIN {
                                     return if code == 0 {

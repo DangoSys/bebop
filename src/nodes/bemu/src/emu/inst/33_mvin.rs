@@ -30,6 +30,7 @@ impl Instruction for Mvin {
 
         let cols = ctx.config(bank_id).cols;
         let groups = cols.max(1) as usize;
+        let geometry = super::decode::DmaRows::decode(xs1, xs2, groups as u64);
 
         if groups > 1 {
             for row in 0..depth as usize {
@@ -39,7 +40,7 @@ impl Instruction for Mvin {
                     if bank_offset + 16 > bank_size() {
                         panic!("mvin: bank range: bank_offset={bank_offset} line_bytes=16 depth={depth}");
                     }
-                    let addr = mem_addr + row as u64 * groups as u64 * 16 * stride + group as u64 * 16;
+                    let addr = geometry.source(row as u64, group as u64);
                     let mut bytes = [0; 16];
                     ctx.memory.read_buffer(addr, &mut bytes);
                     ctx.banks[p][bank_offset..bank_offset + 16].copy_from_slice(&bytes);
@@ -74,7 +75,7 @@ impl Instruction for Mvin {
             }
 
             for i in 0..depth {
-                let addr = mem_addr + i * line_bytes as u64 * stride;
+                let addr = geometry.source(i, 0);
                 let bank_offset = (i as usize) * line_bytes;
                 if bank_offset + line_bytes > bank_size() {
                     panic!("mvin: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");

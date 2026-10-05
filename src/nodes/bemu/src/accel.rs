@@ -109,7 +109,8 @@ impl State {
     }
 }
 
-pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs1: u64, xs2: u64, pc: u64) -> u64 {
+pub(crate) fn execute(state: &mut State, mut memory: GuestAccess<'_>, funct7: u8, xs1: u64, xs2: u64, pc: u64) -> Result<u64, rvsim::Trap> {
+    preflight(state, &mut memory, funct7, xs1, xs2)?;
     state.barrier_hit = false;
     let profile_started = state.profile.begin_npu();
     state.trace.advance_event();
@@ -142,7 +143,7 @@ pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs
         let tile = state.shared_memory.as_ref().expect("mvover requires a Tile");
         tile.mvover(xs1, xs2).unwrap_or_else(|error| panic!("mvover: {error}"));
         state.profile.end_npu(funct7, profile_started);
-        return 0;
+        return Ok(0);
     }
     let mut private = state.private.lock().expect("private banks poisoned");
     let PrivateState { banks, bank_cfgs, bank_map, .. } = &mut *private;
@@ -281,5 +282,49 @@ pub(crate) fn execute(state: &mut State, memory: GuestAccess<'_>, funct7: u8, xs
     state.finish_bank_frees();
     state.profile.end_npu(funct7, profile_started);
 
-    result
+    Ok(result)
+}
+
+fn preflight(state: &State, memory: &mut GuestAccess<'_>, funct: u8, xs1: u64, xs2: u64) -> Result<(), rvsim::Trap> {
+    use inst::decode::{DmaRows, Mvin2dGeometry, rs1_b0, rs1_b2};
+    use rvsim::Access;
+    if funct == 12 {
+        let bytes = xs1 as u32 as usize;
+        assert!(xs1 >> 32 < 2 && bytes >= 24 && bytes % 4 == 0);
+        return memory.check_range(xs2, bytes, Access::Load);
+    }
+    if !matches!(funct, 16 | 33 | 34) { return Ok(()); }
+    let bank = if funct == 16 { rs1_b0(xs1) } else { rs1_b2(xs1) };
+    let groups = if crate::config::is_shared_vbank(bank) {
+        let tile = state.shared_memory.as_ref().expect("shared banks unavailable");
+        let shared = tile.banks.lock().expect("shared banks poisoned");
+        let cfg = &shared.cfgs[state.endpoint_index.expect("shared bank requires compute core") * shared.virtual_bank_count + bank as usize];
+        assert!(cfg.allocated, "DMA bank not allocated");
+        cfg.cols.max(1)
+    } else {
+        let private = state.private.lock().expect("private banks poisoned");
+        let cfg = &private.bank_cfgs[bank as usize];
+        assert!(cfg.allocated, "DMA bank not allocated");
+        cfg.cols.max(1)
+    };
+    if funct == 34 {
+        let geometry = Mvin2dGeometry::decode(xs1, xs2);
+        for row in 0..geometry.height {
+            for column in 0..geometry.width {
+                memory.check_range(geometry.source(row, column), geometry.valid_bytes as usize, Access::Load)?;
+            }
+        }
+    } else {
+        let geometry = DmaRows::decode(xs1, xs2, groups);
+        assert!(geometry.depth <= crate::bank::bank_size() as u64 / 16, "DMA exceeds bank");
+        let access = if funct == 16 { Access::Store } else { Access::Load };
+        if geometry.stride == 1 {
+            memory.check_range(geometry.address, (geometry.depth * groups * 16) as usize, access)?;
+        } else {
+            for row in 0..geometry.depth {
+                memory.check_range(geometry.source(row, 0), (groups * 16) as usize, access)?;
+            }
+        }
+    }
+    Ok(())
 }

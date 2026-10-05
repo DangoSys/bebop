@@ -30,6 +30,11 @@ pub struct RegressionArgs {
     #[arg(long)]
     pub p2e_bitstream: Option<PathBuf>,
 
+    /// Physical FPGA the P2E case is placed on.
+    #[cfg(feature = "p2e")]
+    #[arg(long, default_value = "0.A", value_name = "LOCATION")]
+    pub p2e_fpga_location: String,
+
     #[arg(long, short = 'j', value_name = "N", default_value = "1")]
     pub jobs: usize,
 

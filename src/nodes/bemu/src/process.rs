@@ -1,4 +1,4 @@
-use crate::pk::PkVm;
+use crate::user_vm::UserVm;
 use crate::root::memory::Pages;
 use crate::root::platform::DRAM_BASE;
 use bebop_dtb::DtbBuilder;
@@ -21,7 +21,7 @@ pub(crate) struct Process {
     pub(crate) syscall: SyscallState,
     pub(crate) program_name: String,
     pub(crate) arguments: Vec<String>,
-    vm: Option<PkVm>,
+    vm: Option<UserVm>,
     pub(crate) user_mode: bool,
 }
 
@@ -42,11 +42,12 @@ impl Process {
         hart: &mut Hart,
         memory: &dyn Memory,
         load: LoadInfo,
-        pk: bool,
         pages: Arc<Mutex<Pages>>,
         image: (u64, u64),
     ) -> Result<(), String> {
-        self.user_mode = pk;
+        let user_mode = load.analysis.os_abi == bebop_elf::OsAbi::GnuUser;
+        self.user_mode = user_mode;
+        hart.privilege = Privilege::Machine;
         let mem_end = DRAM_BASE + memory.len() as u64;
         let working_dir = self.syscall.working_dir.clone();
         self.syscall = SyscallState::new();
@@ -54,23 +55,23 @@ impl Process {
         self.vm = None;
         set_guest_mappings(&[]);
 
-        let brk_start = if pk {
+        let brk_start = if user_mode {
             align_up(load.analysis.max_vaddr, PAGE_SIZE)
         } else {
             align_up(load.image_end, PAGE_SIZE)
         };
-        let mmap_base = if pk {
+        let mmap_base = if user_mode {
             USER_TOP - USER_STACK_SIZE - PAGE_SIZE
         } else {
             align_down(mem_end - 8 * 1024 * 1024, PAGE_SIZE)
         };
         self.syscall.init_mem_layout(brk_start, mmap_base);
-        if pk {
+        if user_mode {
             self.syscall
                 .set_mem_bounds(load.analysis.min_vaddr, USER_TOP - USER_STACK_SIZE);
         }
 
-        let tp = if pk { None } else { setup_tls(memory, load.tls)? };
+        let tp = if user_mode { None } else { setup_tls(memory, load.tls)? };
 
         hart.csrs
             .write(0x300, (3 << 13) | (3 << 9), Privilege::Machine)
@@ -79,16 +80,13 @@ impl Process {
         hart.csrs.write(0x106, 7, Privilege::Machine).unwrap();
         hart.csrs.pmp.set_address(0, (1 << 54) - 1);
         hart.csrs.pmp.set_config(0, 0x1f);
-        if pk {
-            let vm = setup_pk_vm(memory, &load, pages, image)?;
-            let regs = setup_pk_stack(memory, &vm, &load, &self.program_name, &self.arguments)?;
-            hart.csrs.satp.write(vm.satp());
-            hart.pc = load.analysis.original_entry;
-            hart.privilege = Privilege::User;
-            hart.set_register(2, regs.sp);
-            hart.set_register(10, regs.a0);
-            hart.set_register(11, regs.a1);
-            hart.set_register(12, regs.a2);
+        if user_mode {
+            let mut vm = setup_user_vm(memory, &load, pages, image)?;
+            let regs = setup_user_stack(memory, &vm, &load, &self.program_name, &self.arguments)?;
+            let (bootstrap, dtb) = install_user_bootstrap(memory, &mut vm, &load, regs)?;
+            hart.pc = bootstrap;
+            hart.set_register(10, hart.id);
+            hart.set_register(11, dtb);
             self.vm = Some(vm);
         } else {
             let dtb_addr = install_dtb(memory)?;
@@ -175,7 +173,7 @@ impl Process {
 #[allow(clippy::too_many_arguments)]
 fn map_syscall_result(
     memory: &dyn Memory,
-    pk_vm: &mut PkVm,
+    user_vm: &mut UserVm,
     state: &SyscallState,
     old_regions: &[(u64, u64, u64)],
     old_brk: u64,
@@ -192,7 +190,7 @@ fn map_syscall_result(
             let start = align_up(old_brk, PAGE_SIZE);
             let end = align_up(result, PAGE_SIZE);
             if end > start {
-                pk_vm
+                user_vm
                     .alloc_user_pages(memory, start, end - start, 0x2 | 0x4)
                     .map_err(|_| -12)?;
             }
@@ -202,7 +200,7 @@ fn map_syscall_result(
             // PROT_NONE reserves virtual space without allocating physical DDR pages.
             if prot == 0 {
                 if flags & 0x10 != 0 {
-                    pk_vm.free_user_pages(memory, result, len).map_err(|_| -12)?;
+                    user_vm.free_user_pages(memory, result, len).map_err(|_| -12)?;
                 }
                 return Ok(());
             }
@@ -221,7 +219,7 @@ fn map_syscall_result(
             if backed_len == 0 {
                 return Ok(());
             }
-            let phys = pk_vm
+            let phys = user_vm
                 .alloc_user_pages(memory, result, backed_len, pte_flags)
                 .map_err(|_| -12)?;
             if flags & 0x20 == 0 {
@@ -233,7 +231,7 @@ fn map_syscall_result(
                     let count = match file.read_at(&mut buffer[..bytes], offset + cursor) {
                         Ok(count) => count,
                         Err(error) => {
-                            pk_vm.free_user_pages(memory, result, len).map_err(|_| -12)?;
+                            user_vm.free_user_pages(memory, result, len).map_err(|_| -12)?;
                             return Err(-(error.raw_os_error().unwrap_or(5) as i64));
                         }
                     };
@@ -251,7 +249,7 @@ fn map_syscall_result(
                 let start = a0.max(base);
                 let stop = end.min(base + bytes);
                 if start < stop {
-                    pk_vm.free_user_pages(memory, start, stop - start).map_err(|_| -12)?;
+                    user_vm.free_user_pages(memory, start, stop - start).map_err(|_| -12)?;
                 }
             }
         }
@@ -314,15 +312,43 @@ fn install_dtb(memory: &dyn Memory) -> Result<u64, String> {
     Ok(dtb_addr)
 }
 
-fn setup_pk_vm(
+fn install_user_bootstrap(
+    memory: &dyn Memory,
+    vm: &mut UserVm,
+    load: &LoadInfo,
+    regs: InitialRegs,
+) -> Result<(u64, u64), String> {
+    let dtb = DtbBuilder::build_minimal(DRAM_BASE, memory.len() as u64, None, None);
+    let boot = vm.allocate_physical(128 + dtb.len() as u64)?;
+    // AUIPC t0 points to the physical descriptor; paging applies only after MRET.
+    let mut code = vec![0x0000_0297u32];
+    let ld = |rd: u32, offset: u32| (offset << 20) | (5 << 15) | (3 << 12) | (rd << 7) | 0x03;
+    let csrw = |csr: u32| (csr << 20) | (6 << 15) | (1 << 12) | 0x73;
+    code.extend([ld(6, 64), csrw(0x180), 0x1200_0073]);
+    code.extend([ld(6, 72), csrw(0x341), ld(6, 80), csrw(0x300)]);
+    code.extend([ld(2, 88), ld(10, 96), ld(11, 104), ld(12, 112), 0x3020_0073]);
+    let mut bytes = Vec::new();
+    for instruction in code { bytes.extend_from_slice(&instruction.to_le_bytes()); }
+    bytes.resize(64, 0);
+    for value in [vm.satp(), load.analysis.original_entry, (3 << 13) | (3 << 9),
+                  regs.sp, regs.a0, regs.a1, regs.a2] {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes.resize(128, 0);
+    bytes.extend_from_slice(&dtb);
+    write_guest(memory, boot, &bytes)?;
+    Ok((boot, boot + 128))
+}
+
+fn setup_user_vm(
     memory: &dyn Memory,
     load: &LoadInfo,
     pages: Arc<Mutex<Pages>>,
     image: (u64, u64),
-) -> Result<PkVm, String> {
+) -> Result<UserVm, String> {
     let stack_virt_bottom = USER_TOP - USER_STACK_SIZE;
     let interconnect = pages.lock().expect("DDR page pool poisoned").interconnect_buffer;
-    let mut vm = PkVm::new(memory, pages, image)?;
+    let mut vm = UserVm::new(memory, pages, image)?;
     if let Some((physical, bytes)) = interconnect {
         use crate::root::interconnect::port::{BASE, BUFFER_BASE, SIZE};
         vm.map_range(memory, BASE, BASE, SIZE, 0x2 | 0x4)?;
@@ -354,9 +380,9 @@ fn setup_pk_vm(
     Ok(vm)
 }
 
-fn setup_pk_stack(
+fn setup_user_stack(
     memory: &dyn Memory,
-    vm: &PkVm,
+    vm: &UserVm,
     load: &LoadInfo,
     program_name: &str,
     arguments: &[String],

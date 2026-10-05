@@ -62,8 +62,8 @@ impl DiffSession {
                     Some(memory.clone()),
                 )
                 .whatever_context("failed to create BEMU Golden Model")?;
-                bemu.load_elf(elf, false)?;
-                bemu.init_hart(false)?;
+                bemu.load_elf(elf)?;
+                bemu.init_hart()?;
                 golden.push(GoldenHart { bemu, waiting: false });
             }
             Ok::<_, Whatever>(golden)

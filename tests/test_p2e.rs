@@ -11,12 +11,13 @@ use common::{run_elf_regression, RegressionArgs};
 fn main() -> ExitCode {
     let args = RegressionArgs::parse();
     let bitstream = args.p2e_bitstream();
+    let fpga_location = args.p2e_fpga_location.clone();
     let diff = args.diff;
     run_elf_regression(
         args,
         "test_p2e",
         |tc| format!("p2e::{}", tc.name),
         "Make sure to build with: cargo build --features p2e",
-        P2eBackend::new(bitstream, diff),
+        P2eBackend::new(bitstream, fpga_location, diff),
     )
 }
