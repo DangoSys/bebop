@@ -36,6 +36,8 @@ pub fn run(args: Args) -> Result<(), String> {
     if args.system { return crate::root::chip::run_system(&args); }
     let topology = tile_topology(args.tile_index);
     let chip = Chip::new(args.memory_mib << 20, crate::config::hart_capacity());
+    chip.clint.coordinate(topology.cores.iter()
+        .map(|(_, index)| crate::config::core_hart_id(*index)).collect());
     let signatures = if topology.controller_core.is_some() {
         topology.worker_cores.iter().map(|(_, index)| crate::config::core_signature(*index)).collect()
     } else { Vec::new() };
