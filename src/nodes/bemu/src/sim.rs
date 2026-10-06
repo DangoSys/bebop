@@ -337,11 +337,20 @@ impl Core {
     pub fn step(&mut self, count: u64) -> Result<(), Whatever> {
         config::configure_core(self.core_index);
         for _ in 0..count {
+            let code = self.tile.exit_code.load(std::sync::atomic::Ordering::Acquire);
+            if code != i64::MIN {
+                self.exit_code = Some(code as i32);
+            }
             if self.exit_code.is_some() {
                 break;
             }
-            let cycles = if self.waiting { 10_000 } else { 1 };
-            self.elapsed_cycles += cycles;
+            let next_cycle = if self.waiting {
+                self.elapsed_cycles.max(self.tile.clint.cycles() + 10_000)
+            } else {
+                self.elapsed_cycles + 1
+            };
+            let cycles = next_cycle - self.elapsed_cycles;
+            self.elapsed_cycles = next_cycle;
             self.tile.clint.advance_to(self.hart.id as usize, self.elapsed_cycles);
             let inputs = crate::input::Inputs {
                 cycles,
@@ -479,10 +488,6 @@ impl Core {
                 }
                 Step::Waiting => (),
                 Step::Custom(_) => unreachable!(),
-            }
-            let code = self.tile.exit_code.load(std::sync::atomic::Ordering::Acquire);
-            if code != i64::MIN {
-                self.exit_code = Some(code as i32);
             }
             if self.accel.barrier_hit || self.task_done {
                 break;

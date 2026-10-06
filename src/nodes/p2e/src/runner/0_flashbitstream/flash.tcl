@@ -16,7 +16,8 @@ proc flash_bitstream {fpga_location design_fpga {multi_fpga 0}} {
 
     # Connect to hardware server
     if {$multi_fpga} {
-        hw_server .
+        set board [lindex [split $fpga_location .] 0]
+        hw_server . -location "$board-$board"
     } else {
         hw_server . -location $fpga_location
     }
