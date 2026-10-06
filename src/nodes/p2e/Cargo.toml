@@ -10,6 +10,8 @@ crate-type = ["rlib", "cdylib"]
 
 [features]
 diff = []
+itrace = []
+mtrace = []
 
 [dependencies]
 bebop-rtl-trace = { path = "../lib/rtl-trace" }

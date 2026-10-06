@@ -82,6 +82,15 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
         .map(std::path::Path::to_path_buf)
         .ok_or_else(|| Whatever::without_source("P2E bitstream must be under <case>/fpgaCompDir".to_string()))?;
     let rtcfg_path = case_home.join("vvacDir/runtimeDir/rtcfg");
+    if config.trace.itrace || config.trace.mtrace {
+        let mode = std::fs::read_to_string(case_home.join("p2e_trace_mode"))
+            .whatever_context("failed to read P2E trace capabilities")?;
+        for (trace, requested) in [("itrace", config.trace.itrace), ("mtrace", config.trace.mtrace)] {
+            if requested && !mode.trim().split('+').any(|capability| capability == trace) {
+                snafu::whatever!("P2E case does not support {trace}; rebuild with --{trace}");
+            }
+        }
+    }
     if config.load_manifest.is_some() && config.diff.is_some() {
         snafu::whatever!("multi-segment load manifests do not support single-ELF DiffTest");
     }

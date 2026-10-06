@@ -25,3 +25,5 @@ ena_auto_MPAR 0
 # This allows PNR to continue even if some constraints reference non-existent objects
 # (e.g., debug ports that don't exist when using WithNoDebug config)
 ena_pre_opt_cons_check_stop_PNR 0
+
+set_param place.slrUtilDelta 0.020

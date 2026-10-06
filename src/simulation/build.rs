@@ -44,6 +44,8 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
             rtl_dir,
             out_dir,
             diff,
+            itrace,
+            mtrace,
             resume_post_route,
             stop_after,
         } => {
@@ -56,7 +58,17 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
                 .whatever_context("failed to canonicalize RTL directory")?;
             std::fs::create_dir_all(&out_dir).whatever_context("failed to create output directory")?;
             println!("Building p2e: {} -> {}", rtl_dir.display(), out_dir.display());
-            let features = if diff { "p2e,bemu" } else { "p2e" };
+            let mut features = vec!["p2e"];
+            if diff {
+                features.push("bemu");
+            }
+            if itrace {
+                features.push("bebop-p2e/itrace");
+            }
+            if mtrace {
+                features.push("bebop-p2e/mtrace");
+            }
+            let features = features.join(",");
             let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
             cmd!(
                 "cargo",

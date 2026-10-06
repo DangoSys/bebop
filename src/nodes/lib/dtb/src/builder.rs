@@ -95,7 +95,7 @@ impl DtbBuilder {
         builder.begin_node("cpus");
         builder.property_u32("#address-cells", 1);
         builder.property_u32("#size-cells", 0);
-        builder.property_u32("timebase-frequency", 10000000);
+        builder.property_u32("timebase-frequency", bebop_clint::TIMEBASE_HZ);
 
         builder.begin_node("cpu@0");
         builder.property_string("device_type", "cpu");

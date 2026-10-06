@@ -1,5 +1,8 @@
 pub const BASE: u64 = 0x0200_0000;
 pub const SIZE: u64 = 0x1_0000;
+pub const TICK_CYCLES: u64 = 1000;
+pub const SOC_CLOCK_HZ: u64 = 5_000_000;
+pub const TIMEBASE_HZ: u32 = (SOC_CLOCK_HZ / TICK_CYCLES) as u32;
 
 use std::sync::{OnceLock, atomic::{AtomicU32, AtomicU64, Ordering}};
 
@@ -58,10 +61,10 @@ impl Clint {
 
     pub fn store(&self, offset: u64, size: usize, value: u64) -> bool {
         match (offset, size) {
-            (0xbff8, 8) => self.offset.store(value.wrapping_sub(self.cycles()), Ordering::Relaxed),
+            (0xbff8, 8) => self.offset.store(value.wrapping_sub(self.cycles() / TICK_CYCLES), Ordering::Relaxed),
             (0xbff8 | 0xbffc, 4) => {
                 let shift = (offset & 4) * 8;
-                let cycles = self.cycles();
+                let cycles = self.cycles() / TICK_CYCLES;
                 self.offset
                     .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
                         let time = cycles.wrapping_add(old);
@@ -121,6 +124,6 @@ impl Clint {
     }
     #[inline]
     pub fn time(&self) -> u64 {
-        self.cycles().wrapping_add(self.offset.load(Ordering::Relaxed))
+        (self.cycles() / TICK_CYCLES).wrapping_add(self.offset.load(Ordering::Relaxed))
     }
 }

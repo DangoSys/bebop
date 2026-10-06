@@ -50,7 +50,23 @@ fn main() {
     let libctb_dst = out_dir.join("libvCtb.so");
     let trace_mode_path = out_dir.join("p2e_trace_mode");
     let diff = cfg!(feature = "diff");
-    let trace_mode = if diff { "btrace_nb_v1" } else { "none" };
+    let itrace = cfg!(feature = "itrace");
+    let mtrace = cfg!(feature = "mtrace");
+    let mut trace_modes = Vec::new();
+    if itrace {
+        trace_modes.push("itrace");
+    }
+    if mtrace {
+        trace_modes.push("mtrace");
+    }
+    if diff {
+        trace_modes.push("btrace_nb_v1");
+    }
+    let trace_mode = if trace_modes.is_empty() {
+        "none".to_string()
+    } else {
+        trace_modes.join("+")
+    };
     println!("cargo:rerun-if-changed={}", libctb_dst.display());
     println!("cargo:rerun-if-changed={}", trace_mode_path.display());
 
@@ -106,7 +122,7 @@ fn main() {
 
     std::fs::create_dir_all(&out_dir).expect("create p2e out directory");
     let flist = out_dir.join("p2e_vvac_filelist.f");
-    vsrc::write_flist(&flist, &vsrcs, diff);
+    vsrc::write_flist(&flist, &vsrcs, diff, itrace, mtrace);
     println!("cargo:warning=P2E trace mode: {trace_mode}");
 
     println!("cargo:warning=Removing empty module instantiations from Verilog...");

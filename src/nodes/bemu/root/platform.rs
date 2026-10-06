@@ -83,7 +83,7 @@ impl Platform {
     pub(crate) fn sync_clock(&mut self) {
         let next = self.clint.cycles();
         let elapsed = next - self.clock;
-        let ns = elapsed.checked_mul(100).expect("simulation time overflow"); // 10 MHz timebase.
+        let ns = elapsed.checked_mul(1_000_000_000 / bebop_clint::SOC_CLOCK_HZ).expect("simulation time overflow");
         self.microphone.tick(ns);
         self.speaker.tick(ns);
         self.rtc.tick(ns);
