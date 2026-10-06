@@ -46,7 +46,6 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
             diff,
             itrace,
             mtrace,
-            resume_post_route,
             stop_after,
         } => {
             if !rtl_dir.is_dir() {
@@ -89,12 +88,9 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
             #[cfg(feature = "p2e")]
             {
                 let builder = BitstreamBuilder::new(out_dir.clone());
-                let outcome = if resume_post_route {
-                    builder.resume_post_route().map(|()| BuildOutcome::Runtime)
-                } else {
-                    builder.build(stop_after.as_deref())
-                }
-                .map_err(Whatever::without_source)?;
+                let outcome = builder
+                    .build(stop_after.as_deref())
+                    .map_err(Whatever::without_source)?;
                 if let BuildOutcome::Assessment(stage) = outcome {
                     println!(
                         "P2E resource assessment completed after {stage}; no bitstream or runnable case produced: {}",

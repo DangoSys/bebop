@@ -77,9 +77,7 @@ pub enum BuildTarget {
         itrace: bool,
         #[arg(long, help = "Include NPU memory trace in the P2E case")]
         mtrace: bool,
-        #[arg(long, help = "Resume post-route processing of an existing P2E case")]
-        resume_post_route: bool,
-        #[arg(long, value_parser = ["vsyn", "vcom"], conflicts_with = "resume_post_route", help = "Stop after resource assessment; do not produce a runnable P2E case")]
+        #[arg(long, value_parser = ["vsyn", "vcom"], help = "Stop after resource assessment; do not produce a runnable P2E case")]
         stop_after: Option<String>,
     },
 }

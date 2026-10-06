@@ -11,22 +11,7 @@ impl PnrStep {
     }
 
     pub fn run(&self) -> Result<PathBuf, String> {
-        self.run_steps(false)
-    }
-
-    pub fn resume_post_route(&self) -> Result<PathBuf, String> {
-        self.run_steps(true)
-    }
-
-    fn run_steps(&self, resume_post_route: bool) -> Result<PathBuf, String> {
-        log::info!(
-            "{}",
-            if resume_post_route {
-                "Resuming post-route processing..."
-            } else {
-                "Running PNR (Place and Route)..."
-            }
-        );
+        log::info!("Running PNR (Place and Route)...");
 
         let fpga_comp_dir = self.output_dir.join("fpgaCompDir");
 
@@ -48,17 +33,7 @@ impl PnrStep {
 
         // Source sourceme.sh and run make
         let sourceme_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
-        let make_cmd = if resume_post_route {
-            for name in ["xepic_vvac_top_0_0_route.dcp", "xepic_vvac_top_0_0.bit"] {
-                let artifact = fpga_comp_dir.join("part_b0_f0/pnrDir").join(name);
-                if !artifact.is_file() {
-                    return Err(format!("Post-route resume requires {}", artifact.display()));
-                }
-            }
-            "cd \"$1\" && source \"$2\" && make -j1 -C fpgaCompDir rerun_sta_collect sta_report readbackDB_create vdbg_loc_parser find_revise_net_name_all vdbg_gen_data_files"
-        } else {
-            "cd \"$1\" && source \"$2\" && make -C fpgaCompDir clean && make -C fpgaCompDir all"
-        };
+        let make_cmd = "cd \"$1\" && source \"$2\" && make -C fpgaCompDir clean && make -C fpgaCompDir all";
 
         let status = Command::new("bash")
             .arg("-c")
@@ -68,10 +43,6 @@ impl PnrStep {
             .arg(&sourceme_path)
             .status()
             .map_err(|e| format!("Failed to execute make: {}", e))?;
-
-        if resume_post_route && !status.success() {
-            return Err("Post-route processing failed".to_string());
-        }
 
         // Copy bitstream from pnrDir to fpgaCompDir root
         let bitstream_src = self

@@ -64,13 +64,6 @@ impl BitstreamBuilder {
         Ok(BuildOutcome::Runtime)
     }
 
-    pub fn resume_post_route(&self) -> Result<(), String> {
-        self.setup_environment()?;
-        self.verify_vvac_outputs()?;
-        PnrStep::new(self.build_dir.clone()).resume_post_route()?;
-        Ok(())
-    }
-
     fn setup_environment(&self) -> Result<(), String> {
         let sourceme_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
 
