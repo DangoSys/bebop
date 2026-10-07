@@ -70,7 +70,11 @@ pub fn run_backend_elf_test(
             let status = if output.status.success() {
                 TestStatus::Pass
             } else if output.status.code().is_none() {
-                TestStatus::Crash
+                if elapsed >= backend.timeout() {
+                    TestStatus::Timeout
+                } else {
+                    TestStatus::Crash
+                }
             } else {
                 TestStatus::Fail
             };
