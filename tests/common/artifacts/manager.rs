@@ -22,10 +22,16 @@ pub struct ArtifactManager {
 }
 
 impl ArtifactManager {
-    pub fn clean_all() -> std::io::Result<()> {
+    pub fn clean_backend(backend: &str) -> std::io::Result<()> {
         let root = artifact_root();
         if root.exists() {
-            fs::remove_dir_all(root)?;
+            let prefix = format!("{backend}-");
+            for entry in fs::read_dir(root)? {
+                let path = entry?.path();
+                if path.file_name().unwrap().to_str().unwrap().starts_with(&prefix) {
+                    fs::remove_dir_all(path)?;
+                }
+            }
         }
         Ok(())
     }

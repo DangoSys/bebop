@@ -106,7 +106,7 @@ where
     }
 
     if args.clean_before {
-        if let Err(e) = ArtifactManager::clean_all() {
+        if let Err(e) = ArtifactManager::clean_backend(backend.backend_name()) {
             eprintln!("Error: failed to clean previous test artifacts: {e}");
             return ExitCode::FAILURE;
         }
