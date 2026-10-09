@@ -10,6 +10,7 @@ macro_rules! register_instructions {
             xs2: u64,
             ctx: &mut ExecContext,
         ) -> Option<u64> {
+            assert_ne!(funct, 0, "funct7 zero is not a Buckyball instruction");
             match funct {
                 $(
                     <$inst as Instruction>::FUNCT => {
@@ -25,6 +26,7 @@ macro_rules! register_instructions {
         }
 
         pub fn cycles_after_issue(funct: u32, xs1: u64, xs2: u64) -> u64 {
+            assert_ne!(funct, 0, "funct7 zero is not a Buckyball instruction");
             match funct {
                 // Source read plus target write; mesh transport is modeled separately.
                 13 => (((xs2 >> 32) & 0xffff) + 1) * 2,
@@ -45,7 +47,6 @@ macro_rules! register_instructions {
 }
 
 register_instructions! {
-    super::f00_fence::Fence,
     super::f01_barrier::Barrier,
     super::f16_mvout::Mvout,
     super::kernel::MvinKernel,

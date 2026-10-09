@@ -1,8 +1,6 @@
 pub mod bank_matrix;
 pub mod base;
 pub mod decode;
-#[path = "00_fence.rs"]
-pub mod f00_fence;
 #[path = "01_barrier.rs"]
 pub mod f01_barrier;
 #[path = "16_mvout.rs"]
