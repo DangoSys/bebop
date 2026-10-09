@@ -61,13 +61,21 @@ pub const FUNCT7_MSET: u32 = 32;
 pub const FUNCT7_MVIN_MMIO: u32 = 35;
 
 #[derive(Clone, Copy)]
-pub struct DmaRows { pub address: u64, pub depth: u64, pub groups: u64, pub stride: u64 }
+pub struct DmaRows { pub address: u64, pub depth: u64, pub groups: u64, pub stride: u64, pub selected_group: Option<u64> }
 impl DmaRows {
     pub fn decode(xs1: u64, xs2: u64, groups: u64) -> Self {
         let (address, stride) = xs2_mem_stride(xs2);
         let depth = rs1_iter(xs1);
         assert!(depth > 0 && stride > 0 && groups > 0);
-        Self { address, depth, groups, stride }
+        let group = (xs2 >> 58) & 0x1f;
+        let selected_group = if xs2 >> 63 != 0 {
+            assert!(group < groups, "DMA selected group exceeds bank");
+            Some(group)
+        } else {
+            assert!(group == 0, "DMA whole-bank mode has reserved group bits");
+            None
+        };
+        Self { address, depth, groups: if selected_group.is_some() { 1 } else { groups }, stride, selected_group }
     }
     pub fn source(&self, row: u64, group: u64) -> u64 {
         self.address + row * self.groups * 16 * self.stride + group * 16
@@ -88,8 +96,6 @@ impl Mvin2dGeometry {
         assert!(value.height > 0 && value.pixel_bytes > 0 && value.source_width > 0
             && value.valid_bytes <= value.pixel_bytes, "mvin_2d: invalid geometry");
         assert!(xs2 >> 63 == 0 && xs1 & 0x000f_ffff == 0, "mvin_2d: reserved bits");
-        assert!(value.dst_base + value.height * value.width <= crate::bank::bank_size() as u64 / 16,
-            "mvin_2d: destination exceeds bank");
         value
     }
     pub fn source(&self, row: u64, column: u64) -> u64 {

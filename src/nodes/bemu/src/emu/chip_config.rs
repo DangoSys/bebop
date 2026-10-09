@@ -34,6 +34,7 @@ pub struct BallDomainConfig {
 }
 
 pub struct TileTopology {
+    pub tile_index: usize,
     /// BB-enabled bank endpoints, including the controller when it has BB.
     pub endpoint_cores: Vec<(String, usize)>,
     /// Execution cores excluding the explicit controller, including CPU-only cores.
@@ -67,33 +68,10 @@ fn to_topology(core: &CoreInstance) -> Topology {
         .mmio
         .as_ref()
         .unwrap_or_else(|| panic!("core {} missing mmio", core.index));
-    let rvv = if core.balldomain.as_ref().is_some_and(|domain| domain.ball_num > 0) {
-        let config = core.rvv.as_ref().expect("Buckyball core missing rvv config");
-        config.enable.expect("rvv.enable must be explicitly configured").then(|| config.clone())
-    } else {
-        None
-    };
-    let domain = core.balldomain.as_ref();
-    let kernels: Vec<_> = domain.into_iter().flat_map(|domain| &domain.mappings)
-        .filter(|mapping| !mapping.builtin.is_empty()).collect();
-    assert_eq!(kernels.len(), usize::from(rvv.is_some()),
-        "RVV-enabled cores require exactly one builtin kernel mapping");
-    for mapping in kernels {
-        assert_eq!(mapping.builtin, "kernel", "unknown builtin Ball");
-        assert_eq!(mapping.ball_name, "kernel");
-        assert_eq!(mapping.ball_class, "framework.balldomain.kernel.KernelBall");
-        assert_eq!((mapping.in_bw,mapping.out_bw,mapping.mmio_read_bw,mapping.mmio_write_bw),(0,0,0,0));
-        assert!(mapping.config_path.is_empty() && mapping.ball_dir.is_empty());
-        let config=rvv.as_ref().expect("builtin kernel requires enabled RVV");
-        let expected=[("laneNumber",config.lane_number),("vLen",config.v_len),
-            ("eLen",config.e_len),("iBufWords",config.i_buf_words),("memoryPorts",config.memory_ports)];
-        assert_eq!(mapping.ball_params.len(),expected.len());
-        for (key,value) in expected {assert_eq!(mapping.ball_params.get(key),Some(&value.to_string()));}
-        let domain=domain.unwrap();
-        assert_eq!(mapping.ball_id+1,domain.ball_num);
-        assert_eq!(domain.mappings.last().unwrap().ball_id,mapping.ball_id);
-        assert!(domain.isa.iter().any(|entry| entry.mnemonic=="RUN_KERNEL" && entry.funct7==15 && entry.bid==mapping.ball_id));
-    }
+    let rvv = core.rvv.as_ref().and_then(|config| {
+        config.enable.expect("rvv.enable must be explicitly configured")
+            .then(|| config.clone())
+    });
     Topology {
         virtual_bank_count: virtual_bank_count_for_core(core.index as usize),
         rvv,
@@ -161,9 +139,6 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
     if tile.core_indices.is_empty() {
         panic!("tile {tile_index} has no cores");
     }
-    if tile.virtual_bank_count == 0 {
-        panic!("tile {tile_index} virtual_bank_count is 0");
-    }
     let shared = tile
         .shared_mem
         .as_ref()
@@ -172,18 +147,11 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
         c.cores[index as usize].balldomain.as_ref()
             .is_some_and(|domain| domain.ball_num > 0)
     }).collect();
-    let first_core = &c.cores[*compute_indices.first().unwrap_or(&tile.core_indices[0]) as usize];
-    let bank_entries = mem_of(first_core)
-        .bank
-        .as_ref()
-        .unwrap_or_else(|| panic!("core {} missing bank", first_core.index))
-        .entries as usize;
-    let bank_width = mem_of(first_core)
-        .bank
-        .as_ref()
-        .unwrap_or_else(|| panic!("core {} missing bank", first_core.index))
-        .width as usize;
-    assert_eq!(bank_width % 8, 0, "tile {tile_index} bank width is not byte-aligned");
+    assert!(compute_indices.is_empty() || tile.virtual_bank_count > 0, "NPU tile requires virtual banks");
+    let bank_entries = shared.bank_entries as usize;
+    assert!(bank_entries > 0, "tile shared bank_entries must be explicit");
+    let bank_width = shared.bank_width as usize;
+    assert_eq!(bank_width, 128, "shared bank width must be 128 bits");
     for &core_index in &compute_indices {
         let core = &c.cores[core_index as usize];
         let bank = mem_of(core)
@@ -228,6 +196,7 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
             .map(|&index| (c.cores[index as usize].role.clone(), index as usize)).collect()
     } else { Vec::new() };
     TileTopology {
+        tile_index,
         controller_core,
         worker_cores,
         endpoint_cores,
@@ -244,13 +213,32 @@ pub fn tile_topology(tile_index: usize) -> TileTopology {
     }
 }
 
+pub fn ant_config(core_index: usize) -> Option<&'static AntConfig> {
+    let core = &chip().cores[core_index];
+    let cpu = core.cpu.as_ref().expect("core CPU config missing");
+    match cpu.cpu.as_ref().expect("CPU implementation missing") {
+        cpu_config::Cpu::Ant(ant) => {
+            assert!(core.hart_id.is_none() && core.ant_context_id.is_some(), "Ant must have only a local context ID");
+            Some(ant)
+        }
+        _ => { assert!(core.hart_id.is_some() && core.ant_context_id.is_none()); None }
+    }
+}
+
+pub fn tss_config(core_index: usize) -> &'static SpmConfig {
+    chip().tiles.iter().find(|tile| tile.core_indices.contains(&(core_index as u32)))
+        .expect("core tile missing").tss.as_ref().expect("tile TSS missing")
+}
+
+pub fn core_is_ant(core_index: usize) -> bool { ant_config(core_index).is_some() }
+
 pub fn core_hart_id(core_index: usize) -> usize {
     chip().cores[core_index].hart_id.expect("CoreInstance.hart_id is required") as usize
 }
 
 pub fn hart_capacity() -> usize {
-    let mut harts: Vec<_> = chip().cores.iter().map(|core|
-        core.hart_id.expect("CoreInstance.hart_id is required") as usize).collect();
+    let mut harts: Vec<_> = chip().cores.iter().filter_map(|core|
+        core.hart_id.map(|id| id as usize)).collect();
     let count = harts.len();
     harts.sort_unstable();
     harts.dedup();
@@ -298,6 +286,17 @@ pub fn core_signature(core_index: usize) -> u64 {
             bytes.push(0);
             bytes.extend_from_slice(value.as_bytes());
             bytes.push(0);
+        }
+    }
+    if let Some(ant) = ant_config(core_index) {
+        let tile = chip().tiles.iter().find(|tile| tile.core_indices.contains(&core.index)).unwrap();
+        let tls = ant.tls.as_ref().expect("Ant TLS missing");
+        let tss = tile.tss.as_ref().expect("Ant TSS missing");
+        bytes.extend_from_slice(b"ant\0");
+        for value in [ant.code_bytes as u64, tls.base, tls.bytes as u64, tls.data_bits as u64,
+            ant.task_bits as u64, tss.base, tss.bytes as u64, tss.data_bits as u64,
+            tile.shared_mem.as_ref().unwrap().bank_entries as u64, tile.shared_mem.as_ref().unwrap().entries as u64] {
+            bytes.extend_from_slice(&value.to_le_bytes());
         }
     }
     bytes.into_iter().fold(0xcbf29ce484222325_u64, |hash, byte| {

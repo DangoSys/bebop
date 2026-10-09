@@ -15,8 +15,5 @@ bebop-dasm = { path = "../lib/dasm" }
 bebop-fd-redirect = { path = "../lib/fd-redirect" }
 bebop-rtl-trace = { path = "../lib/rtl-trace" }
 
-[build-dependencies]
-cc = { version = "1", features = ["parallel"] }
-
 [lints]
 workspace = true

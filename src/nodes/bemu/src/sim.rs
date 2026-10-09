@@ -5,7 +5,7 @@ use crate::{
         chip::Chip,
         mmu::GuestAccess,
         platform::{Port, DRAM_BASE, DTB_ADDRESS, INITRD_ADDRESS},
-        tile::{tasks::Task, Tile},
+        tile::{tasks::Workers, Tile},
     },
     trace::TraceConfig,
 };
@@ -29,11 +29,11 @@ pub struct Core {
     mmu: Mmu,
     tile: Arc<Tile>,
     accel: accel::State,
+    workers: Option<Workers>,
     process: Option<Process>,
     loaded_elf: Option<LoadInfo>,
     image_physical: (u64, u64),
     core_index: usize,
-    worker_index: Option<usize>,
     is_controller: bool,
     disasm: Option<BufWriter<File>>,
     profile: bool,
@@ -41,16 +41,13 @@ pub struct Core {
     elapsed_cycles: u64,
     exit_code: Option<i32>,
     waiting: bool,
-    task_mode: bool,
-    task_done: bool,
-    firmware_task: Option<Task>,
-    pending_control: Option<rvsim::hart::CustomInstruction>,
 }
 
 impl Core {
     pub fn hart_id(&self) -> usize { self.hart.id as usize }
     pub fn chip(&self) -> Chip {
         Chip {
+            tiles: Arc::clone(&self.tile.tile_registry),
             clint: Arc::clone(&self.tile.clint),
             platform: Arc::clone(&self.tile.platform),
             memory: Arc::clone(&self.tile.memory),
@@ -83,15 +80,22 @@ impl Core {
         config::configure_core(core_index);
         std::fs::create_dir_all(log_dir).whatever_context("create BEMU log directory")?;
         assert_eq!(hart_id, config::core_hart_id(core_index), "hart ID differs from PB core placement");
-        let tile = shared.unwrap_or_else(|| Tile::new(
-            &Chip::new(3 * (1 << 30), config::hart_capacity()),
-            &config::tile_for_core(core_index), Vec::new()));
+        let tile = shared.unwrap_or_else(|| {
+            let topology = config::tile_for_core(core_index);
+            let signatures = if topology.controller_core.is_some() {
+                topology.worker_cores.iter().map(|(_, core)| config::core_signature(*core)).collect()
+            } else { Vec::new() };
+            Tile::new(&Chip::new(3 * (1 << 30), config::hart_capacity()), &topology, signatures)
+        });
         assert!(tile.harts.contains(&hart_id), "core does not belong to Tile");
-        let worker_index = tile.worker_harts.iter().position(|&id| id == hart_id);
-        let endpoint_index = tile.endpoint_harts.iter().position(|&id| id == hart_id);
-        let is_controller = tile.controller_hart == Some(hart_id);
-        let accel = accel::State::new(log_dir, trace, profile, hart_id,
+        let endpoint_index = tile.endpoint_ids.iter().position(|&id| id == core_index);
+        let is_controller = tile.controller_id == Some(core_index);
+        let accel = accel::State::new(log_dir, trace.clone(), profile, core_index,
             endpoint_index, Some(Arc::clone(&tile))).map_err(Whatever::without_source)?;
+        let workers = if is_controller {
+            Some(tile.tasks.start(&tile, log_dir, trace, profile).map_err(Whatever::without_source)?)
+        } else { None };
+        config::configure_core(core_index);
         tile.platform.lock().expect("BEMU platform poisoned").uart_log(
             hart_id,
             File::create(log_dir.join("uart.log")).whatever_context("create UART log")?,
@@ -110,11 +114,11 @@ impl Core {
             mmu: Mmu::default(),
             tile,
             accel,
+            workers,
             process: Some(Process::new()),
             loaded_elf: None,
             image_physical: (DRAM_BASE, 0),
             core_index,
-            worker_index,
             is_controller,
             disasm,
             profile,
@@ -122,10 +126,6 @@ impl Core {
             elapsed_cycles: 0,
             exit_code: None,
             waiting: false,
-            task_mode: false,
-            task_done: false,
-            firmware_task: None,
-            pending_control: None,
         })
     }
 
@@ -157,7 +157,7 @@ impl Core {
         }
         self.process
             .as_mut()
-            .expect("ELF must be loaded before system initialization")
+            .expect("ELF must be loaded before firmware initialization")
             .syscall
             .working_dir = elf.parent().expect("ELF parent directory").to_path_buf();
         Ok(())
@@ -176,15 +176,6 @@ impl Core {
             .as_mut()
             .expect("guest arguments require process mode")
             .arguments = arguments;
-    }
-
-    pub(crate) fn set_stdio(&mut self, stream: std::os::unix::net::UnixStream) -> Result<(), String> {
-        self.process
-            .as_mut()
-            .expect("stdio requires process mode")
-            .streams
-            .connect(stream, self.hart.id as usize)
-            .map_err(|e| e.to_string())
     }
 
     pub fn init_hart(&mut self) -> Result<(), Whatever> {
@@ -208,24 +199,24 @@ impl Core {
             .map_err(Whatever::without_source)
     }
 
-    pub fn init_system(&mut self, dtb: Option<&Path>, initrd: Option<&Path>) -> Result<(), Whatever> {
+    pub fn init_firmware(&mut self, dtb: Option<&Path>, initrd: Option<&Path>) -> Result<(), Whatever> {
         let load = self
             .loaded_elf
             .take()
-            .whatever_context("load firmware ELF before initializing the system")?;
+            .whatever_context("load firmware ELF before initializing firmware")?;
         if let Some(path) = dtb {
-            let bytes = std::fs::read(path).whatever_context("read system DTB")?;
+            let bytes = std::fs::read(path).whatever_context("read firmware DTB")?;
             write_guest(self.tile.memory.as_ref(), DTB_ADDRESS, &bytes).map_err(Whatever::without_source)?;
         }
         if let Some(path) = initrd {
             let image = std::fs::read(path).whatever_context("read initramfs")?;
             write_guest(self.tile.memory.as_ref(), INITRD_ADDRESS, &image).map_err(Whatever::without_source)?;
         }
-        self.init_system_hart(load.entry, if dtb.is_some() { DTB_ADDRESS } else { 0 });
+        self.init_firmware_hart(load.entry, if dtb.is_some() { DTB_ADDRESS } else { 0 });
         Ok(())
     }
 
-    pub(crate) fn init_system_hart(&mut self, entry: u64, dtb: u64) {
+    pub(crate) fn init_firmware_hart(&mut self, entry: u64, dtb: u64) {
         self.process = None;
         self.hart.privilege = rvsim::Privilege::Machine;
         self.hart.pc = entry;
@@ -233,104 +224,14 @@ impl Core {
         self.hart.set_register(11, dtb);
     }
 
-    pub(crate) fn start_task(&mut self, task: Task) {
-        config::configure_core(self.core_index);
-        let id = self.hart.id;
-        let cycle = self.hart.csrs.read(0xb00, rvsim::Privilege::Machine, id, 0, 0).unwrap();
-        let retired = self.hart.csrs.read(0xb02, rvsim::Privilege::Machine, id, 0, 0).unwrap();
-
-        self.hart = Hart::new(id, task.entry);
-        self.hart.csrs = task.csrs;
-        self.hart.csrs.write(0xb00, cycle, rvsim::Privilege::Machine).unwrap();
-        self.hart.csrs.write(0xb02, retired, rvsim::Privilege::Machine).unwrap();
-
-        self.hart.privilege = task.privilege;
-        self.hart.set_register(2, task.stack);
-        self.hart.set_register(3, task.gp);
-        self.hart.set_register(4, task.tls);
-        self.hart.set_register(10, task.argument);
-        self.process = None;
-        self.waiting = false;
-        self.task_mode = true;
-        self.task_done = false;
-        self.mmu.fence();
-    }
-
-    pub(crate) fn task_done(&self) -> bool {
-        self.task_done
-    }
-
-    pub(crate) fn complete_task(&mut self, status: u64) {
-        self.tile.tasks.complete(self.worker_index.expect("task completion requires task worker"), status);
-        self.task_done = true;
-    }
-
-    fn control(&mut self, operation: u32, a: u64, b: u64) -> Result<u64, Whatever> {
-        let worker = self.worker_index;
-        match operation {
-            0 if self.is_controller => {
-                let words = self.tile.tasks.descriptor().map_err(Whatever::without_source)?;
-                if words[6] != b { return Err(Whatever::without_source("task signature differs from descriptor".into())); }
-                let task = Task {
-                    entry: words[0],
-                    argument: words[1],
-                    stack: words[2],
-                    tls: words[3],
-                    gp: words[5],
-                    workspace: words[4],
-                    csrs: self.hart.csrs.clone(),
-                    privilege: self.hart.privilege,
-                };
-                self.tile
-                    .tasks
-                    .submit(a as usize, words[6], task)
-                    .map_err(Whatever::without_source)?;
-                Ok(0)
-            }
-            1 if self.is_controller && a as usize == self.tile.tasks.signatures.len() => {
-                Ok(self.tile.tasks.wait_available(b))
-            }
-            1 if self.is_controller => Ok(self.tile.tasks.wait(a as usize)),
-            2 if self.task_mode => {
-                self.complete_task(a);
-                Ok(0)
-            }
-            11 if self.task_mode || self.firmware_task.is_some() => Ok(0),
-            2 if worker.is_some() && self.firmware_task.is_some() => {
-                self.tile.tasks.complete(worker.unwrap(), a);
-                self.firmware_task = None;
-                Ok(0)
-            }
-            8 if worker.is_some() => {
-                self.firmware_task = self.tile.tasks.take(worker.unwrap());
-                Ok(1)
-            }
-            9 if worker.is_some() => {
-                let task = self.firmware_task.as_ref().expect("worker has no task context");
-                Ok(match a {
-                    0 => task.entry, 1 => task.argument, 2 => task.stack, 3 => task.tls,
-                    4 => task.workspace, 5 => task.gp,
-                    6 => self.tile.tasks.signatures[worker.unwrap()],
-                    7 => task.csrs.read(0x180, rvsim::Privilege::Machine, self.hart.id, 0, 0).unwrap(),
-                    _ => return Err(Whatever::without_source("invalid task context field".into())),
-                })
-            }
-            7 if self.is_controller => {
-                self.tile.tasks.stage(a as usize, b).map_err(Whatever::without_source)?;
-                Ok(0)
-            }
-            10 if self.is_controller => Ok(self.tile.tasks.poll(a as usize)),
-            3 => Ok(self.tile.tasks.signatures.len() as u64),
-            4 => Ok(self.tile.tasks.signatures[a as usize]),
-            5 => Ok(self.tile.tasks.workspace(if self.tile.has_scheduler { worker } else { None })),
-            6 if self.is_controller || !self.tile.has_scheduler => {
-                self.tile.tasks.set_workspace(a);
-                Ok(0)
-            }
-            _ => Err(Whatever::without_source(format!(
-                "invalid tile control operation {operation} on hart {}",
-                self.hart.id
-            ))),
+    fn control(&mut self, operation:u32, a:u64, b:u64)->Result<u64,Whatever> {
+        if (13..=19).contains(&operation) {
+            assert!(self.is_controller || (self.tile.tile_index == 0 && self.core_index == self.tile.execution_ids[0]),
+                "shared storage management requires the tile control CPU");
+            Ok(self.tile.t2t_control(operation,a,b))
+        } else {
+            assert!(self.is_controller,"Ant management requires tile controller");
+            Ok(self.tile.tasks.control(operation,a,b,&self.hart))
         }
     }
 
@@ -360,38 +261,19 @@ impl Core {
             };
             let pc = self.hart.pc;
             let privilege = self.hart.privilege;
+            if let Some(workers) = &self.workers {
+                workers.check().map_err(Whatever::without_source)?;
+            }
             let started = self.profile.then(Instant::now);
-            let mut event = if let Some(request) = self.pending_control.take() {
-                Step::Custom(request)
-            } else { self.hart.step(
-                &mut Port {
-                    devices: &self.tile.platform,
-                    memory: &self.tile.memory,
-                },
-                &self.mmu,
-                inputs,
-            ) };
+            let mut event = self.hart.step(
+                &mut Port { devices: &self.tile.platform, memory: &self.tile.memory },
+                &self.mmu, inputs,
+            );
             if let Some(started) = started {
                 self.cpu_elapsed += started.elapsed();
             }
             self.waiting = event == Step::Waiting;
             if let Step::Custom(request) = event {
-                if request.instruction & 0x7f == 0x2b {
-                    let operation = request.instruction >> 25;
-                    let worker_wait = operation == 8 && self.worker_index.is_some()
-                        && !self.tile.tasks.has_pending(self.worker_index.unwrap());
-                    let controller_wait = operation == 1 && self.is_controller &&
-                        if request.rs1 as usize == self.tile.tasks.signatures.len() {
-                            !self.tile.tasks.available(request.rs2)
-                        } else {
-                            self.tile.tasks.poll(request.rs1 as usize) == 0
-                        };
-                    if worker_wait || controller_wait {
-                        self.pending_control = Some(request);
-                        self.waiting = true;
-                        break;
-                    }
-                }
                 let value = match request.instruction & 0x7f {
                     0x7b => {
                         let mut translation = self.hart.translation_context();
@@ -412,7 +294,13 @@ impl Core {
                             request.pc,
                         )
                     }
-                    0x2b => Ok(self.control(request.instruction >> 25, request.rs1, request.rs2)?),
+                    0x2b => {
+                        let operation = request.instruction >> 25;
+                        if (13..=19).contains(&operation) {
+                            assert_eq!((request.instruction >> 12) & 7, 7, "T2T management requires funct3=7");
+                        }
+                        Ok(self.control(operation, request.rs1, request.rs2)?)
+                    },
                     _ => {
                         return Err(Whatever::without_source(format!(
                             "unsupported custom opcode: 0x{:08x}",
@@ -442,21 +330,6 @@ impl Core {
                     }
                 }
                 Step::Trap(trap) => {
-                    if self.task_mode && trap.cause == 8 && self.hart.register(17) == 0xbb01 {
-                        self.complete_task(self.hart.register(10));
-                        break;
-                    }
-                    if self.task_mode {
-                        return Err(Whatever::without_source(format!(
-                            "task trap at pc=0x{pc:x}: cause={} value=0x{:x} a7={} a0=0x{:x} a1=0x{:x} a2=0x{:x}",
-                            trap.cause,
-                            trap.value,
-                            self.hart.register(17),
-                            self.hart.register(10),
-                            self.hart.register(11),
-                            self.hart.register(12)
-                        )));
-                    }
                     if let Some(log) = &mut self.disasm {
                         writeln!(
                             log,
@@ -486,14 +359,17 @@ impl Core {
                         }
                     }
                 }
-                Step::Waiting => (),
+                Step::Waiting => break,
                 Step::Custom(_) => unreachable!(),
             }
-            if self.accel.barrier_hit || self.task_done {
+            if self.accel.barrier_hit {
                 break;
             }
         }
         if self.exit_code.is_some() {
+            if let Some(workers) = &mut self.workers {
+                workers.shutdown().map_err(Whatever::without_source)?;
+            }
             self.tile
                 .platform
                 .lock()
@@ -503,6 +379,8 @@ impl Core {
             if let Some(log) = &mut self.disasm {
                 log.flush().whatever_context("flush instruction log")?;
             }
+        } else if self.waiting {
+            std::thread::sleep(Duration::from_micros(50));
         }
         Ok(())
     }
@@ -513,19 +391,6 @@ impl Core {
     pub fn stop(&mut self, code: i32) {
         self.exit_code = Some(code);
     }
-    pub fn wait_control(&self) {
-        if self.is_controller {
-            if let Some(request) = self.pending_control {
-                let core = request.rs1 as usize;
-                if core == self.tile.tasks.signatures.len() {
-                    self.tile.tasks.wait_available(request.rs2);
-                } else {
-                    self.tile.tasks.wait(core);
-                }
-            }
-        }
-    }
-
     pub fn finished(&self) -> bool {
         self.exit_code.is_some()
     }

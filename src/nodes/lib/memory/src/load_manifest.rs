@@ -5,7 +5,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 const DDR_BASE: u64 = 0x8000_0000;
-const DDR_SIZE: u64 = 16 * 1024 * 1024 * 1024;
+pub const DDR_SIZE: u64 = 16 * 1024 * 1024 * 1024;
 const FDT_SIZE: u64 = 256 * 1024;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -26,8 +26,8 @@ pub struct LoadManifest {
     pub ddr_base: u64,
     pub ddr_size: u64,
     pub guest_memory_bytes: u64,
-    pub pmem_base: u64,
-    pub pmem_size: u64,
+    pub model_base: u64,
+    pub model_size: u64,
     pub fdt_base: u64,
     pub fdt_size: u64,
     pub loads: Vec<LoadEntry>,
@@ -98,17 +98,17 @@ pub fn validate_loads(image: Option<&Path>, manifest_path: Option<&Path>) -> Res
             }
             let guest = manifest.guest_memory_bytes;
             if guest <= FDT_SIZE || guest >= DDR_SIZE || guest % (1024 * 1024) != 0 {
-                return Err("guest_memory_bytes must be MiB-aligned and leave guest/FDT and pmem regions".into());
+                return Err("guest_memory_bytes must be MiB-aligned and leave guest/FDT and model regions".into());
             }
-            if manifest.pmem_base != end(DDR_BASE, guest, "pmem base")?
-                || manifest.pmem_size != DDR_SIZE - guest
+            if manifest.model_base != end(DDR_BASE, guest, "model base")?
+                || manifest.model_size != DDR_SIZE - guest
                 || manifest.fdt_size != FDT_SIZE
                 || manifest.fdt_base != end(DDR_BASE, guest - FDT_SIZE, "FDT base")?
             {
-                return Err("pmem/FDT fields do not match the DDR and guest memory partition".into());
+                return Err("model/FDT fields do not match the DDR and guest memory partition".into());
             }
             end(manifest.ddr_base, manifest.ddr_size, "DDR")?;
-            end(manifest.pmem_base, manifest.pmem_size, "pmem")?;
+            end(manifest.model_base, manifest.model_size, "model")?;
             end(manifest.fdt_base, manifest.fdt_size, "FDT")?;
             if manifest.loads.len() != 2 {
                 return Err("load manifest requires exactly boot and model loads".into());

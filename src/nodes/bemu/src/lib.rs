@@ -21,7 +21,8 @@ mod inst;
 mod trace;
 
 pub use bebop_bemu_profile::{format_report as format_profile_report, print_report as print_profile_report};
-pub use config::{workload_placement, core_signature, core_hart_id, hart_capacity, private_bank_geometry, tile_count, tile_topology, TileTopology};
+pub use config::{workload_placement, core_signature, core_hart_id, core_is_ant, hart_capacity, private_bank_geometry, tile_count, tile_topology, TileTopology};
 pub use root::tile::Tile;
+pub use root::platform::DRAM_BASE;
 pub use sim::Core;
 pub use trace::TraceConfig;

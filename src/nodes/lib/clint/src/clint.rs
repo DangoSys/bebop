@@ -1,18 +1,24 @@
 pub const BASE: u64 = 0x0200_0000;
 pub const SIZE: u64 = 0x1_0000;
 pub const TICK_CYCLES: u64 = 1000;
-pub const SOC_CLOCK_HZ: u64 = 5_000_000;
+// Logical target frequency, matching Chipyard's default peripheral clock.
+// FPGA and emulator execution speed does not change guest time units.
+pub const SOC_CLOCK_HZ: u64 = 500_000_000;
 pub const TIMEBASE_HZ: u32 = (SOC_CLOCK_HZ / TICK_CYCLES) as u32;
 
 use std::sync::{OnceLock, atomic::{AtomicU32, AtomicU64, Ordering}};
 
 #[repr(align(64))]
-struct Clock(AtomicU64);
+struct Clock {
+    cycles: AtomicU64,
+    ticks: AtomicU64,
+}
 
 pub struct Clint {
     msip: Vec<AtomicU32>,
     progress: Vec<Clock>,
     participants: OnceLock<Vec<usize>>,
+    ticks: AtomicU64,
     offset: AtomicU64,
     mtimecmp: Vec<AtomicU64>,
 }
@@ -21,8 +27,12 @@ impl Clint {
     pub fn new(harts: usize) -> Self {
         Self {
             msip: (0..harts).map(|_| AtomicU32::new(0)).collect(),
-            progress: (0..harts).map(|_| Clock(AtomicU64::new(0))).collect(),
+            progress: (0..harts).map(|_| Clock {
+                cycles: AtomicU64::new(0),
+                ticks: AtomicU64::new(0),
+            }).collect(),
             participants: OnceLock::new(),
+            ticks: AtomicU64::new(0),
             offset: AtomicU64::new(0),
             mtimecmp: (0..harts).map(|_| AtomicU64::new(u64::MAX)).collect(),
         }
@@ -33,6 +43,7 @@ impl Clint {
         assert!(!harts.is_empty());
         assert!(harts.iter().all(|id| *id < self.progress.len()));
         self.participants.set(harts).expect("CLINT participants configured twice");
+        self.ticks.store(self.cycles() / TICK_CYCLES, Ordering::SeqCst);
     }
 
     pub fn load(&self, offset: u64, size: usize) -> Option<u64> {
@@ -102,17 +113,29 @@ impl Clint {
     // Each progress slot has one writer: its owning hart.
     #[inline]
     pub fn advance_to(&self, hart: usize, cycles: u64) {
-        let progress = &self.progress[hart].0;
-        if cycles > progress.load(Ordering::Relaxed) {
-            progress.store(cycles, Ordering::Relaxed);
+        let progress = &self.progress[hart];
+        let previous = progress.cycles.load(Ordering::Relaxed);
+        if cycles > previous {
+            progress.cycles.store(cycles, Ordering::Relaxed);
+            let ticks = cycles / TICK_CYCLES;
+            if ticks != previous / TICK_CYCLES {
+                // Order boundary publications; overlapping reductions cannot rewind time.
+                progress.ticks.store(ticks, Ordering::SeqCst);
+                let ticks = if let Some(harts) = self.participants.get() {
+                    harts.iter().map(|id| self.progress[*id].ticks.load(Ordering::SeqCst)).min().unwrap()
+                } else {
+                    self.progress.iter().map(|clock| clock.ticks.load(Ordering::SeqCst)).max().unwrap()
+                };
+                self.ticks.fetch_max(ticks, Ordering::SeqCst);
+            }
         }
     }
     #[inline]
     pub fn cycles(&self) -> u64 {
         if let Some(harts) = self.participants.get() {
-            harts.iter().map(|id| self.progress[*id].0.load(Ordering::Relaxed)).min().unwrap()
+            harts.iter().map(|id| self.progress[*id].cycles.load(Ordering::Relaxed)).min().unwrap()
         } else {
-            self.progress.iter().map(|clock| clock.0.load(Ordering::Relaxed)).max().unwrap()
+            self.progress.iter().map(|clock| clock.cycles.load(Ordering::Relaxed)).max().unwrap()
         }
     }
     #[inline]
@@ -124,6 +147,6 @@ impl Clint {
     }
     #[inline]
     pub fn time(&self) -> u64 {
-        (self.cycles() / TICK_CYCLES).wrapping_add(self.offset.load(Ordering::Relaxed))
+        self.ticks.load(Ordering::SeqCst).wrapping_add(self.offset.load(Ordering::Relaxed))
     }
 }

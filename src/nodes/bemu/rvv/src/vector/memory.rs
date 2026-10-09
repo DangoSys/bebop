@@ -33,7 +33,7 @@ impl Engine {
             }
             let count = fields * self.vector.vlen / bits;
             for index in self.vector.vstart..count {
-                let address = base.wrapping_add((index * bits / 8) as u32);
+                let address = base.wrapping_add((index * bits / 8) as u64);
                 let result = if store {
                     self.write(memory, address, bits / 8, self.vector.read(register, index, bits))
                         .map(|_| 0)
@@ -72,9 +72,9 @@ impl Engine {
                 continue;
             }
             let address = match mode {
-                0 => base.wrapping_add((index * bits / 8) as u32),
-                1 | 3 => base.wrapping_add(self.vector.read(rs2, index, bits) as u32),
-                2 => base.wrapping_add((index as u32).wrapping_mul(self.x[rs2])),
+                0 => base.wrapping_add((index * bits / 8) as u64),
+                1 | 3 => base.wrapping_add(self.vector.read(rs2, index, bits) as u64),
+                2 => base.wrapping_add((index as u64).wrapping_mul(self.x[rs2])),
                 _ => unreachable!(),
             };
             let result = if store {
@@ -102,5 +102,31 @@ impl Engine {
         }
         self.vector.vstart = 0;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Engine, Memory, MemoryError};
+    struct ReadAddress(u64);
+    impl Memory for ReadAddress {
+        fn ball_command(&mut self, _: u32, _: u64, _: u64) -> Result<u64, MemoryError> { Err(MemoryError) }
+        fn read(&mut self, address: u64, _: usize) -> Result<u64, MemoryError> {
+            self.0 = address;
+            Err(MemoryError)
+        }
+        fn write(&mut self, _: u64, _: usize, _: u64) -> Result<(), MemoryError> { Err(MemoryError) }
+    }
+    #[test]
+    fn rv64_vector_memory_keeps_high_address_and_fault_value() {
+        let mut engine = Engine::new(256, 64, 4096);
+        engine.vector.vtype = 2 << 3;
+        engine.vector.vl = 1;
+        engine.x[10] = 0x1234567880000000;
+        engine.instruction = (1 << 25) | (10 << 15) | (6 << 12) | (8 << 7) | 0x07;
+        let mut memory = ReadAddress(0);
+        let fault = engine.vector_memory(&mut memory).unwrap_err();
+        assert_eq!(memory.0, 0x1234567880000000);
+        assert_eq!((fault.cause, fault.value), (5, 0x1234567880000000));
     }
 }

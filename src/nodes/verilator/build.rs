@@ -18,7 +18,6 @@
 //
 //===---------------------------------------------------------------------------===//
 
-use std::collections::HashSet;
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
@@ -41,8 +40,6 @@ const VERILATOR_ARGS: &[&str] = &[
     "--noassert",
     "-Wno-fatal",
     "--trace-fst",
-    "--trace-threads",
-    "1",
     "--output-split",
     "10000",
     "--output-split-cfuncs",
@@ -78,73 +75,31 @@ fn main() {
     let riscv = require_nix_riscv();
 
     let vsrcs = collect_files(&build_dir, &["v", "sv"]);
-    let csrcs = collect_build_csrcs(&build_dir);
+    let mut csrcs = collect_build_csrcs(&build_dir);
+    csrcs.extend([
+        native_dir.join("verilator.cc"),
+        native_dir.join("memory/BBSimDRAM.cc"),
+        native_dir.join("memory/mm.cc"),
+        native_dir.join("memory/mm_dramsim3.cc"),
+    ]);
     let native_inputs = collect_files(&native_dir, &["c", "cc", "cpp", "h", "hh", "hpp"]);
     for src in vsrcs.iter().chain(csrcs.iter()).chain(native_inputs.iter()) {
         println!("cargo:rerun-if-changed={}", src.display());
     }
 
-    if obj_dir.exists() {
-        fs::remove_dir_all(&obj_dir).expect("remove stale obj_dir");
-    }
     fs::create_dir_all(&obj_dir).expect("create obj_dir");
-    run_verilator(&build_dir, &obj_dir, TOPNAME, &jobs, &vsrcs, &csrcs);
-
-    let verilator_root = get_verilator_root(&obj_dir, TOPNAME);
-    let generated_cpps = collect_verilator_cpps(&obj_dir);
-
-    let mut build = cc::Build::new();
-    build.compiler(require_gxx());
-    build.cpp(true);
-    build.std("c++17");
-    build.warnings(false);
-    build.opt_level(3);
-    build.out_dir(&out_dir);
-    build.cargo_metadata(false);
-    build.flag_if_supported("-fcoroutines");
-    build.flag_if_supported("-faligned-new");
-    build.flag_if_supported("-fcf-protection=none");
-    build.flag_if_supported("-pthread");
-
-    build.define("VM_SC", "0");
-    build.define("VM_TRACE", "1");
-    build.define("VM_TRACE_FST", "1");
-    build.define("VM_TRACE_VCD", "0");
-    build.define("VM_TIMING", "1");
-
-    build.include(&native_dir);
-    build.include(native_dir.join("include"));
-    build.include(&build_dir);
-    build.include(&obj_dir);
-    build.include(verilator_root.join("include"));
-    build.include(verilator_root.join("include/vltstd"));
-    build.include(&riscv.include_dir);
-
-    // Compile minimal wrapper + memory model + generated Verilator code.
-    // DPI-C trace callbacks are provided by bebop-rtl-trace.
-    let native_csrcs = [
-        native_dir.join("verilator.cc"),
-        native_dir.join("memory/BBSimDRAM.cc"),
-        native_dir.join("memory/mm.cc"),
-        native_dir.join("memory/mm_dramsim3.cc"),
-    ];
-    for src in native_csrcs {
-        build.file(src);
-    }
-
-    for file in &generated_cpps {
-        build.file(file);
-    }
-    for support in verilator_support_sources(&verilator_root) {
-        build.file(support);
-    }
-
-    // Add Verilator timing support library (for coroutines)
-    build.file(verilator_root.join("include/verilated_timing.cpp"));
-
-    build.compile("bebop_verilator_native");
-
-    emit_link_config(&out_dir, &riscv);
+    run_verilator(&build_dir, &obj_dir, TOPNAME, &jobs, &vsrcs, &csrcs, &native_dir, &riscv);
+    // The generated makefile owns hierarchy libraries, source partitioning and runtime support.
+    let status = Command::new("make")
+        .arg("-s").arg("-C").arg(&obj_dir)
+        .arg("-f").arg(format!("V{TOPNAME}.mk"))
+        .arg("-j").arg(&jobs)
+        .arg(format!("CXX={}", require_gxx()))
+        .arg("OPT_FAST=-O3").arg("OPT_SLOW=-O3")
+        .arg(format!("libV{TOPNAME}.a")).arg("libverilated.a")
+        .status().expect("compile Verilator libraries");
+    assert!(status.success(), "Verilator library compilation failed: {status}");
+    emit_link_config(&obj_dir, &riscv);
 }
 
 struct NixRiscv {
@@ -193,7 +148,8 @@ fn require_nix_riscv() -> NixRiscv {
 fn emit_link_config(native_lib_dir: &Path, riscv: &NixRiscv) {
     println!("cargo:rustc-link-search=native={}", native_lib_dir.display());
     println!("cargo:rustc-link-search=native={}", riscv.lib_dir.display());
-    println!("cargo:rustc-link-lib=static=bebop_verilator_native");
+    println!("cargo:rustc-link-lib=static=V{TOPNAME}");
+    println!("cargo:rustc-link-lib=static=verilated");
     println!("cargo:rustc-link-lib=stdc++");
     println!("cargo:rustc-link-lib=dylib=dramsim3");
     println!("cargo:rustc-link-lib=lz4");
@@ -236,43 +192,6 @@ fn collect_files(root: &Path, exts: &[&str]) -> Vec<PathBuf> {
     files
 }
 
-// Verilator's *_vm_classes*.cpp files aggregate generated implementation
-// files with #include. Compile each aggregate, but exclude its included files
-// from the direct list to avoid duplicate symbols at link time.
-fn collect_verilator_cpps(obj_dir: &Path) -> Vec<PathBuf> {
-    let generated_cpps = collect_files(obj_dir, &["cpp"]);
-    let included_cpps = generated_cpps
-        .iter()
-        .filter(|path| is_verilator_class_aggregate(path))
-        .flat_map(|path| verilator_aggregate_includes(path))
-        .collect::<HashSet<_>>();
-
-    generated_cpps
-        .into_iter()
-        .filter(|path| !included_cpps.contains(path))
-        .collect()
-}
-
-fn is_verilator_class_aggregate(path: &Path) -> bool {
-    path.file_name()
-        .and_then(OsStr::to_str)
-        .is_some_and(|name| name.contains("_vm_classes"))
-}
-
-fn verilator_aggregate_includes(path: &Path) -> Vec<PathBuf> {
-    let content =
-        fs::read_to_string(path).unwrap_or_else(|e| panic!("read Verilator aggregate {} failed: {e}", path.display()));
-    let parent = path.parent().expect("Verilator aggregate parent directory");
-
-    content
-        .lines()
-        .filter_map(|line| {
-            let name = line.trim().strip_prefix("#include \"")?.strip_suffix("\"")?;
-            (Path::new(name).extension() == Some(OsStr::new("cpp"))).then(|| parent.join(name))
-        })
-        .collect()
-}
-
 fn collect_files_inner(root: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
     let entries = fs::read_dir(root).unwrap_or_else(|e| panic!("read directory {} failed: {e}", root.display()));
     for entry in entries {
@@ -292,28 +211,7 @@ fn collect_files_inner(root: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
     }
 }
 
-fn get_verilator_root(obj_dir: &Path, topname: &str) -> PathBuf {
-    let mk = obj_dir.join(format!("V{topname}.mk"));
-    let contents = fs::read_to_string(&mk).expect("read generated V*.mk");
-    let line = contents
-        .lines()
-        .find(|line| line.starts_with("VERILATOR_ROOT = "))
-        .expect("VERILATOR_ROOT line");
-    PathBuf::from(line.trim_start_matches("VERILATOR_ROOT = ").trim())
-}
-
-fn verilator_support_sources(verilator_root: &Path) -> Vec<PathBuf> {
-    let include = verilator_root.join("include");
-    vec![
-        include.join("verilated.cpp"),
-        include.join("verilated_dpi.cpp"),
-        include.join("verilated_vpi.cpp"),
-        include.join("verilated_fst_c.cpp"),
-        include.join("verilated_threads.cpp"),
-    ]
-}
-
-fn run_verilator(build_dir: &Path, obj_dir: &Path, topname: &str, jobs: &str, vsrcs: &[PathBuf], csrcs: &[PathBuf]) {
+fn run_verilator(build_dir: &Path, obj_dir: &Path, topname: &str, jobs: &str, vsrcs: &[PathBuf], csrcs: &[PathBuf], native_dir: &Path, riscv: &NixRiscv) {
     let mut cmd = Command::new("verilator");
     cmd.stdout(Stdio::inherit());
     cmd.stderr(Stdio::inherit());
@@ -325,10 +223,19 @@ fn run_verilator(build_dir: &Path, obj_dir: &Path, topname: &str, jobs: &str, vs
     cmd.arg("-j")
         .arg(jobs)
         .arg(format!("+incdir+{}", build_dir.display()))
-        .arg("--top")
+        .arg("--top-module")
         .arg(topname)
         .arg("--Mdir")
         .arg(obj_dir);
+
+    let hierarchy = build_dir.join("hierarchy.vlt");
+    if hierarchy.is_file() {
+        cmd.arg("--hierarchical").arg(hierarchy);
+    }
+    cmd.arg("-CFLAGS").arg("-std=c++17 -fcoroutines -pthread");
+    for directory in [native_dir.to_path_buf(), native_dir.join("include"), riscv.include_dir.clone()] {
+        cmd.arg("-CFLAGS").arg(format!("-I{}", directory.display()));
+    }
 
     for src in vsrcs {
         cmd.arg(src);

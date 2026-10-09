@@ -1,7 +1,6 @@
 //===- 33_mvin.rs - MVIN instruction (memory to bank) ----------------------===//
 
-use super::super::bank::bank_size;
-use super::decode::{pbank, pbank_group, rs1_b2, rs1_iter, xs2_mem_stride};
+use super::decode::{pbank_group, rs1_b2, rs1_iter, xs2_mem_stride};
 use super::instruction::{ExecContext, Instruction};
 
 pub struct Mvin;
@@ -32,12 +31,12 @@ impl Instruction for Mvin {
         let groups = cols.max(1) as usize;
         let geometry = super::decode::DmaRows::decode(xs1, xs2, groups as u64);
 
-        if groups > 1 {
+        if geometry.groups > 1 {
             for row in 0..depth as usize {
                 for group in 0..groups {
                     let p = pbank_group(ctx, bank_id, group as u64);
                     let bank_offset = row * 16;
-                    if bank_offset + 16 > bank_size() {
+                    if bank_offset + 16 > ctx.banks[p].len() {
                         panic!("mvin: bank range: bank_offset={bank_offset} line_bytes=16 depth={depth}");
                     }
                     let addr = geometry.source(row as u64, group as u64);
@@ -63,7 +62,9 @@ impl Instruction for Mvin {
                 }
             }
         } else {
-            let p = pbank(ctx, bank_id);
+            let group = geometry.selected_group.unwrap_or(0);
+            let p = pbank_group(ctx, bank_id, group);
+            assert!(depth as usize <= ctx.banks[p].len() / 16, "DMA exceeds selected bank");
             let line_bytes = 16usize;
             if stride == 1 {
                 ctx.memory
@@ -77,7 +78,7 @@ impl Instruction for Mvin {
             for i in 0..depth {
                 let addr = geometry.source(i, 0);
                 let bank_offset = (i as usize) * line_bytes;
-                if bank_offset + line_bytes > bank_size() {
+                if bank_offset + line_bytes > ctx.banks[p].len() {
                     panic!("mvin: bank range: bank_offset={bank_offset} line_bytes={line_bytes} depth={depth}");
                 }
                 if stride != 1 {
@@ -93,7 +94,7 @@ impl Instruction for Mvin {
                     rob_id: ctx.inst_id as u32,
                     vbank_id: bank_id as u32,
                     pbank_id: ctx.reported_physical_bank(bank_id, p),
-                    group_id: 0,
+                    group_id: group as u32,
                     addr: i as u32,
                     write_mask: (1u32 << line_bytes) - 1,
                     data_lo: u64::from_le_bytes(ctx.banks[p][bank_offset..bank_offset + 8].try_into().unwrap()),

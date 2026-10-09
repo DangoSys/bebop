@@ -99,8 +99,10 @@ set_dr_mode -add enable
 # Enable this when this board is reousrces are limited for design
 memory_options -add {bram_balance SMART}
 
-# Enable logic replication to avoid long path in multi-fpga design
-logic_replication -enable
+# Restrict replication to long partition-crossing paths. The default two-hop
+# threshold expanded 114599 cut nets to 414238 and exhausted routing capacity.
+# SDK delay units are 10 per partition hop, not physical timing in nanoseconds.
+logic_replication -enable -delay_threshold 60
 
 # Generate FPGA design
 design_edit

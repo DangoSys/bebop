@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 mod chip_config;
 
-pub use chip_config::{workload_placement, core_hart_id, hart_capacity, tile_for_core, core_signature, tile_count, tile_topology, RvvConfig, TileTopology, Topology};
+pub use chip_config::{ant_config, tss_config, AntConfig,workload_placement, core_hart_id, core_is_ant, hart_capacity, tile_for_core, core_signature, tile_count, tile_topology, RvvConfig, TileTopology, Topology};
 
 thread_local! {
     static TOPOLOGY: Cell<Option<&'static Topology>> = const { Cell::new(None) };
@@ -96,7 +96,7 @@ pub mod ball_domain {
                 .ball_domain
                 .mappings
                 .iter()
-                .find(|mapping| mapping.ball_id == bid && mapping.builtin.is_empty())
+                .find(|mapping| mapping.ball_id == bid)
                 .map(|mapping| mapping.ball_class.clone())
         })
     }

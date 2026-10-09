@@ -347,13 +347,7 @@ fn setup_user_vm(
     image: (u64, u64),
 ) -> Result<UserVm, String> {
     let stack_virt_bottom = USER_TOP - USER_STACK_SIZE;
-    let interconnect = pages.lock().expect("DDR page pool poisoned").interconnect_buffer;
     let mut vm = UserVm::new(memory, pages, image)?;
-    if let Some((physical, bytes)) = interconnect {
-        use crate::root::interconnect::port::{BASE, BUFFER_BASE, SIZE};
-        vm.map_range(memory, BASE, BASE, SIZE, 0x2 | 0x4)?;
-        vm.map_range(memory, BUFFER_BASE, physical, bytes, 0x2 | 0x4)?;
-    }
 
     for seg in &load.analysis.load_segments {
         let phys = if load.analysis.is_pie || load.analysis.needs_relocation {

@@ -47,6 +47,7 @@ impl Vector {
         let count = 1usize << ratio.max(0);
         register.is_multiple_of(count) && register + count <= 32
     }
+    #[inline(always)]
     pub(crate) fn read(&self, register: usize, element: usize, bits: usize) -> u64 {
         let offset = register * self.vlen / 8 + element * bits / 8;
         match bits {
@@ -57,6 +58,7 @@ impl Vector {
             _ => unreachable!(),
         }
     }
+    #[inline(always)]
     pub(crate) fn write(&mut self, register: usize, element: usize, bits: usize, value: u64) {
         let offset = register * self.vlen / 8 + element * bits / 8;
         match bits {
@@ -102,9 +104,9 @@ impl Engine {
         let rd = ((instruction >> 7) & 31) as usize;
         let immediate = instruction >> 30 == 3;
         let vtype = if instruction >> 31 == 0 {
-            instruction >> 20
+            (instruction >> 20) as u64
         } else if immediate {
-            (instruction >> 20) & 0x3ff
+            ((instruction >> 20) & 0x3ff) as u64
         } else if instruction >> 25 == 0x40 {
             self.x[((instruction >> 20) & 31) as usize]
         } else {
@@ -121,7 +123,7 @@ impl Engine {
         } else {
             let old_max = self.vector.vlmax();
             let old_type = self.vector.vtype;
-            self.vector.vtype = vtype;
+            self.vector.vtype = vtype as u32;
             let max = self.vector.vlmax();
             if !immediate && rs1 == 0 && rd == 0 && max != old_max {
                 self.vector.vtype = old_type;
@@ -138,8 +140,45 @@ impl Engine {
             };
             self.vector.vl = avl.min(max);
         }
-        self.x[rd] = self.vector.vl as u32;
+        self.x[rd] = self.vector.vl as u64;
         self.vector.vstart = 0;
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Engine;
+    #[test]
+    fn rv64_vector_configuration_keeps_xlen_and_rejects_high_vtype() {
+        let mut engine = Engine::new(256, 64, 4096);
+        engine.x[10] = 1 << 40;
+        engine.x[11] = 2 << 3;
+        engine.instruction = (0x40 << 25) | (11 << 20) | (10 << 15) | (7 << 12) | (12 << 7) | 0x57;
+        engine.configure_vector().unwrap();
+        assert_eq!(engine.x[12], 8);
+        engine.x[11] |= 1 << 40;
+        engine.configure_vector().unwrap();
+        assert_eq!(engine.x[12], 0);
+        assert_eq!(engine.vector.vtype, 1 << 31);
+    }
+    #[test]
+    fn elen32_configuration_and_widening_limits_follow_vlen() {
+        for vlen in [128, 256, 1024] {
+            let mut engine = Engine::new(vlen, 32, 4096);
+            engine.x[10] = 1000;
+            engine.instruction = (16 << 20) | (10 << 15) | (7 << 12) | (12 << 7) | 0x57;
+            engine.configure_vector().unwrap();
+            assert_eq!(engine.vector.vl, vlen / 32);
+            engine.instruction = (48 << 26) | (1 << 25) | (8 << 20) | (12 << 15) | (2 << 12) | (16 << 7) | 0x57;
+            assert_eq!(engine.vector_integer().unwrap_err().cause, 2);
+            engine.instruction = (18 << 26) | (1 << 25) | (8 << 20) | (12 << 15) | (1 << 12) | (16 << 7) | 0x57;
+            assert_eq!(engine.vector_float().unwrap_err().cause, 2);
+            engine.instruction = (24 << 20) | (10 << 15) | (7 << 12) | (12 << 7) | 0x57;
+            engine.configure_vector().unwrap();
+            assert_eq!(engine.vector.vl, 0);
+            assert_eq!(engine.vector.vtype, 1 << 31);
+        }
+    }
+
 }

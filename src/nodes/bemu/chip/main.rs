@@ -1,5 +1,5 @@
-//! Default `bebop-chip-<chip>` entry: run one PB-described tile, with its task controller if any.
-use bebop_bemu::root::tile::{run::Args, task_run::run};
+//! Default `bebop-chip-<chip>` entry: boot the complete PB-described chip.
+use bebop_bemu::root::run::{Args, run};
 use clap::Parser;
 
 fn main() {

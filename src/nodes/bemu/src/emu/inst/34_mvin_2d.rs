@@ -20,6 +20,7 @@ impl Instruction for Mvin2d {
         }
 
         let bank = pbank(ctx, bank_id);
+        assert!(dst_base + depth <= ctx.banks[bank].len() as u64 / 16, "mvin_2d: destination exceeds selected bank");
         for y in 0..height {
             for x in 0..width {
                 let row = dst_base + y * width + x;

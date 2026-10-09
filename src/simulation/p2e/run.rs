@@ -172,7 +172,13 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let mut diff_session = config
         .diff
         .as_ref()
-        .map(|diff| DiffSession::new(&diff.image_elf, &config.log_dir))
+        .map(|diff| {
+            let memory_size = match &load_plan.manifest {
+                Some(manifest) => manifest.ddr_size,
+                None => bebop_p2e::DDR_SIZE,
+            };
+            DiffSession::new(&diff.image_elf, &config.log_dir, memory_size as usize)
+        })
         .transpose()?;
     std::fs::write(&host_init_flag, "").whatever_context("failed to signal P2E host init")?;
 

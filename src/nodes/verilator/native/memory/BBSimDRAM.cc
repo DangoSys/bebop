@@ -185,7 +185,7 @@ bbsim_memory_init(int chip_id, long long int mem_size, long long int word_size,
       fprintf(stderr, "[BBSimDRAM] mmap for backing store failed\n");
       abort();
     }
-    memset(data, 0, mem_size);
+    // Anonymous mmap pages are already zero; keep the DDR backing demand-paged.
 
     if (!elf_file.empty())
       load_elf_to_mem(elf_file.c_str(), data, (uint64_t)mem_base,

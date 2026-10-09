@@ -6,19 +6,20 @@ pub struct Fault {
     pub pc: u32,
     pub instruction: u32,
     pub cause: u32,
-    pub value: u32,
+    pub value: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MemoryError;
 
 pub trait Memory {
-    fn read(&mut self, address: u32, bytes: usize) -> Result<u64, MemoryError>;
-    fn write(&mut self, address: u32, bytes: usize, value: u64) -> Result<(), MemoryError>;
+    fn read(&mut self, address: u64, bytes: usize) -> Result<u64, MemoryError>;
+    fn write(&mut self, address: u64, bytes: usize, value: u64) -> Result<(), MemoryError>;
+    fn ball_command(&mut self, funct7: u32, rs1: u64, rs2: u64) -> Result<u64, MemoryError>;
 }
 
 pub struct Engine {
-    pub(crate) x: [u32; 32],
+    pub(crate) x: [u64; 32],
     pub(crate) f: [u64; 32],
     pub(crate) fcsr: u8,
     pub(crate) vector: Vector,
@@ -53,12 +54,17 @@ impl Engine {
         self.loaded[buffer] = bytes.len();
     }
 
+    pub fn release_program(&mut self, buffer: usize) {
+        self.loaded[buffer] = 0;
+        self.constants[buffer].clear();
+    }
+
     pub fn load_constants(&mut self, buffer: usize, bytes: &[u8]) {
         assert!(bytes.len() <= 4096);
         self.constants[buffer] = bytes.to_vec();
     }
 
-    pub(crate) fn fault(&self, cause: u32, value: u32) -> Fault {
+    pub(crate) fn fault(&self, cause: u32, value: u64) -> Fault {
         Fault {
             pc: self.pc,
             instruction: self.instruction,
@@ -67,15 +73,23 @@ impl Engine {
         }
     }
 
-    pub(crate) fn illegal(&self) -> Fault {
-        self.fault(2, self.instruction)
+    pub(crate) fn code_address(&self, address: u64) -> Result<u32, Fault> {
+        let pc = u32::try_from(address).map_err(|_| self.fault(1, address))?;
+        if pc & 3 != 0 {
+            return Err(self.fault(0, address));
+        }
+        Ok(pc)
     }
 
-    pub(crate) fn read(&self, memory: &mut impl Memory, address: u32, bytes: usize) -> Result<u64, Fault> {
+    pub(crate) fn illegal(&self) -> Fault {
+        self.fault(2, self.instruction.into())
+    }
+
+    pub(crate) fn read(&self, memory: &mut impl Memory, address: u64, bytes: usize) -> Result<u64, Fault> {
         memory.read(address, bytes).map_err(|_| self.fault(5, address))
     }
 
-    pub(crate) fn write(&self, memory: &mut impl Memory, address: u32, bytes: usize, value: u64) -> Result<(), Fault> {
+    pub(crate) fn write(&self, memory: &mut impl Memory, address: u64, bytes: usize, value: u64) -> Result<(), Fault> {
         memory.write(address, bytes, value).map_err(|_| self.fault(7, address))
     }
 
@@ -84,32 +98,32 @@ impl Engine {
         instruction_buffer: usize,
         entry: u32,
         end: u32,
-        args: [u32; 8],
-        stack_top: u32,
+        args: [u64; 8],
+        stack_top: u64,
         memory: &mut impl Memory,
     ) -> Result<(), Fault> {
         self.pc = entry;
         self.instruction = 0;
         if entry & 3 != 0 || end & 3 != 0 || entry >= end || end as usize > self.loaded[instruction_buffer] {
-            return Err(self.fault(1, entry));
+            return Err(self.fault(1, entry.into()));
         }
         self.x.fill(0);
         self.f.fill(0);
         self.fcsr = 0;
-        self.x[1] = end;
+        self.x[1] = end.into();
         self.x[2] = stack_top;
         self.x[10..18].copy_from_slice(&args);
         let constants = self.constants[instruction_buffer].clone();
         let mut memory = KernelMemory::new(memory, &constants);
         while self.pc != end {
             if self.pc & 3 != 0 {
-                return Err(self.fault(0, self.pc));
+                return Err(self.fault(0, self.pc.into()));
             }
             let offset = self.pc as usize;
             let bytes = self.programs[instruction_buffer]
                 .get(offset..offset + 4)
                 .filter(|_| offset + 4 <= self.loaded[instruction_buffer])
-                .ok_or_else(|| self.fault(1, self.pc))?;
+                .ok_or_else(|| self.fault(1, self.pc.into()))?;
             self.instruction = u32::from_le_bytes(bytes.try_into().unwrap());
             let opcode = self.instruction & 0x7f;
             let funct = (self.instruction >> 12) & 7;

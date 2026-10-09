@@ -21,7 +21,7 @@ pub(crate) struct State {
     private: Arc<Mutex<PrivateState>>,
     pub(crate) rvv: Option<rvv::Engine>,
     pub(crate) shared_memory: Option<Arc<Tile>>,
-    pub(crate) hart_id: usize,
+    pub(crate) execution_id: usize,
     pub(crate) endpoint_index: Option<usize>,
     pub(crate) bank_scoreboard: inst::instruction::BankScoreboard,
     pub(crate) deferred_bank_frees: Vec<u32>,
@@ -59,7 +59,7 @@ impl State {
         log_dir: &Path,
         trace_config: TraceConfig,
         profile: bool,
-        hart_id: usize,
+        execution_id: usize,
         endpoint_index: Option<usize>,
         shared_memory: Option<Arc<Tile>>,
     ) -> Result<Self, String> {
@@ -96,7 +96,7 @@ impl State {
                 )
             }),
             shared_memory,
-            hart_id,
+            execution_id,
             endpoint_index,
             bank_scoreboard: inst::instruction::BankScoreboard::new(),
             deferred_bank_frees: Vec::new(),
@@ -122,8 +122,9 @@ pub(crate) fn execute(state: &mut State, mut memory: GuestAccess<'_>, funct7: u8
     let enable = funct7 >> 4;
     let btrace = state.trace.btrace_enabled()
         && pc != 0
-        && (funct7 == 15 || matches!(enable, 2..=4))
-        && !matches!(funct7 as u32, FUNCT7_MSET | FUNCT7_MVIN_MMIO);
+        && (funct7 == 79 || matches!(enable, 2..=4))
+        && !matches!(funct7 as u32, FUNCT7_MSET | FUNCT7_MVIN_MMIO)
+        && ((xs1 >> 20) & 0x3ff) < crate::config::virtual_bank_num() as u64;
     if btrace {
         state.bank_scoreboard.issue(inst_id);
     }
@@ -150,7 +151,7 @@ pub(crate) fn execute(state: &mut State, mut memory: GuestAccess<'_>, funct7: u8
     let State {
         rvv,
         shared_memory,
-        hart_id,
+        execution_id,
         endpoint_index,
         bank_scoreboard,
         deferred_bank_frees,
@@ -198,7 +199,7 @@ pub(crate) fn execute(state: &mut State, mut memory: GuestAccess<'_>, funct7: u8
                 ),
             };
             let mut ctx = inst::instruction::ExecContext {
-                hart_id: *hart_id,
+                hart_id: *execution_id,
                 inst_id,
                 memory,
                 rvv,
@@ -219,7 +220,7 @@ pub(crate) fn execute(state: &mut State, mut memory: GuestAccess<'_>, funct7: u8
     if btrace {
         bank_scoreboard.complete(inst_id);
         let op_type = format!("funct7_{}", funct7);
-        let w0_vbank = if funct7 == 15 {
+        let w0_vbank = if funct7 == 79 {
             result as u32
         } else {
             ((xs1 >> 20) & 0x3ff) as u32
@@ -262,12 +263,12 @@ pub(crate) fn execute(state: &mut State, mut memory: GuestAccess<'_>, funct7: u8
             with_trace_ptr(trace, || {
                 crate::trace::bemu_btrace(
                     inst_id,
-                    *hart_id as u64,
+                    *execution_id as u64,
                     BTraceBank {
                         owner_hart_id: if crate::config::is_shared_vbank(w0_vbank as u64) {
                             shared_memory.as_ref().expect("shared bank storage is unavailable")
-                                .bank_owner_hart(*hart_id, true) as u64
-                        } else { *hart_id as u64 },
+                                .bank_owner_id(*execution_id, true) as u64
+                        } else { *execution_id as u64 },
                         vbank_id: w0_vbank,
                         hash: status_hash,
                     },
@@ -288,41 +289,49 @@ pub(crate) fn execute(state: &mut State, mut memory: GuestAccess<'_>, funct7: u8
 fn preflight(state: &State, memory: &mut GuestAccess<'_>, funct: u8, xs1: u64, xs2: u64) -> Result<(), rvsim::Trap> {
     use inst::decode::{DmaRows, Mvin2dGeometry, rs1_b0, rs1_b2};
     use rvsim::Access;
-    if funct == 12 {
-        let bytes = xs1 as u32 as usize;
-        assert!(xs1 >> 32 < 2 && bytes >= 24 && bytes % 4 == 0);
+    if funct == 44 {
+        let bytes = inst::decode::rs1_iter(xs1) as usize;
+        let bank = rs1_b2(xs1) as usize;
+        let base = crate::config::virtual_bank_num();
+        assert!(bank >= base && bank < base + 2 && bytes >= 24 && bytes % 4 == 0);
         return memory.check_range(xs2, bytes, Access::Load);
     }
     if !matches!(funct, 16 | 33 | 34) { return Ok(()); }
     let bank = if funct == 16 { rs1_b0(xs1) } else { rs1_b2(xs1) };
-    let groups = if crate::config::is_shared_vbank(bank) {
+    let (groups, bank_rows) = if crate::config::is_shared_vbank(bank) {
         let tile = state.shared_memory.as_ref().expect("shared banks unavailable");
         let shared = tile.banks.lock().expect("shared banks poisoned");
         let cfg = &shared.cfgs[state.endpoint_index.expect("shared bank requires compute core") * shared.virtual_bank_count + bank as usize];
         assert!(cfg.allocated, "DMA bank not allocated");
-        cfg.cols.max(1)
+        let group = if funct == 34 { 0 } else { DmaRows::decode(xs1, xs2, cfg.cols.max(1)).selected_group.unwrap_or(0) };
+        let physical = shared.map.resolve_hart_group(state.endpoint_index.unwrap(), bank as u32, group as u32)
+            .expect("DMA shared bank has no physical mapping");
+        (cfg.cols.max(1), shared.storage[physical].len() as u64 / 16)
     } else {
         let private = state.private.lock().expect("private banks poisoned");
         let cfg = &private.bank_cfgs[bank as usize];
         assert!(cfg.allocated, "DMA bank not allocated");
-        cfg.cols.max(1)
+        let group = if funct == 34 { 0 } else { DmaRows::decode(xs1, xs2, cfg.cols.max(1)).selected_group.unwrap_or(0) };
+        let physical = private.bank_map.resolve_group(bank as u32, group as u32).expect("DMA bank has no physical mapping");
+        (cfg.cols.max(1), private.banks[physical].len() as u64 / 16)
     };
     if funct == 34 {
         let geometry = Mvin2dGeometry::decode(xs1, xs2);
+        assert!(geometry.dst_base + geometry.height * geometry.width <= bank_rows, "mvin_2d: destination exceeds bank");
         for row in 0..geometry.height {
             for column in 0..geometry.width {
-                memory.check_range(geometry.source(row, column), geometry.valid_bytes as usize, Access::Load)?;
+                memory.check_range(geometry.source(row, column), 16, Access::Load)?;
             }
         }
     } else {
         let geometry = DmaRows::decode(xs1, xs2, groups);
-        assert!(geometry.depth <= crate::bank::bank_size() as u64 / 16, "DMA exceeds bank");
+        assert!(geometry.depth <= bank_rows, "DMA exceeds bank");
         let access = if funct == 16 { Access::Store } else { Access::Load };
         if geometry.stride == 1 {
-            memory.check_range(geometry.address, (geometry.depth * groups * 16) as usize, access)?;
+            memory.check_range(geometry.address, (geometry.depth * geometry.groups * 16) as usize, access)?;
         } else {
             for row in 0..geometry.depth {
-                memory.check_range(geometry.source(row, 0), (groups * 16) as usize, access)?;
+                memory.check_range(geometry.source(row, 0), (geometry.groups * 16) as usize, access)?;
             }
         }
     }

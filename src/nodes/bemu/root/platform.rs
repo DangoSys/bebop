@@ -26,7 +26,6 @@ struct Uart {
 }
 
 pub(crate) struct Platform {
-    pub(crate) interconnect: Option<super::interconnect::port::Port>,
     pub(crate) memory: Arc<super::memory::Ddr>,
     pub(crate) pages: Arc<Mutex<super::memory::Pages>>,
     pub(crate) clint: Arc<Clint>,
@@ -49,7 +48,6 @@ impl Platform {
         Self {
             memory: Arc::new(super::memory::Ddr::new(size)),
             pages: Arc::new(Mutex::new(super::memory::Pages::new(size))),
-            interconnect: None,
             clint: Arc::new(Clint::new(harts)),
             microphone: bebop_microphone::Microphone::default(),
             speaker: bebop_speaker::Speaker::default(),
@@ -122,10 +120,6 @@ impl Platform {
 impl Bus for Platform {
     fn read(&mut self, address: u64, width: Width) -> Result<u64, BusError> {
         self.sync_clock();
-        use super::interconnect::port::{BASE, SIZE};
-        if (BASE..BASE + SIZE).contains(&address) {
-            return self.interconnect.as_ref().ok_or(BusError)?.read(address - BASE, width);
-        }
         if address >= DRAM_BASE {
             return self.memory.read(address, width);
         }
@@ -178,14 +172,6 @@ impl Bus for Platform {
 
     fn write(&mut self, address: u64, width: Width, value: u64) -> Result<(), BusError> {
         self.sync_clock();
-        use super::interconnect::port::{BASE, SIZE};
-        if (BASE..BASE + SIZE).contains(&address) {
-            return self
-                .interconnect
-                .as_mut()
-                .ok_or(BusError)?
-                .write(address - BASE, width, value);
-        }
         if address >= DRAM_BASE {
             return self.memory.write(address, width, value);
         }

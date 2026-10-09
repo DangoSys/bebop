@@ -11,6 +11,14 @@ pub struct Simulator {
 }
 
 impl Simulator {
+    pub fn memory_range(&self) -> io::Result<(u64, u64)> {
+        let (mut base, mut size) = (0, 0);
+        if !unsafe { bbsim_host_memory_range(0, &mut base, &mut size) } {
+            return Err(io::Error::other("Verilator DDR backing is not initialized"));
+        }
+        Ok((base, size))
+    }
+
     pub fn new(fst_path: Option<&Path>, args: &[String]) -> io::Result<Self> {
         unsafe {
             let context = verilator_context_new();

@@ -3,7 +3,6 @@ members = [
   ".",
   "src/nodes/lib/bank-hash",
   "src/nodes/lib/bemu-profile",
-  "src/nodes/lib/chipcrowd",
   "src/nodes/lib/clint",
   "src/nodes/lib/microphone",
   "src/nodes/lib/speaker",

@@ -15,6 +15,7 @@ pub struct MapEntry {
     pub hart_id: usize,
     pub vbank_id: u32,
     pub group_id: u32,
+    pub leases: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -34,6 +35,9 @@ impl BankMap {
     }
 
     pub fn delete_hart_vbank(&mut self, hart_id: usize, v: u32) {
+        assert!(!self.slots.iter().any(|e|
+            e.valid && e.hart_id == hart_id && e.vbank_id == v && e.leases != 0),
+            "cannot release or reallocate a leased shared bank");
         for e in &mut self.slots {
             if e.valid && e.hart_id == hart_id && e.vbank_id == v {
                 *e = MapEntry::default();
@@ -50,6 +54,7 @@ impl BankMap {
     }
 
     pub fn bind_hart_group(&mut self, p: usize, hart_id: usize, v: u32, group: u32) {
+        assert_eq!(self.slots[p].leases, 0, "cannot transfer a leased shared bank");
         self.slots[p].valid = true;
         self.slots[p].hart_id = hart_id;
         self.slots[p].vbank_id = v;

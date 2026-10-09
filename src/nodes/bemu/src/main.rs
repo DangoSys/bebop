@@ -27,12 +27,6 @@ struct Args {
     #[arg(long)]
     vm: bool,
     #[arg(long)]
-    system: bool,
-    #[arg(long, requires = "system")]
-    dtb: Option<PathBuf>,
-    #[arg(long, requires = "system")]
-    initrd: Option<PathBuf>,
-    #[arg(long)]
     disasm: bool,
     #[arg(long = "tool-profile")]
     tool_profile: bool,
@@ -116,12 +110,7 @@ fn run() -> Result<(), String> {
     if let Some(directory) = args.working_directory {
         bemu.set_working_directory(directory.canonicalize().map_err(|e| e.to_string())?);
     }
-    if args.system {
-        bemu.init_system(args.dtb.as_deref(), args.initrd.as_deref())
-            .map_err(|e| e.to_string())?;
-    } else {
-        bemu.init_hart().map_err(|e| e.to_string())?;
-    }
+    bemu.init_hart().map_err(|e| e.to_string())?;
     let started = Instant::now();
     let mut last_progress = started;
     let mut last_clock = started;

@@ -1,5 +1,8 @@
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+#[path = "artifacts.rs"]
+mod artifacts;
 
 pub struct PnrStep {
     pub output_dir: PathBuf,
@@ -10,108 +13,119 @@ impl PnrStep {
         Self { output_dir }
     }
 
-    pub fn run(&self) -> Result<PathBuf, String> {
-        log::info!("Running PNR (Place and Route)...");
-
-        let fpga_comp_dir = self.output_dir.join("fpgaCompDir");
-
-        if !fpga_comp_dir.exists() {
-            return Err(format!("fpgaCompDir not found: {:?}", fpga_comp_dir));
-        }
-
-        // Copy PNR_settings.tcl to output directory
-        let pnr_settings_src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/builder/3_pnr/PNR_settings.tcl");
-        let pnr_settings_dst = self.output_dir.join("PNR_settings.tcl");
-
-        if pnr_settings_src.exists() {
-            std::fs::copy(&pnr_settings_src, &pnr_settings_dst)
-                .map_err(|e| format!("Failed to copy PNR_settings.tcl: {}", e))?;
-            log::info!("Copied PNR_settings.tcl to output directory");
-        } else {
-            log::warn!("PNR_settings.tcl not found in source directory");
-        }
-
-        // Source sourceme.sh and run make
-        let sourceme_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
-        let make_cmd = "cd \"$1\" && source \"$2\" && make -C fpgaCompDir clean && make -C fpgaCompDir all";
-
-        let status = Command::new("bash")
-            .arg("-c")
-            .arg(&make_cmd)
-            .arg("p2e-build")
+    fn command(&self, script: &str) -> Command {
+        let mut command = Command::new("bash");
+        command
+            .args(["-ec", script, "p2e-build"])
             .arg(&self.output_dir)
-            .arg(&sourceme_path)
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh"));
+        command
+    }
+
+    fn make(&self, targets: &[&str]) -> Result<(), String> {
+        let status = self
+            .command(
+                "cd \"$1\"; source \"$2\"; shift 2; exec make -C fpgaCompDir SHELL=/bin/bash '.SHELLFLAGS=-e -o pipefail -c' \"$@\"",
+            )
+            .args(targets)
             .status()
-            .map_err(|e| format!("Failed to execute make: {}", e))?;
+            .map_err(|e| format!("PNR make {targets:?}: {e}"))?;
+        if !status.success() {
+            return Err(format!("PNR make {targets:?} failed: {status}"));
+        }
+        Ok(())
+    }
 
-        // Copy bitstream from pnrDir to fpgaCompDir root
-        let bitstream_src = self
-            .output_dir
-            .join("fpgaCompDir/part_b0_f0/pnrDir/xepic_vvac_top_0_0.bit");
-        let bitstream_dst = self.output_dir.join("fpgaCompDir/bitstream.bit");
-
-        if !bitstream_src.exists() {
-            if !status.success() {
-                return Err("PNR failed".to_string());
+    fn partitions(&self, parts: &[String], target: &str) -> Result<(), String> {
+        let mut commands = Vec::new();
+        for part in parts {
+            let log = std::fs::File::create(
+                self.output_dir
+                    .join("fpgaCompDir")
+                    .join(part)
+                    .join(format!(".{target}.log")),
+            )
+            .map_err(|e| format!("{target} log for {part}: {e}"))?;
+            let stderr = log.try_clone().map_err(|e| e.to_string())?;
+            let mut command = if target == "syn" || target == "pnr" {
+                let mut command = self.command("cd \"$1\"; source \"$2\"; exec make -C fpgaCompDir SHELL=/bin/bash '.SHELLFLAGS=-e -o pipefail -c' \"$3\"");
+                command.arg(format!("{target}_{part}"));
+                command
+            } else {
+                let mut command = self.command("cd \"$1\"; source \"$2\"; exec make -C fpgaCompDir -f \"$3/Makefile\" SHELL=/bin/bash '.SHELLFLAGS=-e -o pipefail -c' \"$4\"");
+                command.arg(part).arg(target);
+                command
+            };
+            command.stdout(Stdio::from(log)).stderr(Stdio::from(stderr));
+            commands.push((part, command));
+        }
+        let mut jobs = Vec::new();
+        let mut errors = Vec::new();
+        for (part, mut command) in commands {
+            match command.spawn() {
+                Ok(child) => jobs.push((part, child)),
+                Err(e) => {
+                    errors.push(format!("launch {part}: {e}"));
+                    break;
+                }
             }
-            return Err(format!("Bitstream not generated: {:?}", bitstream_src));
         }
+        for (part, mut child) in jobs {
+            match child.wait() {
+                Ok(status) if status.success() => {}
+                Ok(status) => errors.push(format!("{part}: {status}")),
+                Err(e) => errors.push(format!("wait {part}: {e}")),
+            }
+        }
+        if !errors.is_empty() {
+            return Err(format!("{target} failed: {}", errors.join("; ")));
+        }
+        Ok(())
+    }
 
+    fn dbg_gen(&self, step: &str) -> Result<(), String> {
+        let mut command = self.command("cd \"$1\"; source \"$2\"; export WORK_PATH=\"$PWD\" MEMORYFILEPATH=\"$PWD/\"; shift 2; if [[ \"$1\" == -step1 ]]; then cd fpgaCompDir; fi; exec \"$VDBG_HOME/bin/dbgGen\" \"$WORK_PATH\" \"$@\"");
+        command.arg(step);
+        if step == "-step1" {
+            command.arg("-log_overwrite");
+        }
+        let status = command.status().map_err(|e| format!("dbgGen launch: {e}"))?;
         if !status.success() {
-            log::warn!("PNR command returned non-zero, but bitstream was generated; continuing");
+            return Err(format!("dbgGen {step} failed: {status}"));
         }
+        Ok(())
+    }
 
-        std::fs::copy(&bitstream_src, &bitstream_dst).map_err(|e| format!("Failed to copy bitstream: {}", e))?;
-
-        //===----------------------------------------------------------------------===//
-        // When the design is hard to PNR, the PNR will fail and generate a bitstream in pnrDir_smart/
-        // But the tool still search this file in pnrDir/, so we need to copy it to pnrDir/
-        // This is a bug of the xepic tool.
-        // The step below is to solve the bug when the design is hard to PNR.
-        //
-        // Note: This approach is not ideal, as the PNR is highly likely to fail in the end.
-        // Although it runs in simulation, this masks the problem; if the PNR fails,
-        // you should review the PNR report and make the necessary design modifications.
-        //===----------------------------------------------------------------------===//
-        // Copy bin file from pnrDir_smart to pnrDir for vdbg compatibility
-        // vdbg's download command looks for bin file in pnrDir/, but smart PNR generates it in pnrDir_smart/
-        let bin_src = self
-            .output_dir
-            .join("fpgaCompDir/part_b0_f0/pnrDir_smart/xepic_vvac_top_0_0.bin");
-        let bin_dst = self
-            .output_dir
-            .join("fpgaCompDir/part_b0_f0/pnrDir/xepic_vvac_top_0_0.bin");
-
-        if bin_src.exists() {
-            std::fs::copy(&bin_src, &bin_dst).map_err(|e| format!("Failed to copy bin file to pnrDir: {}", e))?;
-            log::info!("Copied bin file to pnrDir for vdbg compatibility");
-        } else {
-            log::warn!("Bin file not found in pnrDir_smart: {:?}", bin_src);
-        }
-
-        // Generate RTDB directory for vdbg
-        // vdbg needs RTDB/ directory with design database files
-        log::info!("Generating RTDB directory for vdbg...");
-        let dbg_gen_cmd = format!(
-            "cd {dir} && source {sourceme} && export WORK_PATH={dir} && export MEMORYFILEPATH={dir}/ && $VDBG_HOME/tools/vdbg/generateDataFiles.sh",
-            dir = self.output_dir.display(),
-            sourceme = sourceme_path.display(),
-        );
-
-        let status = Command::new("bash")
-            .arg("-c")
-            .arg(&dbg_gen_cmd)
+    pub fn run(&self) -> Result<PathBuf, String> {
+        let parts = artifacts::partitions(&self.output_dir)?;
+        let sta_command = artifacts::sta_command(&self.output_dir)?;
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("src/builder/3_pnr/PNR_settings.tcl"),
+            self.output_dir.join("PNR_settings.tcl"),
+        )
+        .map_err(|e| format!("PNR settings: {e}"))?;
+        self.make(&["clean"])?;
+        self.partitions(&parts, "syn")?;
+        self.partitions(&parts, "pnr")?;
+        let primary = artifacts::bitstreams(&self.output_dir, &parts)?;
+        self.make(&["post_pnr_summary"])?;
+        // Execute the generated shared timing command once, then join every refresh job.
+        let status = self
+            .command("cd \"$1\"; source \"$2\"; export WORK_PATH=\"$PWD\"; cd fpgaCompDir; exec bash -e -o pipefail -c \"$3\"")
+            .arg(sta_command)
             .status()
-            .map_err(|e| format!("Failed to execute dbgGen: {}", e))?;
-
+            .map_err(|e| format!("postPrTiming launch: {e}"))?;
         if !status.success() {
-            log::warn!("dbgGen failed, but continuing (RTDB may be incomplete)");
-        } else {
-            log::info!("RTDB directory generated successfully");
+            return Err(format!("postPrTiming failed: {status}"));
         }
-
-        log::info!("PNR completed");
-        log::info!("  Bitstream: {:?}", bitstream_dst);
-        Ok(bitstream_dst)
+        self.partitions(&parts, "reg_init_refresh")?;
+        self.make(&["readbackDB_create"])?;
+        self.dbg_gen("-step1")?;
+        self.partitions(&parts, "find_revise_net_name")?;
+        self.dbg_gen("-step2")?;
+        artifacts::runtime(&self.output_dir)?;
+        let bitstream = self.output_dir.join("fpgaCompDir/bitstream.bit");
+        std::fs::copy(primary, &bitstream).map_err(|e| format!("Publish primary bitstream: {e}"))?;
+        Ok(bitstream)
     }
 }

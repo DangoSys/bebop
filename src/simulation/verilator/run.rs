@@ -143,7 +143,15 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     #[cfg(feature = "bemu")]
     let mut diff_session = config
         .diff
-        .then(|| DiffSession::new(&config.elf, &config.log_dir))
+        .then(|| {
+            let (base, bytes) = simulator.memory_range()
+                .whatever_context("failed to obtain subject DDR range for difftest")?;
+            if base != bebop_bemu::DRAM_BASE {
+                return Err(Whatever::without_source(format!("Difftest DDR base mismatch: 0x{base:x}")));
+            }
+            let bytes = usize::try_from(bytes).whatever_context("subject DDR exceeds host address space")?;
+            DiffSession::new(&config.elf, &config.log_dir, bytes)
+        })
         .transpose()?;
 
     //===----------------------------------------------------------------------===//

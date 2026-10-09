@@ -2,27 +2,13 @@ use crate::root::platform::DRAM_BASE;
 
 pub(crate) struct Pages {
     free: Vec<(u64, u64)>,
-    pub(crate) interconnect_buffer: Option<(u64, u64)>,
 }
 
 impl Pages {
     pub(crate) fn new(bytes: usize) -> Self {
         Self {
             free: vec![(DRAM_BASE, bytes as u64 & !4095)],
-            interconnect_buffer: None,
         }
-    }
-
-    pub(crate) fn reserve_interconnect(&mut self, bytes: u64) -> u64 {
-        assert!(self.interconnect_buffer.is_none());
-        let (start, size) = self.free.last_mut().expect("DDR is empty");
-        *size = size.checked_sub(bytes).expect("DDR too small for interconnect buffer");
-        let address = *start + *size;
-        self.interconnect_buffer = Some((address, bytes));
-        if *size == 0 {
-            self.free.pop();
-        }
-        address
     }
 
     pub(crate) fn allocate(&mut self, bytes: u64) -> Result<u64, String> {

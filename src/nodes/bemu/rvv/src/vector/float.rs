@@ -90,7 +90,7 @@ fn calculate<T: Float>(a: u64, b: u64, old: u64, op: u32, conversion: usize, bit
     }
 }
 
-fn sqrt(bits: u64, single: bool, round: Round) -> StatusAnd<u64> {
+pub(crate) fn sqrt(bits: u64, single: bool, round: Round) -> StatusAnd<u64> {
     let (fraction_bits, exponent_mask, bias) = if single { (23, 0xff, 127) } else { (52, 0x7ff, 1023) };
     let fraction = bits & ((1 << fraction_bits) - 1);
     let exponent = (bits >> fraction_bits) & exponent_mask;
@@ -239,8 +239,8 @@ impl Engine {
             bits
         };
         if !matches!(bits, 32 | 64)
-            || source_bits > 64
-            || destination_bits > 64
+            || source_bits > vector.elen
+            || destination_bits > vector.elen
             || !vector.group(vs2, source_bits)
             || (!compare && !vector.group(vd, destination_bits))
             || (kind == 1 && op != 0x12 && !vector.group(vs1, bits))
@@ -271,6 +271,7 @@ impl Engine {
         };
         let start = vector.vstart;
         let length = vector.vl;
+        let mut flags = Status::OK;
         for index in start..length {
             let vector = &mut self.vector;
             let selected = !masked || vector.mask(0, index);
@@ -331,12 +332,7 @@ impl Engine {
                     calculate::<Single>(a, b, old, op, conversion, destination_bits, rm)
                 }
             };
-            let flags = result.status;
-            self.fcsr |= (u8::from(flags.contains(Status::INVALID_OP)) << 4)
-                | (u8::from(flags.contains(Status::DIV_BY_ZERO)) << 3)
-                | (u8::from(flags.contains(Status::OVERFLOW)) << 2)
-                | (u8::from(flags.contains(Status::UNDERFLOW)) << 1)
-                | u8::from(flags.contains(Status::INEXACT));
+            flags |= result.status;
             let vector = &mut self.vector;
             if compare {
                 vector.write_mask(vd, index, result.value != 0);
@@ -355,6 +351,11 @@ impl Engine {
                 vector.write(vd, index, destination_bits, value);
             }
         }
+        self.fcsr |= (u8::from(flags.contains(Status::INVALID_OP)) << 4)
+            | (u8::from(flags.contains(Status::DIV_BY_ZERO)) << 3)
+            | (u8::from(flags.contains(Status::OVERFLOW)) << 2)
+            | (u8::from(flags.contains(Status::UNDERFLOW)) << 1)
+            | u8::from(flags.contains(Status::INEXACT));
         Ok(())
     }
 }

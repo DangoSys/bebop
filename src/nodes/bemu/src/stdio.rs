@@ -1,17 +1,14 @@
-use crate::root::platform::{Platform, SCU_BASE, SCU_STRIDE};
+use crate::root::platform::Platform;
 use bebop_syscall::{translate_guest_addr, SYS_READ, SYS_WRITE, SYS_WRITEV};
 use memory::Memory;
-use rvsim::bus::{Bus, Width};
 use std::{
     io::{Read, Write},
-    os::unix::net::UnixStream,
     sync::Mutex,
 };
 
 pub(crate) struct Streams {
     input: Box<dyn Read + Send>,
     output: Box<dyn Write + Send>,
-    console: Option<usize>,
 }
 
 impl Streams {
@@ -19,15 +16,7 @@ impl Streams {
         Self {
             input: Box::new(std::io::stdin()),
             output: Box::new(std::io::stdout()),
-            console: None,
         }
-    }
-
-    pub(crate) fn connect(&mut self, stream: UnixStream, hart: usize) -> std::io::Result<()> {
-        self.input = Box::new(stream.try_clone()?);
-        self.output = Box::new(stream);
-        self.console = Some(hart);
-        Ok(())
     }
 
     pub(crate) fn syscall(
@@ -88,16 +77,6 @@ impl Streams {
             let result = writer
                 .write(&bytes)
                 .and_then(|written| writer.flush().map(|()| written));
-            if fd == 2 {
-                if let (Ok(written), Some(hart)) = (&result, self.console) {
-                    let mut platform = platform.lock().expect("BEMU platform poisoned");
-                    for byte in &bytes[..*written] {
-                        platform
-                            .write(SCU_BASE + hart as u64 * SCU_STRIDE + 0x20000, Width::Byte, *byte as u64)
-                            .expect("write guest console");
-                    }
-                }
-            }
             result
         } else {
             return None;

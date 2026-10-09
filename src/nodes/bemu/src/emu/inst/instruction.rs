@@ -232,6 +232,7 @@ pub struct TrackedBanks<'a> {
     shared_banks: Option<&'a mut [PrivateBank]>,
     scoreboard: Option<&'a BankScoreboard>,
     inst_id: u64,
+    pub read_only: BTreeSet<usize>,
 }
 
 impl<'a> TrackedBanks<'a> {
@@ -241,6 +242,7 @@ impl<'a> TrackedBanks<'a> {
             shared_banks: None,
             scoreboard,
             inst_id,
+            read_only: BTreeSet::new(),
         }
     }
 
@@ -255,6 +257,7 @@ impl<'a> TrackedBanks<'a> {
             shared_banks: Some(shared_banks),
             scoreboard,
             inst_id,
+            read_only: BTreeSet::new(),
         }
     }
 
@@ -263,6 +266,7 @@ impl<'a> TrackedBanks<'a> {
     }
 
     fn record_write(&self, physical_bank_id: usize) {
+        assert!(!self.read_only.contains(&physical_bank_id), "RVV kernel wrote a readonly bank");
         if let Some(scoreboard) = self.scoreboard {
             scoreboard.record_write(self.inst_id, physical_bank_id);
         }

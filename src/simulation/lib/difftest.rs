@@ -1,7 +1,7 @@
 use bebop_bank_hash::{cancel, failure, finish, progress, start, subject_counts, subject_matched};
 use bebop_bemu::root::chip::Chip;
 use bebop_bemu::{
-    core_hart_id, core_signature, hart_capacity, tile_count, tile_topology, Core, Tile, TraceConfig as BemuTraceConfig,
+    core_hart_id, core_is_ant, core_signature, hart_capacity, tile_count, tile_topology, Core, Tile, TraceConfig as BemuTraceConfig,
 };
 use snafu::{FromString, ResultExt, Whatever};
 use std::collections::BTreeMap;
@@ -10,66 +10,57 @@ use std::time::Instant;
 
 struct GoldenHart {
     bemu: Core,
+    hart_id: usize,
     waiting: bool,
 }
 
 pub struct DiffSession {
     golden: Vec<GoldenHart>,
+    barriers: Vec<Vec<usize>>,
     next_hart: usize,
     active: bool,
 }
 
 impl DiffSession {
-    pub fn new(elf: &Path, log_dir: &Path) -> Result<Self, Whatever> {
-        // This runner starts one ELF across one Tile. Do not silently execute a
-        // multi-Tile RTL trace against Tile0-only golden harts.
-        if tile_count() != 1 {
-            return Err(Whatever::without_source(
-                "bank diff runner currently supports exactly one Tile; multi-Tile golden orchestration is required"
-                    .into(),
-            ));
-        }
+    pub fn new(elf: &Path, log_dir: &Path, memory_size: usize) -> Result<Self, Whatever> {
         let output = log_dir.join("diff.ndjson");
         start(output)?;
 
         let golden_result = (|| {
-            let topology = tile_topology(0);
-            if !topology.has_buckyball {
-                return Ok(Vec::new());
+            let chip = Chip::new(memory_size, hart_capacity());
+            let mut golden = Vec::with_capacity(hart_capacity());
+            let mut barriers = Vec::new();
+            for tile_index in 0..tile_count() {
+                let topology = tile_topology(tile_index);
+                let signatures = if topology.controller_core.is_some() {
+                    topology.worker_cores.iter().map(|(_, core)| core_signature(*core)).collect()
+                } else { Vec::new() };
+                // Controller golden models own local Ant contexts; only real CPUs join CLINT.
+                // NPU traces use PB core.index, independently of the CPU mhartid.
+                let memory = Tile::new(&chip, &topology, signatures);
+                let mut participants = Vec::new();
+                for (_, core_index) in topology.cores.into_iter().filter(|(_,index)| !core_is_ant(*index)) {
+                    if topology.endpoint_cores.iter().any(|(_, core)| *core == core_index) {
+                        participants.push(golden.len());
+                    }
+                    let hart_id = core_hart_id(core_index);
+                    let mut trace = BemuTraceConfig::new(false, false);
+                    trace.btrace = true;
+                    let mut bemu = Core::new_with_core_hart(
+                        &log_dir.join("golden").join(format!("hart-{hart_id}")),
+                        trace, false, false, core_index, hart_id, Some(memory.clone()),
+                    ).whatever_context("failed to create BEMU Golden Model")?;
+                    bemu.load_elf(elf)?;
+                    bemu.init_hart()?;
+                    golden.push(GoldenHart { bemu, hart_id, waiting: false });
+                }
+                if !participants.is_empty() { barriers.push(participants); }
             }
-            let signatures = if topology.controller_core.is_some() {
-                topology
-                    .worker_cores
-                    .iter()
-                    .map(|(_, core)| core_signature(*core))
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let memory = Tile::new(&Chip::new(3 * (1 << 30), hart_capacity()), &topology, signatures);
-            let mut golden = Vec::with_capacity(topology.cores.len());
-            for (_, core_index) in topology.cores {
-                let hart_id = core_hart_id(core_index);
-                let mut trace = BemuTraceConfig::new(false, false);
-                trace.btrace = true;
-                let mut bemu = Core::new_with_core_hart(
-                    &log_dir.join("golden").join(format!("hart-{hart_id}")),
-                    trace,
-                    false,
-                    false,
-                    core_index,
-                    hart_id,
-                    Some(memory.clone()),
-                )
-                .whatever_context("failed to create BEMU Golden Model")?;
-                bemu.load_elf(elf)?;
-                bemu.init_hart()?;
-                golden.push(GoldenHart { bemu, waiting: false });
-            }
-            Ok::<_, Whatever>(golden)
+            chip.coordinate_harts(golden.iter().map(|hart| hart.hart_id).collect());
+            Ok::<_, Whatever>((golden, barriers))
         })();
-        let golden = match golden_result {
-            Ok(golden) => golden,
+        let (golden, barriers) = match golden_result {
+            Ok(models) => models,
             Err(error) => {
                 cancel();
                 return Err(error);
@@ -78,6 +69,7 @@ impl DiffSession {
 
         Ok(Self {
             golden,
+            barriers,
             next_hart: 0,
             active: true,
         })
@@ -98,9 +90,9 @@ impl DiffSession {
                 )));
             }
 
-            if self.golden.iter().all(|hart| hart.waiting || hart.bemu.finished()) {
-                for hart in &mut self.golden {
-                    hart.waiting = false;
+            for participants in &self.barriers {
+                if participants.iter().all(|&index| self.golden[index].waiting) {
+                    for &index in participants { self.golden[index].waiting = false; }
                 }
             }
 
@@ -113,8 +105,8 @@ impl DiffSession {
             hart.waiting = hart.bemu.take_barrier();
             if hart.bemu.finished() && hart.bemu.exit_code() != Some(0) {
                 return Err(Whatever::without_source(format!(
-                    "BEMU Golden Model hart {hart_index} exited with code {:?}",
-                    hart.bemu.exit_code()
+                    "BEMU Golden Model hart {} exited with code {:?}",
+                    hart.hart_id, hart.bemu.exit_code()
                 )));
             }
             self.next_hart = (hart_index + 1) % self.golden.len();
@@ -138,10 +130,10 @@ impl DiffSession {
         for (&hart, &count) in &received {
             let target = expected
                 .get(&hart)
-                .ok_or_else(|| Whatever::without_source(format!("BTrace received unexpected hart {hart}")))?;
+                .ok_or_else(|| Whatever::without_source(format!("BTrace received unexpected execution ID {hart}")))?;
             if count > *target {
                 return Err(Whatever::without_source(format!(
-                    "BTrace received too many events: hart={hart} expected={target} received={count}"
+                    "BTrace received too many events: execution={hart} expected={target} received={count}"
                 )));
             }
         }
