@@ -25,6 +25,7 @@
       {
         devShells.default = pkgs.mkShell {
           buildInputs = [
+            pkgs.cacert
             pkgs.base.autoconf
             pkgs.base.automake
             pkgs.base.libtool
@@ -45,7 +46,6 @@
             pkgs.base.preCommit
 
             pkgs.verilator
-            pkgs.bebop
             pkgs.base.clang
             # Use gcc13 instead of gcc8 for P2E vvac builds
             pkgs.gcc13
@@ -60,7 +60,6 @@
           '' + pkgs.riscv.shellHook + ''
             echo "================= bebop development environment activated ========================="
             echo "Enable nodes including:"
-            echo "bebop: $(command -v bebop)"
             echo "riscv gcc: $(command -v riscv64-none-elf-gcc)"
             echo "verilator: $(command -v verilator)"
             echo "CXX: $CXX"
