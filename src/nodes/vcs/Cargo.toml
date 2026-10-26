@@ -1,0 +1,14 @@
+[package]
+name = "bebop-vcs"
+version = "0.1.0"
+edition = "2021"
+autobins = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+snafu = "0.8"
+
+[lints]
+workspace = true

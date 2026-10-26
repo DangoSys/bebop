@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <stdint.h>
 #include <string>
 #include <svdpi.h>
@@ -19,17 +20,18 @@
 
 #include "ioe/mm_dramsim3.h"
 
+static std::mutex memory_mutex;
 static bool use_dramsim = false;
 static std::vector<std::map<long long int, backing_data_t>> mem_data = {};
 static std::string elf_file = "";
 
-static backing_data_t *host_memory_region(int chip_id, uint64_t address,
+static backing_data_t *host_memory_region(int device_id, uint64_t address,
                                           uint64_t size, uint64_t *base_out) {
-  if (chip_id < 0 || chip_id >= static_cast<int>(mem_data.size()))
+  if (device_id < 0 || device_id >= static_cast<int>(mem_data.size()))
     return nullptr;
   if (size > UINT64_MAX - address)
     return nullptr;
-  for (auto &entry : mem_data[chip_id]) {
+  for (auto &entry : mem_data[device_id]) {
     const uint64_t base = static_cast<uint64_t>(entry.first);
     const uint64_t end = base + entry.second.size;
     if (end < base)
@@ -42,35 +44,38 @@ static backing_data_t *host_memory_region(int chip_id, uint64_t address,
   return nullptr;
 }
 
-extern "C" bool bbsim_host_memory_range(int chip_id, uint64_t *base,
+extern "C" bool bbsim_host_memory_range(int device_id, uint64_t *base,
                                           uint64_t *size) {
-  if (base == nullptr || size == nullptr || chip_id < 0 ||
-      chip_id >= static_cast<int>(mem_data.size()) || mem_data[chip_id].empty())
+  std::lock_guard<std::mutex> lock(memory_mutex);
+  if (base == nullptr || size == nullptr || device_id < 0 ||
+      device_id >= static_cast<int>(mem_data.size()) || mem_data[device_id].empty())
     return false;
-  const auto &entry = *mem_data[chip_id].begin();
+  const auto &entry = *mem_data[device_id].begin();
   *base = static_cast<uint64_t>(entry.first);
   *size = entry.second.size;
   return true;
 }
 
-extern "C" bool bbsim_host_memory_write(int chip_id, uint64_t address,
+extern "C" bool bbsim_host_memory_write(int device_id, uint64_t address,
                                           const void *src, uint64_t size) {
+  std::lock_guard<std::mutex> lock(memory_mutex);
   if (src == nullptr && size != 0)
     return false;
   uint64_t base = 0;
-  backing_data_t *region = host_memory_region(chip_id, address, size, &base);
+  backing_data_t *region = host_memory_region(device_id, address, size, &base);
   if (region == nullptr)
     return false;
   memcpy(region->data + (address - base), src, size);
   return true;
 }
 
-extern "C" bool bbsim_host_memory_read(int chip_id, uint64_t address,
+extern "C" bool bbsim_host_memory_read(int device_id, uint64_t address,
                                          void *dst, uint64_t size) {
+  std::lock_guard<std::mutex> lock(memory_mutex);
   if (dst == nullptr && size != 0)
     return false;
   uint64_t base = 0;
-  backing_data_t *region = host_memory_region(chip_id, address, size, &base);
+  backing_data_t *region = host_memory_region(device_id, address, size, &base);
   if (region == nullptr)
     return false;
   memcpy(dst, region->data + (address - base), size);
@@ -151,9 +156,10 @@ static void load_elf_to_mem(const char *path, uint8_t *data, uint64_t mem_base,
 }
 
 extern "C" void *
-bbsim_memory_init(int chip_id, long long int mem_size, long long int word_size,
+bbsim_memory_init(int device_id, long long int mem_size, long long int word_size,
                   long long int line_size, long long int id_bits,
                   long long int clock_hz, long long int mem_base) {
+  std::lock_guard<std::mutex> lock(memory_mutex);
   mm_t *mm;
   s_vpi_vlog_info info;
 
@@ -173,11 +179,11 @@ bbsim_memory_init(int chip_id, long long int mem_size, long long int word_size,
       local_ini_dir = arg.substr(strlen("+dramsim_ini_dir="));
   }
 
-  while (chip_id >= (int)mem_data.size())
+  while (device_id >= (int)mem_data.size())
     mem_data.push_back(std::map<long long int, backing_data_t>());
 
-  if (mem_data[chip_id].find(mem_base) != mem_data[chip_id].end()) {
-    assert(mem_data[chip_id][mem_base].size == (size_t)mem_size);
+  if (mem_data[device_id].find(mem_base) != mem_data[device_id].end()) {
+    assert(mem_data[device_id][mem_base].size == (size_t)mem_size);
   } else {
     uint8_t *data = (uint8_t *)mmap(NULL, mem_size, PROT_READ | PROT_WRITE,
                                     MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -191,16 +197,16 @@ bbsim_memory_init(int chip_id, long long int mem_size, long long int word_size,
       load_elf_to_mem(elf_file.c_str(), data, (uint64_t)mem_base,
                       (uint64_t)mem_size);
 
-    mem_data[chip_id][mem_base] = {data, (size_t)mem_size};
+    mem_data[device_id][mem_base] = {data, (size_t)mem_size};
   }
 
   if (use_dramsim) {
     mm = (mm_t *)(new mm_dramsim3_t(
-        mem_base, mem_size, word_size, line_size, mem_data[chip_id][mem_base],
+        mem_base, mem_size, word_size, line_size, mem_data[device_id][mem_base],
         memory_ini, local_ini_dir, 1 << id_bits, clock_hz));
   } else {
     mm = (mm_t *)(new mm_magic_t(mem_base, mem_size, word_size, line_size,
-                                 mem_data[chip_id][mem_base]));
+                                 mem_data[device_id][mem_base]));
   }
 
   return mm;
@@ -215,6 +221,7 @@ extern "C" void bbsim_memory_tick(
     unsigned char w_last, unsigned char *r_valid, unsigned char r_ready,
     int *r_id, int *r_resp, svBitVecVal *r_data, unsigned char *r_last,
     unsigned char *b_valid, unsigned char b_ready, int *b_id, int *b_resp) {
+  std::lock_guard<std::mutex> lock(memory_mutex);
   mm_t *mm = (mm_t *)channel;
   mm->tick(reset, ar_valid, ar_addr, ar_id, ar_size, ar_len, aw_valid, aw_addr,
            aw_id, aw_size, aw_len, w_valid, static_cast<uint32_t>(w_strb), const_cast<svBitVecVal *>(w_data), w_last, r_ready,

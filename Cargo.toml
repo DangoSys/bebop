@@ -1,9 +1,14 @@
 [workspace]
 members = [
   ".",
+  "src/nodes/bemu",
   "src/nodes/lib/bank-hash",
   "src/nodes/lib/bemu-profile",
-  "src/nodes/lib/clint",
+  "src/nodes/lib/report",
+  "src/nodes/lib/sim-build",
+  "src/nodes/lib/terminal",
+  "src/nodes/lib/trace-perfetto",
+  "src/nodes/lib/vm",
   "src/nodes/lib/microphone",
   "src/nodes/lib/speaker",
   "src/nodes/lib/keyboard",
@@ -11,11 +16,11 @@ members = [
   "src/nodes/lib/vga",
   "src/nodes/lib/rtc",
   "src/nodes/lib/fd-redirect",
-  "src/nodes/lib/plic",
   "src/nodes/lib/rtl-trace",
   "src/nodes/lib/syscall",
   "src/nodes/lib/uart",
   "src/nodes/verilator",
+  "src/nodes/vcs",
   "src/nodes/p2e",
 ]
 resolver = "2"
@@ -30,10 +35,28 @@ all = { level = "warn", priority = -1 }
 name = "bebop"
 version = "0.1.0"
 edition = "2021"
+autobins = false
+autotests = false
 
 [[bin]]
 name = "bebop"
 path = "src/main.rs"
+
+[[bin]]
+name = "bebop-report"
+path = "src/bin/bebop-report.rs"
+
+[[bin]]
+name = "bebop-terminal"
+path = "src/bin/bebop-terminal.rs"
+
+[[bin]]
+name = "bebop-trace-perfetto"
+path = "src/bin/bebop-trace-perfetto.rs"
+
+[[bin]]
+name = "bebop-vm"
+path = "src/bin/bebop-vm.rs"
 
 [[test]]
 name = "test_verilator"
@@ -56,15 +79,21 @@ required-features = ["bemu"]
 [features]
 default = []
 verilator = ["dep:bebop-verilator"]
-p2e = ["dep:bebop-p2e"]
+p2e = ["dep:bebop-p2e", "bebop-bemu/p2e"]
 bemu = ["bebop-p2e?/diff"]
 
 [dependencies]
+bebop-vcs = { path = "src/nodes/vcs" }
 bebop-verilator = { path = "src/nodes/verilator", optional = true }
 bebop-p2e = { path = "src/nodes/p2e", optional = true }
+bebop-bemu = { path = "src/nodes/bemu" }
 bebop-dasm = { path = "src/nodes/lib/dasm" }
 bebop-bank-hash = { path = "src/nodes/lib/bank-hash" }
 bebop-bemu-profile = { path = "src/nodes/lib/bemu-profile" }
+bebop-report = { path = "src/nodes/lib/report" }
+bebop-terminal = { path = "src/nodes/lib/terminal" }
+bebop-trace-perfetto = { path = "src/nodes/lib/trace-perfetto" }
+bebop-vm = { path = "src/nodes/lib/vm" }
 bebop-fd-redirect = { path = "src/nodes/lib/fd-redirect" }
 bebop-rtl-trace = { path = "src/nodes/lib/rtl-trace" }
 bebop-uart = { path = "src/nodes/lib/uart" }

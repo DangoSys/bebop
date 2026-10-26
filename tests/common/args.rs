@@ -14,6 +14,10 @@ pub struct RegressionArgs {
     #[arg(long)]
     pub clean_before: bool,
 
+    /// Write this invocation's results as JUnit XML to a new file.
+    #[arg(long, value_name = "FILE")]
+    pub junit: Option<PathBuf>,
+
     #[arg(long)]
     pub diff: bool,
 
@@ -35,6 +39,7 @@ pub struct RegressionArgs {
     #[arg(long, default_value = "0.A", value_name = "LOCATION")]
     pub p2e_fpga_location: String,
 
+    /// Maximum concurrent workloads, also bounded by simulator host CPU usage.
     #[arg(long, short = 'j', value_name = "N", default_value = "1")]
     pub jobs: usize,
 

@@ -1,0 +1,3 @@
+[submodule "thirdparty/buckyball"]
+	path = thirdparty/buckyball
+	url = https://github.com/DangoSys/buckyball.git

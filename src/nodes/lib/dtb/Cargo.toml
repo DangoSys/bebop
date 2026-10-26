@@ -3,10 +3,6 @@ name = "bebop-dtb"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-bebop-clint = { path = "../clint" }
-bebop-plic = { path = "../plic" }
-
 [lib]
 path = "src/lib.rs"
 

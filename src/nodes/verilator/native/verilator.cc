@@ -14,8 +14,7 @@
 // Context management
 extern "C" void *verilator_context_new() {
   auto *context = new VerilatedContext;
-  // BBSimHarness is single-threaded.
-  context->threads(1);
+  context->threads(BEBOP_VERILATOR_THREADS);
   return context;
 }
 

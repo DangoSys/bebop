@@ -6,8 +6,10 @@ use super::{
 };
 use crate::constants::*;
 use crate::state::SyscallState;
-use crate::utils::guest_cstr;
+use crate::utils::{guest_cstr, guest_range};
 use bebop_memory::Memory;
+use std::os::unix::fs::MetadataExt;
+use std::path::Path;
 
 /// Returns `(result, should_exit)`.
 // RISC-V syscall ABI fixes the argument list at a0..a5; folding into a struct burdens every caller.
@@ -52,6 +54,41 @@ pub fn handle_syscall_with_state(
     };
 
     let result = match syscall_num {
+        SYS_MKDIRAT | SYS_NEWFSTATAT => {
+            assert_eq!(a0 as i64, -100, "filesystem trace requires AT_FDCWD");
+            let bytes = guest_cstr(a1, 4096, memory).unwrap();
+            let path = Path::new(std::str::from_utf8(&bytes).unwrap());
+            let path = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                state.working_dir.join(path)
+            };
+            if syscall_num == SYS_MKDIRAT {
+                match std::fs::create_dir(path) {
+                    Ok(()) => (0, false),
+                    Err(error) => ((-(error.raw_os_error().unwrap() as i64)) as u64, false),
+                }
+            } else {
+                let metadata = if a3 & 0x100 != 0 {
+                    std::fs::symlink_metadata(path)
+                } else {
+                    std::fs::metadata(path)
+                };
+                match metadata {
+                    Ok(metadata) => {
+                        let offset = guest_range(a2, 128, memory.len()).unwrap();
+                        memory.write_buffer(offset, &[0; 128]);
+                        memory.write_buffer(offset + 16, &metadata.mode().to_le_bytes());
+                        memory.write_buffer(offset + 20, &(metadata.nlink() as u32).to_le_bytes());
+                        memory.write_buffer(offset + 48, &metadata.size().to_le_bytes());
+                        memory.write_buffer(offset + 56, &(metadata.blksize() as i32).to_le_bytes());
+                        memory.write_buffer(offset + 64, &metadata.blocks().to_le_bytes());
+                        (0, false)
+                    }
+                    Err(error) => ((-(error.raw_os_error().unwrap() as i64)) as u64, false),
+                }
+            }
+        }
         SYS_WRITE => handle_write(state, a0, a1, a2 as usize, memory),
         SYS_READ => handle_read(state, a0, a1, a2 as usize, memory),
         SYS_OPENAT => handle_openat(state, a0 as i32, a1, a2 as i32, a3, memory),
@@ -109,6 +146,8 @@ pub fn handle_syscall_with_state(
 fn syscall_name(num: u64) -> &'static str {
     match num {
         SYS_GETCWD => "getcwd",
+        SYS_MKDIRAT => "mkdirat",
+        SYS_NEWFSTATAT => "newfstatat",
         SYS_FCNTL => "fcntl",
         SYS_IOCTL => "ioctl",
         SYS_OPENAT => "openat",

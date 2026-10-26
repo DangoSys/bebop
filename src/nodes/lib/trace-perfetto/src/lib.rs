@@ -9,3 +9,6 @@ mod util;
 pub use convert::{convert_ndjson_reader, convert_ndjson_writer};
 pub use error::ConvertError;
 pub use options::ConvertOptions;
+
+mod cli;
+pub use cli::run_cli;

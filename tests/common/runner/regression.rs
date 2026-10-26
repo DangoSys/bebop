@@ -1,54 +1,25 @@
 use libtest_mimic::{Arguments, Trial};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::{Arc, Mutex};
 
 use super::super::args::RegressionArgs;
+use super::super::artifacts::junit;
 use super::super::artifacts::ArtifactManager;
 use super::super::discovery::{discover_tests, write_nextest_terse_list, ElfTestCase};
 use super::backend::BackendRunner;
 use super::exec::{print_failure_details, run_backend_elf_test};
 
-fn resolve_runner_bin() -> PathBuf {
-    if let Some(path) = option_env!("CARGO_BIN_EXE_bebop") {
-        return PathBuf::from(path);
-    }
-    if let Some(path) = option_env!("CARGO_BIN_EXE_bebop_bemu") {
-        return PathBuf::from(path);
-    }
-    // Per-chip bemu crate: test file lives outside the package, so cargo does not
-    // inject CARGO_BIN_EXE_bebop_bemu. Resolve the sibling bin from this test exe:
-    //   <target>/<profile>/deps/<test-hash>  ->  <target>/<profile>/bebop-bemu
-    let exe = std::env::current_exe().unwrap_or_else(|e| panic!("resolve_runner_bin: cannot get current_exe: {e}"));
-    let profile_dir = exe
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap_or_else(|| panic!("resolve_runner_bin: unexpected exe path: {}", exe.display()));
-    let chip_bins = std::fs::read_dir(profile_dir)
-        .unwrap_or_else(|e| panic!("resolve_runner_bin: cannot read {}: {e}", profile_dir.display()))
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_file()
-                && path.extension().is_none()
-                && path
-                    .file_name()
-                    .is_some_and(|name| name.to_string_lossy().starts_with("bebop-chip-"))
-        })
-        .collect::<Vec<_>>();
-    if let [bin] = chip_bins.as_slice() {
-        return bin.clone();
-    }
-    for cand in ["bebop-bemu", "bebop_bemu"] {
-        let bin = profile_dir.join(cand);
-        if bin.is_file() {
-            return bin;
-        }
-    }
-    panic!(
-        "resolve_runner_bin: expected bebop-bemu or one bebop-chip-* under {} (exe={})",
-        profile_dir.display(),
-        exe.display()
-    )
+fn resolve_runner_bin(name: &str) -> PathBuf {
+    let path = match name {
+        "bebop-bemu" => option_env!("CARGO_BIN_EXE_bebop-bemu"),
+        "bebop-verilator" => option_env!("CARGO_BIN_EXE_bebop-verilator"),
+        "bebop-p2e" => option_env!("CARGO_BIN_EXE_bebop-p2e"),
+        "bebop-vcs" => option_env!("CARGO_BIN_EXE_bebop-vcs"),
+        "bebop" => option_env!("CARGO_BIN_EXE_bebop"),
+        _ => panic!("unknown regression binary: {name}"),
+    };
+    PathBuf::from(path.expect("regression backend executable must be built"))
 }
 
 pub fn run_elf_regression<B, F>(
@@ -82,7 +53,7 @@ where
         return ExitCode::SUCCESS;
     }
 
-    let bebop_bin = resolve_runner_bin();
+    let bebop_bin = resolve_runner_bin(backend.binary_name());
 
     if !bebop_bin.exists() {
         eprintln!("Error: bebop binary not found at: {}", bebop_bin.display());
@@ -101,8 +72,8 @@ where
     };
 
     if test_cases.is_empty() {
-        eprintln!("Warning: No test files found in: {}", args.bb_tests_root().display());
-        return ExitCode::SUCCESS;
+        eprintln!("Error: No test files found in: {}", args.bb_tests_root().display());
+        return ExitCode::FAILURE;
     }
 
     if args.clean_before {
@@ -120,6 +91,24 @@ where
         eprintln!("Running {} tests after filtering", test_cases.len());
     }
 
+    let mut report = match args
+        .junit
+        .as_ref()
+        .map(|path| {
+            if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::OpenOptions::new().write(true).create_new(true).open(path)
+        })
+        .transpose()
+    {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("Error: cannot create JUnit report: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let results = Arc::new(Mutex::new(Vec::new()));
     let trials: Vec<Trial> = test_cases
         .into_iter()
         .map(|test_case| {
@@ -128,9 +117,15 @@ where
             let elf_path = test_case.path.clone();
             let verbose = args.verbose;
             let backend = backend.clone();
+            let results = Arc::clone(&results);
+            let report_name = name.clone();
+            let reporting = report.is_some();
 
             Trial::test(name, move || {
                 let result = run_backend_elf_test(&bebop_bin, &elf_path, verbose, &backend);
+                if reporting {
+                    results.lock().unwrap().push((report_name, result.clone()));
+                }
                 if result.success() {
                     Ok(())
                 } else {
@@ -142,12 +137,32 @@ where
         })
         .collect();
 
+    let available = std::thread::available_parallelism()
+        .expect("query host CPU capacity")
+        .get();
+    let host_threads = backend.host_threads();
+    let workers = args.jobs.min((available / host_threads).max(1));
+    println!(
+        "Regression workers: {workers} (requested {}, {host_threads} host threads per workload, {available} CPUs available)",
+        args.jobs
+    );
     let mut libtest_args = vec![harness_binary_name.to_string()];
     libtest_args.push("--test-threads".to_string());
-    libtest_args.push(args.jobs.to_string());
+    libtest_args.push(workers.to_string());
     libtest_args.extend(args.libtest_forward_flags());
     libtest_args.extend(args.test_args);
     let test_args = Arguments::from_iter(libtest_args);
 
-    libtest_mimic::run(&test_args, trials).exit_code()
+    let conclusion = libtest_mimic::run(&test_args, trials);
+    if let Some(output) = report.as_mut() {
+        let mut results = results.lock().unwrap();
+        results.sort_by(|a, b| a.0.cmp(&b.0));
+        let reported_failures = results.iter().filter(|(_, r)| !r.success()).count() as u64;
+        let missing = conclusion.num_failed - reported_failures;
+        if let Err(error) = junit::write(output, harness_binary_name, &results, missing) {
+            eprintln!("Error: cannot write JUnit report: {error}");
+            return ExitCode::FAILURE;
+        }
+    }
+    conclusion.exit_code()
 }

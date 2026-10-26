@@ -1,0 +1,132 @@
+use super::btrace;
+use std::cell::Cell;
+use std::fs::{File, OpenOptions};
+use std::io;
+use std::io::Write;
+use std::path::Path;
+
+thread_local! {
+    static CURRENT_TRACE: Cell<*mut TraceState> = const { Cell::new(std::ptr::null_mut()) };
+}
+
+#[derive(Default)]
+pub struct TraceState {
+    pub(super) bdb_file: Option<File>,
+    pub(crate) itrace: bool,
+    pub(super) mtrace: bool,
+    pub(super) event_index: u64,
+    pub(super) btrace: btrace::BtraceState,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TraceConfig {
+    pub itrace: bool,
+    pub mtrace: bool,
+    pub btrace: bool,
+}
+
+impl TraceConfig {
+    pub fn new(itrace: bool, mtrace: bool) -> Self {
+        Self {
+            itrace,
+            mtrace,
+            btrace: false,
+        }
+    }
+}
+
+impl TraceState {
+    pub fn new(log_dir: &Path, config: TraceConfig) -> io::Result<Self> {
+        std::fs::create_dir_all(log_dir)?;
+        let bdb_file = if config.itrace || config.mtrace {
+            Some(
+                OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(log_dir.join("bdb.ndjson"))?,
+            )
+        } else {
+            None
+        };
+        Ok(Self {
+            bdb_file,
+            itrace: config.itrace,
+            mtrace: config.mtrace,
+            btrace: btrace::init(log_dir, config.btrace)?,
+            event_index: 0,
+        })
+    }
+
+    pub fn advance_event(&mut self) {
+        self.event_index += 1;
+    }
+
+    pub fn event_index(&self) -> u64 {
+        self.event_index
+    }
+
+    pub fn btrace_enabled(&self) -> bool {
+        self.btrace.enabled()
+    }
+
+    pub(crate) fn task_event(&mut self, event: &str, task: u64, cycle: u64) {
+        if self.itrace {
+            self.write_itrace(&format!(
+                r#"{{"type":"task","event":"{}","task":{},"cycle":{}}}"#,
+                event, task, cycle
+            ));
+        }
+    }
+
+    pub(super) fn write_itrace(&mut self, json: &str) {
+        if self.itrace {
+            write_ndjson(&mut self.bdb_file, json);
+        }
+    }
+
+    pub(super) fn write_mtrace(&mut self, json: &str) {
+        if self.mtrace {
+            write_ndjson(&mut self.bdb_file, json);
+        }
+    }
+}
+
+fn write_ndjson(file: &mut Option<File>, json: &str) {
+    if let Some(file) = file.as_mut() {
+        writeln!(file, "{}", json).unwrap_or_else(|e| {
+            panic!("failed to write bemu ndjson trace: {e}");
+        });
+        file.flush().unwrap_or_else(|e| {
+            panic!("failed to flush bemu ndjson trace: {e}");
+        });
+    }
+}
+
+pub unsafe fn with_trace_ptr<R>(trace: *mut TraceState, f: impl FnOnce() -> R) -> R {
+    struct TraceGuard {
+        previous: *mut TraceState,
+    }
+
+    impl Drop for TraceGuard {
+        fn drop(&mut self) {
+            CURRENT_TRACE.with(|current| current.set(self.previous));
+        }
+    }
+
+    CURRENT_TRACE.with(|current| {
+        let _guard = TraceGuard {
+            previous: current.replace(trace),
+        };
+        f()
+    })
+}
+
+pub(super) fn with_current_trace(f: impl FnOnce(&mut TraceState)) {
+    CURRENT_TRACE.with(|current| {
+        let trace = current.get();
+        if !trace.is_null() {
+            f(unsafe { &mut *trace });
+        }
+    });
+}

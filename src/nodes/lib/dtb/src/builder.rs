@@ -1,5 +1,13 @@
 use crate::constants::*;
 
+pub struct InterruptControllers {
+    pub timebase_hz: u32,
+    pub clint_base: u64,
+    pub clint_size: u64,
+    pub plic_base: u64,
+    pub plic_size: u64,
+}
+
 #[derive(Default)]
 pub struct DtbBuilder {
     structure: Vec<u8>,
@@ -66,7 +74,13 @@ impl DtbBuilder {
         self.property(name, &[]);
     }
 
-    pub fn build_minimal(mem_base: u64, mem_size: u64, initrd_start: Option<u64>, initrd_end: Option<u64>) -> Vec<u8> {
+    pub fn build_minimal(
+        mem_base: u64,
+        mem_size: u64,
+        initrd_start: Option<u64>,
+        initrd_end: Option<u64>,
+        interrupts: InterruptControllers,
+    ) -> Vec<u8> {
         let mut builder = Self::new();
 
         builder.begin_node("");
@@ -95,7 +109,7 @@ impl DtbBuilder {
         builder.begin_node("cpus");
         builder.property_u32("#address-cells", 1);
         builder.property_u32("#size-cells", 0);
-        builder.property_u32("timebase-frequency", bebop_clint::TIMEBASE_HZ);
+        builder.property_u32("timebase-frequency", interrupts.timebase_hz);
 
         builder.begin_node("cpu@0");
         builder.property_string("device_type", "cpu");
@@ -124,8 +138,8 @@ impl DtbBuilder {
         builder.begin_node("clint@2000000");
         builder.property_string("compatible", "riscv,clint0");
         let mut clint_reg = Vec::new();
-        clint_reg.extend_from_slice(&bebop_clint::BASE.to_be_bytes());
-        clint_reg.extend_from_slice(&bebop_clint::SIZE.to_be_bytes());
+        clint_reg.extend_from_slice(&interrupts.clint_base.to_be_bytes());
+        clint_reg.extend_from_slice(&interrupts.clint_size.to_be_bytes());
         builder.property("reg", &clint_reg);
         let mut clint_interrupts = Vec::new();
         for cell in [1_u32, 3, 1, 7] {
@@ -141,8 +155,8 @@ impl DtbBuilder {
         builder.property_u32("riscv,ndev", 1);
         builder.property_u32("phandle", 2);
         let mut plic_reg = Vec::new();
-        plic_reg.extend_from_slice(&bebop_plic::BASE.to_be_bytes());
-        plic_reg.extend_from_slice(&bebop_plic::SIZE.to_be_bytes());
+        plic_reg.extend_from_slice(&interrupts.plic_base.to_be_bytes());
+        plic_reg.extend_from_slice(&interrupts.plic_size.to_be_bytes());
         builder.property("reg", &plic_reg);
         let mut plic_interrupts = Vec::new();
         for cell in [1_u32, 11, 1, 9] {

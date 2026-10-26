@@ -7,4 +7,4 @@ mod pmctrace;
 mod state;
 mod trace;
 
-pub use trace::{init_trace, write_trace_summary, TraceConfig};
+pub use trace::{init_trace, set_rtl_clk, write_trace_summary, TraceConfig};

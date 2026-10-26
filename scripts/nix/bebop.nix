@@ -7,5 +7,6 @@ pkgs.rustPlatform.buildRustPackage {
   cargoLock.lockFile = "${bebopSrc}/Cargo.lock";
   cargoBuildFlags = [ "--package" "bebop" ];
   cargoTestFlags = [ "--package" "bebop" ];
-  nativeBuildInputs = [ ];
+  nativeBuildInputs = [ pkgs.pkg-config ];
+  buildInputs = [ pkgs.SDL2 ];
 }

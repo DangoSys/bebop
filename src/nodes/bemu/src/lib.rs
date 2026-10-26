@@ -1,28 +1,24 @@
-mod chip;
-mod sim;
-mod input;
+pub mod ball;
+pub mod configs;
+pub mod core;
+pub mod device;
+pub mod sim;
+pub mod thread;
 
-mod accel;
-mod user_vm;
-mod process;
-#[path = "../root/mod.rs"]
-pub mod root;
-mod stdio;
-
-#[path = "emu/bank/mod.rs"]
-mod bank;
-
-#[path = "emu/config.rs"]
-mod config;
-
-#[path = "emu/inst/mod.rs"]
-mod inst;
-
-mod trace;
-
-pub use bebop_bemu_profile::{format_report as format_profile_report, print_report as print_profile_report};
-pub use config::{workload_placement, core_signature, core_hart_id, core_is_ant, hart_capacity, private_bank_geometry, tile_count, tile_topology, TileTopology};
-pub use root::tile::Tile;
-pub use root::platform::DRAM_BASE;
-pub use sim::Core;
-pub use trace::TraceConfig;
+pub use ball::{Ball, BallModel, ExecContext, BALLS};
+pub use bebop_bemu_profile::{
+    format_report as format_profile_report, print_report as print_profile_report, BemuProfileReport,
+};
+pub use configs::{
+    core_count, core_parameters, hart_capacity, hart_ids, shared_bank_fabric, thread_is_ant, thread_signature,
+    workload_placement, CoreParams, Endpoint,
+};
+pub use core::{CoreModel, Cpu, NoRocc, Rocc, ThreadGroup};
+pub use device::cbus::{CoreFactory, CORES};
+pub use device::platform::DRAM_BASE;
+pub use device::DeviceModel;
+pub use sim::run::Simulation;
+pub use sim::ModelOptions;
+pub use snafu::{FromString, Whatever};
+pub use thread::trace::TraceConfig;
+pub use thread::{Accelerator, ThreadModel};

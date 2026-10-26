@@ -1,5 +1,5 @@
 mod runworkload;
-pub use bebop_memory::load_manifest::{validate_loads, LoadPlan, DDR_SIZE};
+pub use bebop_memory::DDR_SIZE;
 
 pub use runworkload::{
     configure_vvac_environment, generate_main_tcl, init_ctb, source_environment, start_vdbg_background,

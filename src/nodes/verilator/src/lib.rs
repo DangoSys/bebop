@@ -9,3 +9,5 @@ mod mmio;
 pub use bebop_rtl_trace::{init_trace, write_trace_summary, TraceConfig};
 pub use mmio::{drain_uart_tx, exit_code, push_uart_rx};
 pub use sim::Simulator;
+
+include!(concat!(env!("OUT_DIR"), "/model_threads.rs"));

@@ -63,26 +63,20 @@ impl RunWorkloadStep {
 
         // Run vdbg with sourced environment
         // CRITICAL: Use LD_PRELOAD to load Rust DPI-C functions (scu_uart_write, scu_sim_exit)
-        // Find libbebop_p2e.so in target/release/deps or vvacDir/runtimeDir/lib/lib_arm
-        let bebop_lib = if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
-            let release_lib = format!("{}/release/deps/libbebop_p2e.so", target_dir);
-            if std::path::Path::new(&release_lib).exists() {
-                release_lib
-            } else {
-                format!("{}/out/vvacDir/runtimeDir/lib/lib_arm/libbebop_p2e.so", target_dir)
-            }
-        } else if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-            let release_lib = format!("{}/target/release/deps/libbebop_p2e.so", manifest_dir);
-            if std::path::Path::new(&release_lib).exists() {
-                release_lib
-            } else {
-                format!("{}/out/vvacDir/runtimeDir/lib/lib_arm/libbebop_p2e.so", manifest_dir)
-            }
-        } else {
-            "./vvacDir/runtimeDir/lib/lib_arm/libbebop_p2e.so".to_string()
-        };
+        let bitstream = self
+            .bitstream_path
+            .canonicalize()
+            .map_err(|error| format!("Failed to locate P2E bitstream: {error}"))?;
+        let case_home = bitstream
+            .parent()
+            .and_then(|directory| directory.parent())
+            .ok_or("P2E bitstream must be under <case>/fpgaCompDir")?;
+        let bebop_lib = case_home
+            .join("vvacDir/runtimeDir/lib/lib_arm/libbebop_p2e.so")
+            .canonicalize()
+            .map_err(|error| format!("Failed to locate case Rust DPI library: {error}"))?;
 
-        log::info!("Using Rust DPI-C library: {}", bebop_lib);
+        log::info!("Using Rust DPI-C library: {}", bebop_lib.display());
 
         let cmd = format!(
             "source {} && cd {} && LD_PRELOAD={} vdbg run.tcl",
@@ -91,7 +85,7 @@ impl RunWorkloadStep {
                 .canonicalize()
                 .map_err(|e| format!("Failed to canonicalize output_dir: {}", e))?
                 .display(),
-            bebop_lib
+            bebop_lib.display()
         );
 
         log::info!("Executing: {}", cmd);
@@ -155,7 +149,7 @@ impl RunWorkloadStep {
         if self.ddr_channel != 0 {
             return Err("cold-load runner requires DDR channel zero".into());
         }
-        let plan = crate::runner::validate_loads(Some(&self.image_path), None)?;
+        let image = self.image_path.canonicalize().map_err(|e| format!("image: {e}"))?;
         let bitstream = self
             .bitstream_path
             .canonicalize()
@@ -168,9 +162,7 @@ impl RunWorkloadStep {
         if case != output.as_path() {
             return Err("bitstream must belong to the cold-load output case".into());
         }
-        let record = serde_json::to_vec_pretty(&plan).map_err(|e| e.to_string())?;
-        std::fs::write(self.output_dir.join("load-inputs.json"), record).map_err(|e| e.to_string())?;
-        crate::runner::generate_main_tcl(&self.fpga_location, &plan, &bitstream, false, false, 0)
+        crate::runner::generate_main_tcl(&self.fpga_location, &image, None, &bitstream, false, false, 0)
     }
 
     fn find_sourceme(&self) -> Result<PathBuf, String> {

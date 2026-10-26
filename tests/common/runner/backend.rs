@@ -6,6 +6,8 @@ use super::super::artifacts::ArtifactManager;
 use super::super::discovery::ElfTestCase;
 
 pub trait BackendRunner {
+    fn binary_name(&self) -> &'static str;
+
     fn backend_name(&self) -> &'static str;
 
     fn verbose_run_kind(&self) -> &'static str {
@@ -13,6 +15,10 @@ pub trait BackendRunner {
     }
 
     fn timeout(&self) -> Duration;
+
+    fn host_threads(&self) -> usize {
+        1
+    }
 
     /// The binary that runs one workload; by default the resolved runner itself.
     fn runner_bin(&self, default: &Path, _elf_path: &Path) -> PathBuf {

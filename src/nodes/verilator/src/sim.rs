@@ -8,6 +8,8 @@ pub struct Simulator {
     context: *mut VerilatorContext,
     top: *mut VerilatorTop,
     trace: *mut VerilatorTrace,
+    #[cfg(bebop_parallel)]
+    cycle: u64,
 }
 
 impl Simulator {
@@ -46,7 +48,13 @@ impl Simulator {
                 }
             };
 
-            let mut sim = Simulator { context, top, trace };
+            let mut sim = Simulator {
+                context,
+                top,
+                trace,
+                #[cfg(bebop_parallel)]
+                cycle: 0,
+            };
 
             sim.reset();
             Ok(sim)
@@ -54,11 +62,16 @@ impl Simulator {
     }
 
     fn reset(&mut self) {
+        #[cfg(bebop_parallel)]
+        {
+            self.cycle = 0;
+            bebop_rtl_trace::set_rtl_clk(0);
+        }
         unsafe {
             // Chipyard reset synchronizers need multiple source-clock edges
             // before their downstream domains can leave reset. A single edge
             // leaves host-driven Frontend state indeterminate because there is
-            // no Rocket instruction stream to provide a later reset sequence.
+            // no processor instruction stream to provide a later reset sequence.
             verilator_top_set_reset(self.top, 1);
             for _ in 0..5 {
                 verilator_top_set_clock(self.top, 0);
@@ -86,6 +99,9 @@ impl Simulator {
     }
 
     pub fn exec_once(&mut self) -> bool {
+        // Publish once before workers run so every callback sees the same cycle.
+        #[cfg(bebop_parallel)]
+        bebop_rtl_trace::set_rtl_clk(self.cycle);
         unsafe {
             verilator_top_set_clock(self.top, 1);
             verilator_top_eval(self.top);
@@ -101,6 +117,10 @@ impl Simulator {
             verilator_top_set_clock(self.top, 0);
             self.step_and_dump();
 
+            #[cfg(bebop_parallel)]
+            {
+                self.cycle += 1;
+            }
             should_exit
         }
     }

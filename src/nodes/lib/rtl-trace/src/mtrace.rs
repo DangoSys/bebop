@@ -22,6 +22,26 @@ pub fn mtrace(event: MTraceEvent) {
         return;
     }
 
+    if event.is_write == 2 || event.is_write == 3 {
+        // A registered mapping is observed one clock later than handshake traces.
+        let clk = state::rtl_clk() - 1;
+        let kind = if event.is_write == 2 { "bind" } else { "free" };
+        state::write_trace(&format!(
+            r#"{{"type":"bankmap","clk":{},"event":"{}","hart_id":{},"is_shared":{},"vbank_id":{},"bank_id":{},"pbank_id":{},"group_id":{},"live":{},"current":{}}}"#,
+            clk,
+            kind,
+            event.hart_id,
+            event.is_shared,
+            event.vbank_id,
+            event.addr,
+            event.pbank_id,
+            event.group_id,
+            event.data_lo != 0,
+            event.data_hi != 0
+        ));
+        return;
+    }
+
     let clk = state::rtl_clk();
     let json = if event.is_write != 0 {
         format!(

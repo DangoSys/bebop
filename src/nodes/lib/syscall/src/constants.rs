@@ -2,6 +2,7 @@
 pub const SYS_GETCWD: u64 = 17;
 pub const SYS_FCNTL: u64 = 25;
 pub const SYS_IOCTL: u64 = 29;
+pub const SYS_MKDIRAT: u64 = 34;
 pub const SYS_OPENAT: u64 = 56;
 pub const SYS_CLOSE: u64 = 57;
 pub const SYS_READLINKAT: u64 = 78;
@@ -11,6 +12,7 @@ pub const SYS_WRITE: u64 = 64;
 pub const SYS_WRITEV: u64 = 66;
 pub const SYS_PREAD: u64 = 67;
 pub const SYS_PWRITE: u64 = 68;
+pub const SYS_NEWFSTATAT: u64 = 79;
 pub const SYS_FSTAT: u64 = 80;
 pub const SYS_EXIT: u64 = 93;
 pub const SYS_EXIT_GROUP: u64 = 94;

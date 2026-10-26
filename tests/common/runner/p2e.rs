@@ -15,11 +15,19 @@ pub struct P2eBackend {
 
 impl P2eBackend {
     pub fn new(bitstream: PathBuf, fpga_location: String, diff: bool) -> Self {
-        Self { bitstream, fpga_location, diff }
+        Self {
+            bitstream,
+            fpga_location,
+            diff,
+        }
     }
 }
 
 impl BackendRunner for P2eBackend {
+    fn binary_name(&self) -> &'static str {
+        "bebop-p2e"
+    }
+
     fn backend_name(&self) -> &'static str {
         if self.diff {
             "p2e-difftest"
@@ -33,7 +41,6 @@ impl BackendRunner for P2eBackend {
     }
 
     fn build_command(&self, cmd: &mut Command, _bebop_bin: &Path, elf_path: &Path, artifacts: &ArtifactManager) {
-        cmd.arg("run").arg("p2e");
         cmd.arg("--image").arg(elf_path);
         cmd.arg("--bitstream").arg(&self.bitstream);
         cmd.arg("--fpga-location").arg(&self.fpga_location);

@@ -19,6 +19,10 @@ impl VerilatorBackend {
 }
 
 impl BackendRunner for VerilatorBackend {
+    fn binary_name(&self) -> &'static str {
+        "bebop-verilator"
+    }
+
     fn backend_name(&self) -> &'static str {
         if self.diff {
             "difftest"
@@ -31,8 +35,11 @@ impl BackendRunner for VerilatorBackend {
         "verilator test"
     }
 
+    fn host_threads(&self) -> usize {
+        bebop_verilator::HOST_THREADS
+    }
+
     fn build_command(&self, cmd: &mut Command, _bebop_bin: &Path, elf_path: &Path, artifacts: &ArtifactManager) {
-        cmd.arg("run").arg("verilator");
         cmd.arg("--elf").arg(elf_path);
         cmd.arg("--log-dir").arg(artifacts.log_dir());
         cmd.arg("--no-wave").arg("--itrace").arg("--mtrace");
@@ -42,7 +49,8 @@ impl BackendRunner for VerilatorBackend {
     }
 
     fn timeout(&self) -> Duration {
-        Duration::from_secs(1800)
+        // Full multicore RTL must also finish CPU-side workload verification.
+        Duration::from_secs(8 * 60 * 60)
     }
 
     fn match_case(&self, test_case: &ElfTestCase) -> bool {

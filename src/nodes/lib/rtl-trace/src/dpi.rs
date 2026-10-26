@@ -6,6 +6,7 @@ use crate::{state, trace};
 
 pub(crate) fn force_link() {
     let _ = dpi_bdb_set_clk as extern "C" fn(u64);
+    let _ = dpi_ant_trace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32);
     let _ = dpi_itrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
     let _ = dpi_mtrace
         as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
@@ -54,6 +55,32 @@ pub extern "C" fn dpi_itrace(
         rs1: u64_from_words(rs1_data_lo, rs1_data_hi),
         rs2: u64_from_words(rs2_data_lo, rs2_data_hi),
     });
+}
+
+#[no_mangle]
+pub extern "C" fn dpi_ant_trace(
+    thread_lo: u32,
+    thread_hi: u32,
+    pc_lo: u32,
+    pc_hi: u32,
+    instruction: u32,
+    rd: u32,
+    data_lo: u32,
+    data_hi: u32,
+) {
+    state::record_itrace_callback();
+    if !state::itrace_enabled() {
+        return;
+    }
+    state::write_trace(&format!(
+        r#"{{"type":"anttrace","clk":{},"thread_id":{},"pc":"0x{:016x}","instruction":"0x{:08x}","rd":{},"data":"0x{:016x}"}}"#,
+        state::rtl_clk(),
+        u64_from_words(thread_lo, thread_hi),
+        u64_from_words(pc_lo, pc_hi),
+        instruction,
+        rd,
+        u64_from_words(data_lo, data_hi),
+    ));
 }
 
 #[no_mangle]

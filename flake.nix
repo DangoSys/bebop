@@ -30,12 +30,13 @@
             pkgs.base.libtool
             pkgs.base.gnumake
             pkgs.base.pkgConfig
+            pkgs.SDL2
             # pkgs.base.clangTools
             pkgs.base.cmake
             pkgs.base.ninja
             pkgs.base.dtc
             pkgs.base.boost
-            pkgs.base.python3
+            (pkgs.base.python3.withPackages (python: [ python.protobuf ]))
             pkgs.base.cargo
             pkgs.base.cargoNextest
             pkgs.base.rustc

@@ -1,0 +1,33 @@
+[package]
+name = "bebop-bemu"
+version = "0.1.0"
+edition = "2021"
+autobins = false
+
+[dependencies]
+rustc_apfloat = "0.2.3"
+linkme = "0.3"
+memory = { package = "bebop-memory", path = "../lib/memory" }
+bebop-dasm = { path = "../lib/dasm" }
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+snafu = "0.8"
+prost = "0.13"
+prost-types = "0.13"
+bebop-elf = { path = "../lib/elf" }
+bebop-syscall = { path = "../lib/syscall" }
+bebop-dtb = { path = "../lib/dtb" }
+bebop-microphone = { path = "../lib/microphone" }
+bebop-speaker = { path = "../lib/speaker" }
+bebop-keyboard = { path = "../lib/keyboard" }
+bebop-vga = { path = "../lib/vga" }
+bebop-rtc = { path = "../lib/rtc" }
+bebop-bank-hash = { path = "../lib/bank-hash" }
+bebop-bemu-profile = { path = "../lib/bemu-profile" }
+bebop-uart = { path = "../lib/uart" }
+
+[build-dependencies]
+prost-build = "0.13"
+
+[features]
+p2e = []

@@ -38,9 +38,9 @@ extern "C" {
 
     // BBSimDRAM host staging API. These functions reject addresses outside
     // the physical backing region instead of exposing its raw mmap pointer.
-    pub fn bbsim_host_memory_range(chip_id: i32, base: *mut u64, size: *mut u64) -> bool;
-    pub fn bbsim_host_memory_write(chip_id: i32, address: u64, src: *const u8, size: u64) -> bool;
-    pub fn bbsim_host_memory_read(chip_id: i32, address: u64, dst: *mut u8, size: u64) -> bool;
+    pub fn bbsim_host_memory_range(device_id: i32, base: *mut u64, size: *mut u64) -> bool;
+    pub fn bbsim_host_memory_write(device_id: i32, address: u64, src: *const u8, size: u64) -> bool;
+    pub fn bbsim_host_memory_read(device_id: i32, address: u64, dst: *mut u8, size: u64) -> bool;
 
     // SCU state query (DPI-C functions are called from RTL automatically)
     pub fn verilator_scu_has_exit() -> bool;

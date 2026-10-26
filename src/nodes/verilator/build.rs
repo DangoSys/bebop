@@ -64,12 +64,28 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let obj_dir = out_dir.join("obj_dir");
 
-    let build_dir = resolve_vsrc_path();
+    let build_dir = entry_rtl(&out_dir);
     let jobs = requested_jobs();
+    let threads = if build_dir.join("hierarchy.vlt").is_file() {
+        std::thread::available_parallelism()
+            .expect("query host CPU capacity")
+            .get()
+            .min(16)
+    } else {
+        1
+    };
+    fs::write(
+        out_dir.join("model_threads.rs"),
+        format!("pub const HOST_THREADS: usize = {threads};\n"),
+    )
+    .expect("write model host thread count");
+    println!("cargo:rustc-check-cfg=cfg(bebop_parallel)");
+    if threads > 1 {
+        println!("cargo:rustc-cfg=bebop_parallel");
+    }
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", build_dir.display());
-    println!("cargo:rerun-if-env-changed=VSRC_PATH");
     println!("cargo:rerun-if-env-changed=RISCV");
 
     let riscv = require_nix_riscv();
@@ -88,16 +104,47 @@ fn main() {
     }
 
     fs::create_dir_all(&obj_dir).expect("create obj_dir");
-    run_verilator(&build_dir, &obj_dir, TOPNAME, &jobs, &vsrcs, &csrcs, &native_dir, &riscv);
-    // The generated makefile owns hierarchy libraries, source partitioning and runtime support.
+    run_verilator(
+        &build_dir,
+        &obj_dir,
+        TOPNAME,
+        &jobs,
+        threads,
+        &vsrcs,
+        &csrcs,
+        &native_dir,
+        &riscv,
+    );
+    // Use ar's command stream: a hierarchical model can exceed the shell argument limit.
+    fs::write(
+        obj_dir.join("Bebop.mk"),
+        format!(
+            "include V{TOPNAME}.mk\n\n\
+         libV{TOPNAME}.a: Bebop.mk\n\
+         \t$(file >$@.mri,CREATE $@)\n\
+         \t$(foreach object,$(VK_OBJS) $(VK_USER_OBJS),$(file >>$@.mri,ADDMOD $(object)))\n\
+         \t$(foreach library,$(VM_HIER_LIBS),$(file >>$@.mri,ADDLIB $(library)))\n\
+         \t$(file >>$@.mri,SAVE)\n\
+         \t$(file >>$@.mri,END)\n\
+         \t$(AR) -M <$@.mri\n"
+        ),
+    )
+    .expect("write Verilator archive rules");
     let status = Command::new("make")
-        .arg("-s").arg("-C").arg(&obj_dir)
-        .arg("-f").arg(format!("V{TOPNAME}.mk"))
-        .arg("-j").arg(&jobs)
+        .arg("-s")
+        .arg("-C")
+        .arg(&obj_dir)
+        .arg("-f")
+        .arg("Bebop.mk")
+        .arg("-j")
+        .arg(&jobs)
         .arg(format!("CXX={}", require_gxx()))
-        .arg("OPT_FAST=-O3").arg("OPT_SLOW=-O3")
-        .arg(format!("libV{TOPNAME}.a")).arg("libverilated.a")
-        .status().expect("compile Verilator libraries");
+        .arg("OPT_FAST=-O3")
+        .arg("OPT_SLOW=-O3")
+        .arg(format!("libV{TOPNAME}.a"))
+        .arg("libverilated.a")
+        .status()
+        .expect("compile Verilator libraries");
     assert!(status.success(), "Verilator library compilation failed: {status}");
     emit_link_config(&obj_dir, &riscv);
 }
@@ -157,12 +204,19 @@ fn emit_link_config(native_lib_dir: &Path, riscv: &NixRiscv) {
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", riscv.lib_dir.display());
 }
 
-fn resolve_vsrc_path() -> PathBuf {
-    let path = env::var("VSRC_PATH").expect("VSRC_PATH must be set before building bebop-verilator");
-    assert!(!path.trim().is_empty(), "VSRC_PATH must not be empty");
-    let path = PathBuf::from(path);
-    assert_exists(&path, "VSRC_PATH does not point to a Verilog source directory");
-    path
+/// The runner of a simulation entry is built in
+/// `output/sims/<entry>/emu/verilator/target`; the entry's RTL is
+/// `output/sims/<entry>/arch/BBSimHarness`.
+fn entry_rtl(out_dir: &Path) -> PathBuf {
+    let target = out_dir
+        .ancestors()
+        .find(|path| path.file_name() == Some(OsStr::new("target")))
+        .expect("bebop-verilator is built in the target directory of a simulation entry");
+    target
+        .join("../../../arch")
+        .join(TOPNAME)
+        .canonicalize()
+        .expect("the simulation entry has no generated RTL")
 }
 
 fn requested_jobs() -> String {
@@ -211,7 +265,17 @@ fn collect_files_inner(root: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
     }
 }
 
-fn run_verilator(build_dir: &Path, obj_dir: &Path, topname: &str, jobs: &str, vsrcs: &[PathBuf], csrcs: &[PathBuf], native_dir: &Path, riscv: &NixRiscv) {
+fn run_verilator(
+    build_dir: &Path,
+    obj_dir: &Path,
+    topname: &str,
+    jobs: &str,
+    threads: usize,
+    vsrcs: &[PathBuf],
+    csrcs: &[PathBuf],
+    native_dir: &Path,
+    riscv: &NixRiscv,
+) {
     let mut cmd = Command::new("verilator");
     cmd.stdout(Stdio::inherit());
     cmd.stderr(Stdio::inherit());
@@ -232,8 +296,20 @@ fn run_verilator(build_dir: &Path, obj_dir: &Path, topname: &str, jobs: &str, vs
     if hierarchy.is_file() {
         cmd.arg("--hierarchical").arg(hierarchy);
     }
-    cmd.arg("-CFLAGS").arg("-std=c++17 -fcoroutines -pthread");
-    for directory in [native_dir.to_path_buf(), native_dir.join("include"), riscv.include_dir.clone()] {
+    cmd.arg("--threads").arg(threads.to_string());
+    if threads > 1 {
+        cmd.arg("--threads-dpi").arg("all").arg("+define+BEBOP_PARALLEL");
+        // A hierarchy DPI call evaluates an entire core, not a small imported routine.
+        cmd.arg("--instr-count-dpi").arg("1000000");
+    }
+    cmd.arg("-CFLAGS").arg(format!(
+        "-std=c++17 -fcoroutines -pthread -DBEBOP_VERILATOR_THREADS={threads}"
+    ));
+    for directory in [
+        native_dir.to_path_buf(),
+        native_dir.join("include"),
+        riscv.include_dir.clone(),
+    ] {
         cmd.arg("-CFLAGS").arg(format!("-I{}", directory.display()));
     }
 

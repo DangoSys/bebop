@@ -8,7 +8,12 @@ const FILE_STDOUT: &str = "stdout.log";
 const FILE_STDERR: &str = "stderr.log";
 const FILE_WAVEFORM: &str = "waveform.fst";
 
+static ARTIFACT_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
 fn artifact_root() -> PathBuf {
+    if let Some(root) = ARTIFACT_ROOT.get() {
+        return root.clone();
+    }
     std::env::current_exe()
         .expect("locate regression binary")
         .ancestors()
@@ -22,13 +27,21 @@ pub struct ArtifactManager {
 }
 
 impl ArtifactManager {
+    pub fn set_root(root: PathBuf) {
+        ARTIFACT_ROOT.set(root).expect("regression log directory set twice");
+    }
+
     pub fn clean_backend(backend: &str) -> std::io::Result<()> {
         let root = artifact_root();
         if root.exists() {
             let prefix = format!("{backend}-");
             for entry in fs::read_dir(root)? {
                 let path = entry?.path();
-                if path.file_name().unwrap().to_str().unwrap().starts_with(&prefix) {
+                // A summary is written after the child exits and its logs are saved.
+                // Runs without one may still be writing to this directory.
+                if path.file_name().unwrap().to_str().unwrap().starts_with(&prefix)
+                    && path.join("summary.json").is_file()
+                {
                     fs::remove_dir_all(path)?;
                 }
             }

@@ -21,7 +21,10 @@ pub fn itrace(event: ITraceEvent) {
     let event_name = match event.is_issue {
         2 => "alloc",
         1 => "issue",
-        _ => "complete",
+        0 => "complete",
+        3 => "rob_full_begin",
+        4 => "rob_full_end",
+        _ => panic!("Unknown instruction trace event: {}", event.is_issue),
     };
 
     let json = if event.is_issue >= 1 {

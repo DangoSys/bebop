@@ -76,7 +76,8 @@ pub(super) fn tcl_word(value: &str) -> String {
 
 pub fn generate_main_tcl(
     fpga_location: &str,
-    plan: &super::LoadPlan,
+    image: &Path,
+    model: Option<&(PathBuf, u64)>,
     bitstream: &Path,
     multi_fpga: bool,
     wave: bool,
@@ -103,12 +104,12 @@ pub fn generate_main_tcl(
     // hw_server maps the physical location; vdbg accesses the case's logical FPGA 0.A.
     tcl.push_str("set design_fpga \"0.A\"\n");
     tcl.push_str("flash_bitstream $fpga_location $design_fpga $multi_fpga\ninit_fpga $fpga_location\n");
-    for load in &plan.loads {
+    tcl.push_str(&format!("load_image $design_fpga 0 {} 0 hex\n", path_word(image)?));
+    if let Some((path, offset)) = model {
         tcl.push_str(&format!(
-            "load_image $design_fpga 0 {} {} {}\n",
-            path_word(&load.file)?,
-            load.offset,
-            tcl_word(&load.format)
+            "load_image $design_fpga 0 {} {} binary\n",
+            path_word(path)?,
+            offset
         ));
     }
     tcl.push_str("release_soc\nrun_workload 100000 $wave $wave_start\nexit\n");

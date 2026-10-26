@@ -1,5 +1,4 @@
 mod manager;
-mod result;
 
+pub use bebop_report::{junit, RegressionResult, TestStatus};
 pub use manager::ArtifactManager;
-pub use result::{RegressionResult, TestStatus};

@@ -16,17 +16,7 @@ pub fn on_itrace(state: &mut State, obj: &Map<String, Value>, line_no: usize, ts
 
     match event {
         "alloc" => on_alloc(
-            state,
-            obj,
-            line_no,
-            ts,
-            rob_id,
-            inst_id,
-            hart_id,
-            domain_id,
-            funct,
-            pc,
-            name,
+            state, obj, line_no, ts, rob_id, inst_id, hart_id, domain_id, funct, pc, name,
         ),
         "issue" => on_issue(state, obj, line_no, ts, rob_id, inst_id, hart_id, domain_id, funct, pc),
         "complete" => on_complete(state, line_no, ts, rob_id, inst_id, hart_id, domain_id, funct, pc),
