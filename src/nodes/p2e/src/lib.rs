@@ -2,7 +2,7 @@ pub mod builder;
 pub mod ctb;
 pub mod runner;
 
-pub use builder::{BitstreamBuilder, BuildOutcome};
+pub use builder::BitstreamBuilder;
 pub use ctb::ffi;
 pub use runner::{
     configure_vvac_environment, generate_main_tcl, init_ctb, source_environment, start_vdbg_background,

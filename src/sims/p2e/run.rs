@@ -105,7 +105,8 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let uart_log_path = config.log_dir.join("uart.log");
 
     log::info!("P2E Simulation Starting");
-    log::info!("  Load inputs: {:?}", load_plan);
+    log::info!("  Image: {}", image.display());
+    log::info!("  Model: {:?}", model);
     log::info!("  Bitstream: {}", bitstream.display());
     log::info!("  FPGA: {}", config.fpga_location);
     log::info!("  Runtime case: {}", case_home.display());

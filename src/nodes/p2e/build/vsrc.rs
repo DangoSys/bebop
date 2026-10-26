@@ -26,8 +26,17 @@ fn collect_files_inner(root: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
     }
 }
 
-pub fn write_flist(path: &Path, sources: &[PathBuf], diff: bool, itrace: bool, mtrace: bool) {
-    let mut contents = "+define+BUCKYBALL_DISABLE_PMCTRACE_DPI\n".to_string();
+pub fn write_flist(
+    path: &Path,
+    rtl_dir: &Path,
+    sources: &[PathBuf],
+    diff: bool,
+    itrace: bool,
+    mtrace: bool,
+) {
+    // Headers emitted next to the RTL (e.g. common_cells/*.svh) resolve from its root.
+    let mut contents = format!("+incdir+{}\n", rtl_dir.display());
+    contents.push_str("+define+BUCKYBALL_DISABLE_PMCTRACE_DPI\n");
     if !diff && !itrace && !mtrace {
         contents.push_str("+define+BUCKYBALL_DISABLE_TRACE_DPI\n");
     }

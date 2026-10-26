@@ -122,7 +122,7 @@ fn main() {
 
     std::fs::create_dir_all(&out_dir).expect("create p2e out directory");
     let flist = out_dir.join("p2e_vvac_filelist.f");
-    vsrc::write_flist(&flist, &vsrcs, diff, itrace, mtrace);
+    vsrc::write_flist(&flist, &build_dir, &vsrcs, diff, itrace, mtrace);
     println!("cargo:warning=P2E trace mode: {trace_mode}");
 
     println!("cargo:warning=Removing empty module instantiations from Verilog...");

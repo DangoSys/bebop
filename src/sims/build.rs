@@ -4,7 +4,7 @@ use snafu::{FromString, ResultExt, Whatever};
 use std::path::{Path, PathBuf};
 
 #[cfg(feature = "p2e")]
-use bebop_p2e::{BitstreamBuilder, BuildOutcome};
+use bebop_p2e::BitstreamBuilder;
 
 fn build_runner(
     design_dir: &Path,
@@ -103,7 +103,6 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
             diff,
             itrace,
             mtrace,
-            stop_after,
         } => {
             let rtl_dir = rtl_dir
                 .canonicalize()
@@ -132,19 +131,15 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
             )?;
             #[cfg(feature = "p2e")]
             {
-                let outcome = BitstreamBuilder::new(out_dir.clone())
-                    .build(stop_after.as_deref())
+                BitstreamBuilder::new(out_dir.clone())
+                    .build()
                     .map_err(Whatever::without_source)?;
-                if let BuildOutcome::Assessment(stage) = outcome {
-                    println!("P2E resource assessment completed after {stage}: {}", out_dir.display());
-                    return Ok(());
-                }
                 std::fs::copy(executable, out_dir.join("bebop-p2e"))
                     .whatever_context("failed to install P2E case runner")?;
             }
             #[cfg(not(feature = "p2e"))]
             {
-                let _ = (executable, stop_after);
+                let _ = executable;
                 return Err(Whatever::without_source(
                     "P2E build requires the design package's p2e feature".to_string(),
                 ));

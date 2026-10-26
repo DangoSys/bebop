@@ -9,4 +9,4 @@ mod vcom;
 #[path = "3_pnr/mod.rs"]
 mod pnr;
 
-pub use bitstream::{BitstreamBuilder, BuildOutcome};
+pub use bitstream::BitstreamBuilder;
