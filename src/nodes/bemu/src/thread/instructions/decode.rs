@@ -19,15 +19,28 @@ pub fn rs1_b1(xs1: u64) -> u64 {
     (xs1 >> 10) & 0x3ff
 }
 
+/// `BB_BANK2` - the 9-bit architectural destination, bits [28:20].
 #[inline]
 pub fn rs1_b2(xs1: u64) -> u64 {
-    (xs1 >> 20) & 0x3ff
+    (xs1 >> 20) & 0x1ff
 }
 
-/// `BB_ITER` - bits [63:30].
+/// `BB_READ_WR_OLD` - bit 29: the instruction reads the old destination.
+#[inline]
+pub fn rs1_read_old(xs1: u64) -> bool {
+    (xs1 >> 29) & 1 != 0
+}
+
+/// `BB_ITER` - bits [62:30].
 #[inline]
 pub fn rs1_iter(xs1: u64) -> u64 {
-    xs1 >> 30
+    (xs1 >> 30) & ((1 << 33) - 1)
+}
+
+/// `BB_UPDATE_WR` - bit 63: the destination is updated in place.
+#[inline]
+pub fn rs1_update(xs1: u64) -> bool {
+    xs1 >> 63 != 0
 }
 
 #[inline]

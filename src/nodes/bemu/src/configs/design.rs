@@ -85,8 +85,8 @@ fn accelerator(
             mmio_bank_entries: mmio.bank_entries as usize,
             mmio_bank_width: mmio.bank_width as usize,
             mmio_read_width: mmio.read_width as usize,
-            private_vbank_upper_bound: frontend.vbank_id_upper_bound as usize,
-            shared_vbank_base: frontend.shared_bank_id_base as usize,
+            max_private_vbank: frontend.max_private_vbank as usize,
+            shared_vbank_base: frontend.shared_vbank_base as usize,
         },
         ball_domain: BallDomainConfig {
             balls: domain.balls.clone(),

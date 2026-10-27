@@ -28,7 +28,7 @@ pub struct MemConfig {
     pub mmio_bank_entries: usize,
     pub mmio_bank_width: usize,
     pub mmio_read_width: usize,
-    pub private_vbank_upper_bound: usize,
+    pub max_private_vbank: usize,
     pub shared_vbank_base: usize,
 }
 #[derive(Clone)]

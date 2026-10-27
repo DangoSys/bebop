@@ -25,12 +25,15 @@ pub struct Args {
     #[arg(long)]
     pub mtrace: bool,
     #[arg(long)]
+    pub ctrace: bool,
+    #[arg(long)]
     pub banktrace: bool,
 }
 
 impl Args {
     pub fn model_options(&self) -> crate::ModelOptions {
         let mut trace = crate::TraceConfig::new(self.itrace, self.mtrace);
+        trace.ctrace = self.ctrace;
         trace.btrace = self.banktrace;
         crate::ModelOptions {
             log_dir: self.log_dir.clone(),

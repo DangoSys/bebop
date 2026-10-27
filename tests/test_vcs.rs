@@ -14,13 +14,10 @@ struct Args {
     simv: PathBuf,
     #[arg(long)]
     dram_configs: PathBuf,
-    #[arg(long)]
-    log_dir: PathBuf,
 }
 
 fn main() -> ExitCode {
     let args = Args::parse();
-    common::artifacts::ArtifactManager::set_root(args.log_dir);
     common::run_elf_regression(
         args.regression,
         "test_vcs",

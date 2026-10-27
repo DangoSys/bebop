@@ -38,15 +38,15 @@ pub fn gpdomain() -> Option<GpDomainConfig> {
 pub fn virtual_bank_num() -> usize {
     with_accelerator(|topology| topology.virtual_bank_count)
 }
-pub fn private_vbank_upper_bound() -> usize {
-    with_accelerator(|t| t.mem_config.private_vbank_upper_bound)
+pub fn max_private_vbank() -> usize {
+    with_accelerator(|t| t.mem_config.max_private_vbank)
 }
 pub fn shared_vbank_base() -> usize {
     with_accelerator(|t| t.mem_config.shared_vbank_base)
 }
 pub fn is_shared_vbank(vbank: u64) -> bool {
     let vbank = usize::try_from(vbank).expect("vbank id exceeds usize");
-    if vbank <= private_vbank_upper_bound() {
+    if vbank <= max_private_vbank() {
         return false;
     }
     if vbank >= shared_vbank_base() && vbank < virtual_bank_num() {
@@ -100,7 +100,7 @@ pub mod ball_domain {
                 .balls
                 .iter()
                 .find(|ball| ball.instructions.iter().any(|instruction| instruction.funct7 == funct))
-                .map(|ball| ball.ball_id)
+                .map(|ball| ball.id)
         })
     }
 
@@ -136,7 +136,7 @@ pub mod ball_domain {
                 .ball_domain
                 .balls
                 .iter()
-                .find(|ball| ball.ball_id == instance)
+                .find(|ball| ball.id == instance)
                 .unwrap_or_else(|| panic!("missing Ball instance {instance}"));
             let parameter = ball.parameters.as_ref().expect("Ball parameters");
             assert_eq!(

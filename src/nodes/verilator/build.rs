@@ -206,14 +206,14 @@ fn emit_link_config(native_lib_dir: &Path, riscv: &NixRiscv) {
 
 /// The runner of a simulation entry is built in
 /// `output/sims/<entry>/emu/verilator/target`; the entry's RTL is
-/// `output/sims/<entry>/arch/BBSimHarness`.
+/// `output/sims/<entry>/arch/bebop/BBSimHarness`.
 fn entry_rtl(out_dir: &Path) -> PathBuf {
     let target = out_dir
         .ancestors()
         .find(|path| path.file_name() == Some(OsStr::new("target")))
         .expect("bebop-verilator is built in the target directory of a simulation entry");
     target
-        .join("../../../arch")
+        .join("../../../arch/bebop")
         .join(TOPNAME)
         .canonicalize()
         .expect("the simulation entry has no generated RTL")

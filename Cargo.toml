@@ -43,10 +43,6 @@ name = "bebop"
 path = "src/main.rs"
 
 [[bin]]
-name = "bebop-report"
-path = "src/bin/bebop-report.rs"
-
-[[bin]]
 name = "bebop-terminal"
 path = "src/bin/bebop-terminal.rs"
 

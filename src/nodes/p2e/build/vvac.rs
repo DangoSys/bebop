@@ -43,7 +43,10 @@ export PATH
 unset CMAKE_C_COMPILER CMAKE_CXX_COMPILER NIX_CC
 export CC="$cc_bin"
 export CXX="$cxx_bin"
-vvac -bc -f {flist} -top {top}{trace_args}"#,
+# AGNPTAR-2725: an assignment pattern to a single bit inside a generate
+# branch the configuration never takes (third-party HCI); VCS and Verilator
+# accept it, vvac's analyzer rejects it.
+vvac -bc -xlrm_downgrade -warn AGNPTAR-2725 -f {flist} -top {top}{trace_args}"#,
         sourceme = sourceme.display(),
         flist = flist.display(),
         top = top,

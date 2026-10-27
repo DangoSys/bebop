@@ -13,6 +13,8 @@ pub struct ExecContext<'a> {
     pub ball_id: Option<u32>,
     pub hart_id: usize,
     pub inst_id: u64,
+    /// Core cycle at which the instruction issues.
+    pub cycle: u64,
     pub(crate) memory: crate::core::memory::GuestAccess<'a>,
     pub(crate) kernel: &'a mut Option<kernels::Engine>,
     pub banks: TrackedBanks<'a>,

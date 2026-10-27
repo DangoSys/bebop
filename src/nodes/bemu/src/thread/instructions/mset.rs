@@ -26,7 +26,7 @@ impl Instruction for Mset {
         if xs2 & (1 << 12) != 0 {
             assert_eq!(xs2, 1 << 12, "mset transfer: reserved rs2 bits must be zero");
             assert_eq!(
-                xs1 & !(0x3ff | (0x3ff << 20)),
+                xs1 & !(0x3ff | (0x1ff << 20)),
                 0,
                 "mset transfer: reserved rs1 bits must be zero"
             );

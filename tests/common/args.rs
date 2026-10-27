@@ -11,12 +11,9 @@ pub struct RegressionArgs {
     #[arg(long, value_name = "FILE")]
     pub case_list: Option<PathBuf>,
 
-    #[arg(long)]
-    pub clean_before: bool,
-
-    /// Write this invocation's results as JUnit XML to a new file.
-    #[arg(long, value_name = "FILE")]
-    pub junit: Option<PathBuf>,
+    /// Run log directory: per-workload artifacts and junit.xml go here.
+    #[arg(long, value_name = "DIR")]
+    pub log_dir: PathBuf,
 
     #[arg(long)]
     pub diff: bool,

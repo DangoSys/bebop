@@ -61,6 +61,12 @@ where
         return ExitCode::FAILURE;
     }
 
+    if let Err(error) = std::fs::create_dir_all(&args.log_dir) {
+        eprintln!("Error: cannot create log directory {}: {error}", args.log_dir.display());
+        return ExitCode::FAILURE;
+    }
+    ArtifactManager::set_root(args.log_dir.clone());
+
     let extension = backend.scan_extension();
     let backend_for_discovery = backend.clone();
     let test_cases = match discover_tests(&args, extension, move |tc| backend_for_discovery.match_case(tc)) {
@@ -76,13 +82,6 @@ where
         return ExitCode::FAILURE;
     }
 
-    if args.clean_before {
-        if let Err(e) = ArtifactManager::clean_backend(backend.backend_name()) {
-            eprintln!("Error: failed to clean previous test artifacts: {e}");
-            return ExitCode::FAILURE;
-        }
-    }
-
     if args.verbose {
         eprintln!("Found {} ELF test cases", test_cases.len());
         for tc in &test_cases {
@@ -91,20 +90,15 @@ where
         eprintln!("Running {} tests after filtering", test_cases.len());
     }
 
-    let mut report = match args
-        .junit
-        .as_ref()
-        .map(|path| {
-            if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::OpenOptions::new().write(true).create_new(true).open(path)
-        })
-        .transpose()
+    let junit_path = args.log_dir.join("junit.xml");
+    let mut report = match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&junit_path)
     {
         Ok(report) => report,
         Err(error) => {
-            eprintln!("Error: cannot create JUnit report: {error}");
+            eprintln!("Error: cannot create JUnit report {}: {error}", junit_path.display());
             return ExitCode::FAILURE;
         }
     };
@@ -119,13 +113,10 @@ where
             let backend = backend.clone();
             let results = Arc::clone(&results);
             let report_name = name.clone();
-            let reporting = report.is_some();
 
             Trial::test(name, move || {
                 let result = run_backend_elf_test(&bebop_bin, &elf_path, verbose, &backend);
-                if reporting {
-                    results.lock().unwrap().push((report_name, result.clone()));
-                }
+                results.lock().unwrap().push((report_name, result.clone()));
                 if result.success() {
                     Ok(())
                 } else {
@@ -154,15 +145,13 @@ where
     let test_args = Arguments::from_iter(libtest_args);
 
     let conclusion = libtest_mimic::run(&test_args, trials);
-    if let Some(output) = report.as_mut() {
-        let mut results = results.lock().unwrap();
-        results.sort_by(|a, b| a.0.cmp(&b.0));
-        let reported_failures = results.iter().filter(|(_, r)| !r.success()).count() as u64;
-        let missing = conclusion.num_failed - reported_failures;
-        if let Err(error) = junit::write(output, harness_binary_name, &results, missing) {
-            eprintln!("Error: cannot write JUnit report: {error}");
-            return ExitCode::FAILURE;
-        }
+    let mut results = results.lock().unwrap();
+    results.sort_by(|a, b| a.0.cmp(&b.0));
+    let reported_failures = results.iter().filter(|(_, r)| !r.success()).count() as u64;
+    let missing = conclusion.num_failed - reported_failures;
+    if let Err(error) = junit::write(&mut report, harness_binary_name, &results, missing) {
+        eprintln!("Error: cannot write JUnit report: {error}");
+        return ExitCode::FAILURE;
     }
     conclusion.exit_code()
 }

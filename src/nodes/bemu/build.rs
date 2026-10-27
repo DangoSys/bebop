@@ -7,7 +7,7 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let repo = manifest_dir.join("../../../..");
     let proto_dir = repo.join("bbdev/api/steps/config/scripts/proto");
-    let balls_dir = repo.join("examples/components/balls");
+    let balls_dir = repo.join("examples/prefab/balls");
     let mut protos = vec![proto_dir.join("design.proto")];
     let mut includes = vec![proto_dir.clone()];
     let mut modules = String::new();

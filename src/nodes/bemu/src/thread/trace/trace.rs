@@ -14,6 +14,7 @@ pub struct TraceState {
     pub(super) bdb_file: Option<File>,
     pub(crate) itrace: bool,
     pub(super) mtrace: bool,
+    pub(super) ctrace: bool,
     pub(super) event_index: u64,
     pub(super) btrace: btrace::BtraceState,
 }
@@ -22,6 +23,7 @@ pub struct TraceState {
 pub struct TraceConfig {
     pub itrace: bool,
     pub mtrace: bool,
+    pub ctrace: bool,
     pub btrace: bool,
 }
 
@@ -30,6 +32,7 @@ impl TraceConfig {
         Self {
             itrace,
             mtrace,
+            ctrace: false,
             btrace: false,
         }
     }
@@ -38,7 +41,7 @@ impl TraceConfig {
 impl TraceState {
     pub fn new(log_dir: &Path, config: TraceConfig) -> io::Result<Self> {
         std::fs::create_dir_all(log_dir)?;
-        let bdb_file = if config.itrace || config.mtrace {
+        let bdb_file = if config.itrace || config.mtrace || config.ctrace {
             Some(
                 OpenOptions::new()
                     .create(true)
@@ -53,6 +56,7 @@ impl TraceState {
             bdb_file,
             itrace: config.itrace,
             mtrace: config.mtrace,
+            ctrace: config.ctrace,
             btrace: btrace::init(log_dir, config.btrace)?,
             event_index: 0,
         })
@@ -81,6 +85,12 @@ impl TraceState {
 
     pub(super) fn write_itrace(&mut self, json: &str) {
         if self.itrace {
+            write_ndjson(&mut self.bdb_file, json);
+        }
+    }
+
+    pub(super) fn write_ctrace(&mut self, json: &str) {
+        if self.ctrace {
             write_ndjson(&mut self.bdb_file, json);
         }
     }

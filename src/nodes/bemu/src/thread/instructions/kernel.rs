@@ -15,7 +15,7 @@ impl Banks<'_, '_> {
     fn location(&self, address: u64) -> Result<(usize, usize, usize), kernels::MemoryError> {
         let bank = u32::try_from(address >> 32).map_err(|_| kernels::MemoryError)?;
         let offset = (address & 0xffff_ffff) as usize;
-        if bank as usize > crate::configs::private_vbank_upper_bound() {
+        if bank as usize > crate::configs::max_private_vbank() {
             return Err(kernels::MemoryError);
         }
         let config = self.ctx.cfgs.get(bank as usize).ok_or(kernels::MemoryError)?;
@@ -71,6 +71,10 @@ impl kernels::Memory for Banks<'_, '_> {
     fn ball_command(&mut self, funct7: u32, rs1: u64, rs2: u64) -> Result<u64, kernels::MemoryError> {
         let class = crate::configs::ball_domain::ball_class_for_funct(funct7).ok_or(kernels::MemoryError)?;
         let id = crate::configs::ball_domain::instance_for_funct(funct7).ok_or(kernels::MemoryError)?;
+        // The GP domain ignores rs1[29] and rs1[63]: a kernel Ball command is not
+        // renamed, so it updates its launch write bank in place, and it has no
+        // old-destination read (wr_read_bank is 0).
+        let rs1 = rs1 & !(1 << 29) | (1 << 63);
         let parent = self.ctx.ball_id.replace(id);
         let result = crate::ball::execute_known(&class, funct7, rs1, rs2, self.ctx);
         self.ctx.ball_id = parent;
@@ -129,8 +133,8 @@ impl Instruction for RunKernel {
         let base = crate::configs::virtual_bank_num();
         assert!(program >= base && program < base + 2);
         assert!(xs1 >> 30 == 0 && read != write);
-        assert!(read <= crate::configs::private_vbank_upper_bound() as u64);
-        assert!(write <= crate::configs::private_vbank_upper_bound() as u64);
+        assert!(read <= crate::configs::max_private_vbank() as u64);
+        assert!(write <= crate::configs::max_private_vbank() as u64);
         let read_cfg = *ctx.config(read);
         let write_cfg = *ctx.config(write);
         assert!(read_cfg.allocated && write_cfg.allocated);

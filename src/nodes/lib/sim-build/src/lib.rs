@@ -1,17 +1,40 @@
 //! Build support for simulation entries: what a design.pb asks the entry to link,
 //! and how the runners the entry builds are linked.
 use prost::Message;
-use std::{fmt::Write, fs, path::Path};
+use std::{
+    ffi::OsStr,
+    fmt::Write,
+    fs,
+    path::{Path, PathBuf},
+};
 
 mod config {
     include!(concat!(env!("OUT_DIR"), "/buckyball.config.rs"));
 }
 
-/// Writes `$OUT_DIR/balls.rs` for the build script of a simulation entry: one
-/// module per Ball of the design, compiled from the model its `emu_lib` names.
-/// The models register themselves in `bebop_bemu::BALLS`.
-pub fn balls(design_pb: &Path) {
-    let design = config::Design::decode(fs::read(design_pb).unwrap().as_slice()).unwrap();
+/// The design.pb of the simulation being built. A simulation is built in
+/// `output/sims/<selection>/emu/<backend>/target`; its design.pb is
+/// `output/sims/<selection>/generated/design.pb`.
+fn design_pb(out_dir: &Path) -> PathBuf {
+    let target = out_dir
+        .ancestors()
+        .find(|path| path.file_name() == Some(OsStr::new("target")))
+        .expect("a simulation is built in the target directory of its output");
+    target
+        .join("../../../generated/design.pb")
+        .canonicalize()
+        .expect("the simulation has no generated design.pb")
+}
+
+/// For the build script of a simulation entry: copies the design.pb of the
+/// simulation being built to `$OUT_DIR/design.pb`, and writes `$OUT_DIR/balls.rs`,
+/// one module per Ball of the design, compiled from the model its `emu_lib`
+/// names. The models register themselves in `bebop_bemu::BALLS`.
+pub fn balls() {
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let design_pb = design_pb(&out);
+    let bytes = fs::read(&design_pb).unwrap();
+    let design = config::Design::decode(bytes.as_slice()).unwrap();
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../../..")
         .canonicalize()
@@ -20,11 +43,11 @@ pub fn balls(design_pb: &Path) {
     // A design without Balls has no bemu message.
     for ball in design.bemu.unwrap_or_default().balls {
         let source = repo.join(&ball.emu_lib);
-        writeln!(modules, "#[path = {:?}]\nmod {};", source, ball.ball_dir).unwrap();
+        writeln!(modules, "#[path = {:?}]\nmod {};", source, ball.component).unwrap();
         println!("cargo:rerun-if-changed={}", source.parent().unwrap().display());
     }
-    let out = std::env::var("OUT_DIR").unwrap();
-    fs::write(Path::new(&out).join("balls.rs"), modules).unwrap();
+    fs::write(out.join("balls.rs"), modules).unwrap();
+    fs::write(out.join("design.pb"), bytes).unwrap();
     println!("cargo:rerun-if-changed={}", design_pb.display());
 }
 

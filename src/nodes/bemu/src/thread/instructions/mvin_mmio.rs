@@ -5,7 +5,7 @@
 // byte mask written into MMIO (first `col` bytes written, rest zero-masked).
 //
 // rs1[9:0]:    0 (no main bank dependency)
-// rs1[63:30]:  row (BB_ITER, row count for DMA beats)
+// rs1[62:30]:  row (BB_ITER, row count for DMA beats)
 // rs2[38:0]:   dram_addr (39-bit DRAM virtual address)
 // rs2[55:39]:  mmio_addr (17-bit MMIO byte address)
 // rs2[63:56]:  col (8-bit, valid bytes per row, 1..16)
@@ -28,7 +28,7 @@ impl Instruction for MvinMmio {
         let dram_addr = xs2 & 0x7F_FFFF_FFFF; // bits [38:0]
         let mmio_addr = ((xs2 >> 39) & 0x1_FFFF) as u32; // bits [55:39], 17-bit
         let col = ((xs2 >> 56) & 0xFF) as u8; // bits [63:56]
-        let row = ((xs1 >> 30) & 0x3_FFFF_FFFF) as u32; // bits [63:30], 34-bit
+        let row = super::decode::rs1_iter(xs1) as u32;
 
         let bytes_per_row = bank_row_bytes();
         for r in 0..row as usize {
@@ -53,9 +53,7 @@ impl Instruction for MvinMmio {
         0
     }
 
-    fn latency(_xs1: u64, _xs2: u64) -> u64 {
-        // row count is in xs1[63:30], not xs2
-        let row = (_xs1 >> 30) & 0x3_FFFF_FFFF;
-        row.max(1)
+    fn latency(xs1: u64, _xs2: u64) -> u64 {
+        super::decode::rs1_iter(xs1).max(1)
     }
 }

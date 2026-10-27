@@ -182,12 +182,6 @@ pub(crate) fn execute(
     pc: u64,
     cycle: u64,
 ) -> Result<u64, crate::core::riscv::Trap> {
-    let encoded_xs1 = xs1;
-    let xs1 = if matches!(funct7 >> 4, 2..=4) && funct7 as u32 != FUNCT7_MSET {
-        xs1 & !((1u64 << 29) | (1u64 << 63))
-    } else {
-        xs1
-    };
     preflight(state, &mut memory, funct7, xs1, xs2)?;
     state.barrier_hit = false;
     let profile_started = state.profile.begin_npu();
@@ -202,9 +196,10 @@ pub(crate) fn execute(
         && pc != 0
         && (funct7 == 79 || matches!(enable, 2..=4))
         && !matches!(funct7 as u32, FUNCT7_MSET | FUNCT7_MVIN_MMIO)
-        && ((xs1 >> 20) & 0x3ff) < crate::configs::virtual_bank_num() as u64;
+        && instructions::decode::rs1_b2(xs1) < crate::configs::virtual_bank_num() as u64;
     if btrace {
-        let update = encoded_xs1 >> 63 != 0 || matches!(funct7, 34 | 79) || (funct7 == 33 && xs2 >> 63 != 0);
+        let update =
+            instructions::decode::rs1_update(xs1) || matches!(funct7, 34 | 79) || (funct7 == 33 && xs2 >> 63 != 0);
         state.writes.issue(inst_id, !update);
     }
 
@@ -219,7 +214,7 @@ pub(crate) fn execute(
                     },
                     funct: funct7 as u32,
                     pc,
-                    rs1: encoded_xs1,
+                    rs1: xs1,
                     rs2: xs2,
                 });
             })
@@ -257,9 +252,15 @@ pub(crate) fn execute(
         with_trace_ptr(trace, || {
             let shared_range = crate::configs::shared_vbank_base()..crate::configs::virtual_bank_num();
             let accesses_shared = funct7 >= 16
-                && [0, 10, 20].into_iter().any(|shift| {
-                    let bank = ((xs1 >> shift) & 0x3ff) as usize;
-                    bank > crate::configs::private_vbank_upper_bound() && shared_range.contains(&bank)
+                && [
+                    instructions::decode::rs1_b0(xs1),
+                    instructions::decode::rs1_b1(xs1),
+                    instructions::decode::rs1_b2(xs1),
+                ]
+                .into_iter()
+                .any(|bank| {
+                    let bank = bank as usize;
+                    bank > crate::configs::max_private_vbank() && shared_range.contains(&bank)
                 });
             let mut shared_state = shared_memory
                 .as_ref()
@@ -293,6 +294,7 @@ pub(crate) fn execute(
             let mut ctx = instructions::context::ExecContext {
                 hart_id: *execution_id,
                 inst_id,
+                cycle,
                 memory,
                 kernel,
                 banks: tracked_banks,
@@ -317,7 +319,7 @@ pub(crate) fn execute(
         let w0_vbank = if funct7 == 79 {
             result as u32
         } else {
-            ((xs1 >> 20) & 0x3ff) as u32
+            instructions::decode::rs1_b2(xs1) as u32
         };
         let mut status_hash = 0;
         let cols = if crate::configs::is_shared_vbank(w0_vbank as u64) {
