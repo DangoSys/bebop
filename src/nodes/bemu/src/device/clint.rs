@@ -28,6 +28,7 @@ pub struct Clint {
     participants: OnceLock<Vec<usize>>,
     ticks: AtomicU64,
     published_cycles: AtomicU64,
+    notified_cycles: AtomicU64,
     halted: AtomicBool,
     progress_lock: Mutex<usize>,
     progress_wake: Condvar,
@@ -53,6 +54,7 @@ impl Clint {
             participants: OnceLock::new(),
             ticks: AtomicU64::new(0),
             published_cycles: AtomicU64::new(0),
+            notified_cycles: AtomicU64::new(0),
             halted: AtomicBool::new(false),
             progress_lock: Mutex::new(0),
             progress_wake: Condvar::new(),
@@ -152,7 +154,7 @@ impl Clint {
                 self.ticks.fetch_max(self.cycles() / TICK_CYCLES, Ordering::SeqCst);
                 self.notify_pending();
             }
-            self.notify_progress();
+            self.notify_progress(false);
         }
     }
     #[inline]
@@ -209,24 +211,29 @@ impl Clint {
                 .max()
                 .unwrap()
         };
-        candidate.max(self.published_cycles.fetch_max(candidate, Ordering::SeqCst))
+        let published = self.published_cycles.load(Ordering::Acquire);
+        if candidate <= published {
+            published
+        } else {
+            candidate.max(self.published_cycles.fetch_max(candidate, Ordering::SeqCst))
+        }
     }
 
     pub(crate) fn set_waiting(&self, hart: usize, waiting: bool, enabled: u64) {
         let clock = &self.progress[hart];
         clock.enabled.store(enabled, Ordering::Relaxed);
         clock.waiting.store(waiting, Ordering::Release);
-        self.notify_progress();
+        self.notify_progress(true);
     }
     pub(crate) fn finish(&self, hart: usize) {
         self.progress[hart].finished.store(true, Ordering::Release);
         self.ticks.fetch_max(self.cycles() / TICK_CYCLES, Ordering::SeqCst);
         self.notify_pending();
-        self.notify_progress();
+        self.notify_progress(true);
     }
     pub(crate) fn halt(&self) {
         if !self.halted.swap(true, Ordering::AcqRel) {
-            self.notify_progress();
+            self.notify_progress(true);
             for clock in &self.progress {
                 let _guard = clock.lock.lock().unwrap();
                 clock.wake.notify_all();
@@ -248,9 +255,21 @@ impl Clint {
         }
     }
 
-    fn notify_progress(&self) {
+    fn notify_progress(&self, force: bool) {
+        // State changes wake waiters without advancing time before an IPI
+        // has been posted. Only an actual hart advance publishes new time.
+        let cycle = if force {
+            self.published_cycles.load(Ordering::Acquire)
+        } else {
+            self.cycles()
+        };
+        if !force && cycle <= self.notified_cycles.load(Ordering::Acquire) {
+            return;
+        }
         let waiters = self.progress_lock.lock().unwrap();
-        if *waiters != 0 {
+        let previous = self.notified_cycles.load(Ordering::Relaxed);
+        self.notified_cycles.store(previous.max(cycle), Ordering::Release);
+        if *waiters != 0 && (force || cycle > previous) {
             self.progress_wake.notify_all();
         }
     }

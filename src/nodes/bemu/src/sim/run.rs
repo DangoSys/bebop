@@ -52,6 +52,7 @@ pub struct Simulation {
 }
 
 pub fn run(args: Args, simulation: &Simulation) -> Result<(), String> {
+    let wall_start = std::time::Instant::now();
     crate::configs::load(simulation.design);
     let (ddr_base, ddr_bytes, _) = crate::configs::ddr();
     let design = DeviceModel::new(ddr_bytes as usize, crate::configs::hart_capacity(), &args.log_dir);
@@ -116,7 +117,7 @@ pub fn run(args: Args, simulation: &Simulation) -> Result<(), String> {
     );
     let cancelled = std::sync::atomic::AtomicBool::new(false);
     let finished = std::sync::atomic::AtomicBool::new(false);
-    std::thread::scope(|scope| {
+    let result = std::thread::scope(|scope| {
         let uart = scope.spawn(|| loop {
             let done = finished.load(std::sync::atomic::Ordering::Acquire);
             for (hart, bytes) in design.take_uart() {
@@ -179,5 +180,7 @@ pub fn run(args: Args, simulation: &Simulation) -> Result<(), String> {
             Some(error) => Err(error),
             None => design.platform.lock().expect("BEMU platform poisoned").trace.finish(),
         }
-    })
+    });
+    println!("BEMU wall time: {:.3}s", wall_start.elapsed().as_secs_f64());
+    result
 }

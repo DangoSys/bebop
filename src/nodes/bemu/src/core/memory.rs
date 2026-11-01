@@ -54,6 +54,7 @@ impl<'a> GuestAccess<'a> {
 
     pub(crate) fn check_range(&mut self, mut address: u64, mut bytes: usize, access: Access) -> Result<(), Trap> {
         address.checked_add(bytes as u64).ok_or_else(|| access.fault(address))?;
+        let privilege = self.translation.effective_privilege(access);
         while bytes > 0 {
             let count = bytes.min(4096 - (address as usize & 4095));
             let physical = self
@@ -68,14 +69,14 @@ impl<'a> GuestAccess<'a> {
             if !self
                 .translation
                 .pmp
-                .allows_range(physical, count, access, self.translation.privilege)
+                .allows_range(physical, count, access, privilege)
             {
                 for offset in 0..count {
                     if !self.translation.pmp.allows(
                         physical + offset as u64,
                         Width::Byte,
                         access,
-                        self.translation.privilege,
+                        privilege,
                     ) {
                         return Err(access.fault(address + offset as u64));
                     }
@@ -119,12 +120,11 @@ impl<'a> GuestAccess<'a> {
                 .translate(address, width, Access::Load)
                 .unwrap_or_else(|trap| panic!("DMA load at 0x{address:x}: {trap:?}"));
             let bytes = output.len().min(4096 - (address as usize & 4095));
-            if self.translation.privilege == crate::core::riscv::Privilege::User
-                && physical >= DRAM_BASE
+            if physical >= DRAM_BASE
                 && self
                     .translation
                     .pmp
-                    .allows_range(physical, bytes, Access::Load, crate::core::riscv::Privilege::User)
+                    .allows_range(physical, bytes, Access::Load, self.translation.effective_privilege(Access::Load))
             {
                 self.platform
                     .memory
@@ -163,13 +163,12 @@ impl<'a> GuestAccess<'a> {
                 .translate(address, width, Access::Store)
                 .unwrap_or_else(|trap| panic!("DMA store at 0x{address:x}: {trap:?}"));
             let bytes = input.len().min(4096 - (address as usize & 4095));
-            if self.translation.privilege == crate::core::riscv::Privilege::User
-                && physical >= DRAM_BASE
+            if physical >= DRAM_BASE
                 && self.translation.pmp.allows_range(
                     physical,
                     bytes,
                     Access::Store,
-                    crate::core::riscv::Privilege::User,
+                    self.translation.effective_privilege(Access::Store),
                 )
             {
                 self.platform
