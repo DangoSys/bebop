@@ -90,3 +90,18 @@ pub(crate) fn execute(insn: u32, lhs: u64, rhs: u64, bits: u32) -> Option<u64> {
     };
     Some(result & mask)
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn base_arithmetic_encodings_do_not_dispatch_bitmanip() {
+        for opcode in [0x13, 0x1b, 0x33, 0x3b] {
+            for funct in 0..8 {
+                for rs2 in 0..32 {
+                    let instruction = opcode | (funct << 12) | (rs2 << 20);
+                    assert_eq!(super::execute(instruction, 0x1234, 7, 64), None);
+                }
+            }
+        }
+    }
+}

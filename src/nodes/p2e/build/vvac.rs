@@ -6,7 +6,7 @@ pub fn run_vvac(out_dir: &Path, sourceme: &Path, flist: &Path, top: &str, diff: 
     let trace_args = if diff {
         fs::write(
             out_dir.join("p2e_trace_functions.cfg"),
-            "module: BTraceDPI\nfunction: dpi_btrace\nchannel: vc_default\ntype: nb\n",
+            "module: BankCheckDPI\nfunction: dpi_btrace\nchannel: vc_default\ntype: nb\n",
         )
         .expect("write nonblocking BTrace configuration");
         " -tf_cfg p2e_trace_functions.cfg"

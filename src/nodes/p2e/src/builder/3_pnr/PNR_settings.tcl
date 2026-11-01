@@ -27,3 +27,19 @@ ena_auto_MPAR 0
 ena_pre_opt_cons_check_stop_PNR 0
 
 set_param place.slrUtilDelta 0.020
+
+# Preserve the placed design before routing so timing failures can be inspected.
+proc save_p2e_placement {command code result operation} {
+    if {$code != 0} {
+        return
+    }
+    set top [current_design]
+    write_checkpoint -force "pnrDir/${top}_place.dcp"
+    report_timing_summary -delay_type min_max -max_paths 10 -input_pins \
+        -file "pnrDir/rptDir/${top}_post_place_timing_summary.rpt"
+    report_timing -delay_type max -max_paths 20 -path_type full_clock_expanded \
+        -input_pins -file "pnrDir/rptDir/${top}_post_place_critical_paths.rpt"
+    puts "P2E placement artifacts saved: pnrDir/${top}_place.dcp"
+}
+trace remove execution place_design leave save_p2e_placement
+trace add execution place_design leave save_p2e_placement

@@ -5,4 +5,5 @@ pub(crate) struct State {
     pub(crate) cfgs: Vec<BankConfig>,
     pub(crate) map: BankMap,
     pub(crate) virtual_bank_count: usize,
+    pub(crate) moves: Vec<(usize, usize)>,
 }

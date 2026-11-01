@@ -2,11 +2,13 @@ use super::threads::Barrier;
 use crate::configs;
 use crate::thread::ant::{Ant, LocalMemory};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Condvar, Mutex,
 };
 
 pub(crate) struct Control {
+    pub(crate) start_cycle: u64,
+    pub(crate) finish_cycle: u64,
     pub(crate) dma: Option<(crate::core::riscv::csr::Csrs, crate::core::riscv::Privilege)>,
     pub(crate) descriptor: [u64; 6],
     fields: u8,
@@ -15,6 +17,9 @@ pub(crate) struct Control {
     pub(crate) value: u64,
 }
 pub(crate) struct Context {
+    pub(crate) progress: Arc<AtomicU64>,
+    not_done_before: AtomicU64,
+    cpu_waiting: AtomicBool,
     pub(crate) thread: usize,
     signature: u64,
     pub(crate) params: configs::AntConfig,
@@ -22,6 +27,19 @@ pub(crate) struct Context {
     pub(crate) control: Mutex<Control>,
     pub(crate) ready: Condvar,
     pub(crate) cancelled: AtomicBool,
+}
+
+impl Context {
+    pub(crate) fn advance(&self, cycle: u64, completion: u64) {
+        self.progress.store(cycle, Ordering::SeqCst);
+        self.not_done_before.fetch_max(completion, Ordering::SeqCst);
+        // Pair the condition and notification so a CPU cannot miss progress
+        // between checking the clock and sleeping on the task mutex.
+        if self.cpu_waiting.load(Ordering::SeqCst) {
+            let _control = self.control.lock().unwrap();
+            self.ready.notify_all();
+        }
+    }
 }
 pub(crate) struct Tasks {
     pub(crate) contexts: Vec<Arc<Context>>,
@@ -49,11 +67,16 @@ impl Tasks {
                 let signature = configs::thread_signature(*thread);
                 let params = configs::ant_config(*thread).expect("task worker must be Ant").clone();
                 Arc::new(Context {
+                    progress: Arc::new(AtomicU64::new(u64::MAX)),
+                    not_done_before: AtomicU64::new(0),
+                    cpu_waiting: AtomicBool::new(false),
                     thread: *thread,
                     signature,
                     execution: Arc::new(Mutex::new(Ant::new(&params))),
                     params,
                     control: Mutex::new(Control {
+                        start_cycle: 0,
+                        finish_cycle: 0,
                         dma: None,
                         descriptor: [0; 6],
                         fields: 0,
@@ -86,7 +109,14 @@ impl Tasks {
             failure: Mutex::new(None),
         }
     }
-    pub fn control(&self, operation: u32, a: u64, data: u64, owner: &crate::core::riscv::hart::Hart) -> u64 {
+    pub fn control(
+        &self,
+        operation: u32,
+        a: u64,
+        data: u64,
+        owner: &crate::core::riscv::hart::Hart,
+        cycle: &mut u64,
+    ) -> u64 {
         let index = (a >> 32) as usize;
         let field = a as u32 as usize;
         if operation == 0 && field == 7 {
@@ -144,6 +174,25 @@ impl Tasks {
             }
             return 0;
         }
+        if operation == 0 && field == 1 && control.active {
+            let limit = cycle.saturating_sub(64);
+            let progress = || {
+                context
+                    .progress
+                    .load(Ordering::SeqCst)
+                    .max(context.not_done_before.load(Ordering::SeqCst))
+            };
+            if progress() < limit {
+                context.cpu_waiting.store(true, Ordering::SeqCst);
+                while control.active && progress() < limit && !self.stopped.load(Ordering::Acquire) {
+                    control = context.ready.wait(control).unwrap();
+                }
+                context.cpu_waiting.store(false, Ordering::SeqCst);
+            }
+        }
+        if control.done && ((operation == 0 && matches!(field, 1 | 8 | 9)) || operation == 3) {
+            *cycle = (*cycle).max(control.finish_cycle);
+        }
         match operation {
             0 => match field {
                 0 => context.signature,
@@ -192,6 +241,9 @@ impl Tasks {
                                 + context.params.tls.as_ref().unwrap().bytes as u64
                 );
                 control.dma = Some((owner.csrs.clone(), owner.privilege));
+                control.start_cycle = *cycle;
+                context.not_done_before.store(*cycle, Ordering::SeqCst);
+                context.progress.store(*cycle, Ordering::Release);
                 control.active = true;
                 context.cancelled.store(false, Ordering::Release);
                 control.fields = 0;

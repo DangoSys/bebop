@@ -5,6 +5,7 @@ use crate::{state, trace};
 // DPI-C exports (called from RTL via extern "C")
 
 pub(crate) fn force_link() {
+    let _ = crate::cycle::dpi_trace_write as extern "C" fn(u32, u32, u32, u32);
     let _ = dpi_bdb_set_clk as extern "C" fn(u64);
     let _ = dpi_ant_trace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32);
     let _ = dpi_itrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);

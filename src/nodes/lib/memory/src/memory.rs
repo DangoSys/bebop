@@ -1,3 +1,6 @@
+/// The DDR every Buckyball system has, from 0x8000_0000.
+pub const DDR_SIZE: u64 = 16 << 30;
+
 pub trait Memory {
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool {

@@ -1,6 +1,6 @@
 //===- decode.rs - Instruction dispatch ------------------------------------===//
 //
-// ISA decode - funct7 and rs1/rs2 fields match `bb-tests/workloads/lib/bbhw/isa/isa.h`
+// ISA decode - funct7 and rs1/rs2 fields match `stack/isa/bb_isa.h`
 // (`FIELD`, `BB_BANK0`..`BB_BANK2`, `BB_ITER`).
 //
 //===-----------------------------------------------------------------===//-----===//

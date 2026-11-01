@@ -1,4 +1,4 @@
-use bebop_uart::{CycleTraceCollector, UartTx};
+use bebop_uart::UartTx;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
@@ -52,8 +52,6 @@ struct RuntimeState {
     uart_rx_probe_counts: HashMap<u32, u32>,
     uart_rx_last_probe: HashMap<u32, (u64, u64, bool)>,
     console_tx: Option<Sender<UartTx>>,
-    cycle_trace: Option<CycleTraceCollector>,
-    cycle_trace_error: Option<String>,
     uart_line: Vec<u8>,
     executable_started: Option<(String, Instant)>,
     executable_timing: Option<(String, Instant, Instant)>,
@@ -89,25 +87,6 @@ pub fn set_console_tx(tx: Sender<UartTx>) {
     state().lock().unwrap().console_tx = Some(tx);
 }
 
-pub fn init_cycle_trace(log_dir: &std::path::Path) -> Result<(), String> {
-    state().lock().unwrap().cycle_trace = Some(CycleTraceCollector::new(log_dir)?);
-    Ok(())
-}
-
-pub fn finish_cycle_trace() -> Result<(), String> {
-    let (collector, error) = {
-        let mut guard = state().lock().unwrap();
-        (guard.cycle_trace.take(), guard.cycle_trace_error.take())
-    };
-    if let Some(error) = error {
-        return Err(error);
-    }
-    if let Some(collector) = collector {
-        collector.finish()?;
-    }
-    Ok(())
-}
-
 pub fn push_uart_rx(hart_id: u32, byte: u8) {
     let mut guard = state().lock().unwrap();
     let file = uart_rx_write_file(&mut guard, hart_id);
@@ -141,11 +120,6 @@ pub fn executable_timing() -> Option<(String, Instant, Instant)> {
 
 fn record_uart_byte(guard: &mut RuntimeState, hart_id: u32, byte: u8) {
     guard.uart_log.push(byte);
-    if let Some(collector) = guard.cycle_trace.as_mut() {
-        if let Err(error) = collector.push_uart_byte(hart_id, byte) {
-            guard.cycle_trace_error.get_or_insert(error);
-        }
-    }
     if hart_id != 0 {
         return;
     }

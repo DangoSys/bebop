@@ -1,6 +1,15 @@
 use super::Endpoint;
 
+#[derive(Clone, Copy)]
+pub enum CpuPipeline {
+    Sequential,
+    Rocket,
+}
+
 pub struct CoreParams {
+    pub data_cache_lines: usize,
+    pub dma_cache_lines: Option<usize>,
+    pub pipeline: CpuPipeline,
     pub hart_id: usize,
     pub endpoints: Vec<Endpoint>,
     pub threads: Vec<usize>,
@@ -13,6 +22,7 @@ use super::design::{BallInstance, GpDomainConfig};
 
 #[derive(Clone)]
 pub struct AcceleratorParams {
+    pub rob_entries: usize,
     pub mem_config: MemConfig,
     pub ball_domain: BallDomainConfig,
     pub gpdomain: Option<GpDomainConfig>,

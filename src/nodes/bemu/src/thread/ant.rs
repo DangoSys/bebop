@@ -89,6 +89,8 @@ fn legal(instruction: u32) -> bool {
         0x03 => f3 <= 6,
         0x23 => f3 <= 3,
         0x0f => f3 == 0,
+        // Zicsr: only `csrrs rd, mcycle, x0` (csrr rd, mcycle), in machine mode.
+        0x73 => f3 == 2 && (instruction >> 15) & 31 == 0 && instruction >> 20 == 0xb00,
         0x13 | 0x1b => {
             let operation = !word || matches!(f3, 0 | 1 | 5);
             let shift = if word {
@@ -124,7 +126,7 @@ impl Ant {
         }
     }
 
-    pub(crate) fn execute<const TRACE: bool>(
+    pub(crate) fn execute(
         &mut self,
         tasks: &Tasks,
         index: usize,
@@ -134,17 +136,22 @@ impl Ant {
         end: u64,
         snapshot: &(crate::core::riscv::csr::Csrs, crate::core::riscv::Privilege),
     ) -> (u64, u64) {
-        let mut steps = 0;
+        // The task owns a fixed translation context; Ant cannot change satp.
+        let mmu = Mmu::default();
+        let mut quantum = 0u8;
         loop {
             if tasks.stopped.load(Ordering::Acquire) || context.cancelled.load(Ordering::Acquire) {
-                return (0, steps);
+                return (0, self.cpu.csrs.cycle.max(accelerator.timing.complete));
             }
             let pc = self.cpu.pc;
             assert!(pc % 4 == 0 && pc + 4 <= end, "Ant fetch outside loaded code");
             let instruction = self.code.read(pc, 4).unwrap() as u32;
             if instruction == 0x73 {
                 assert_eq!(self.cpu.register(17), 0, "unsupported Ant ecall");
-                return (self.cpu.register(10), steps);
+                return (
+                    self.cpu.register(10),
+                    (self.cpu.csrs.cycle + 4).max(accelerator.timing.complete),
+                );
             }
             let opcode = instruction & 127;
             assert!(legal(instruction), "unsupported Ant instruction {instruction:08x}");
@@ -169,14 +176,53 @@ impl Ant {
                     "Ant ordinary memory outside TLS/TSS"
                 );
             }
-            let mmu = Mmu::default();
             let mut bus = LocalBus {
                 code: &self.code,
                 tls: &mut self.tls,
                 tss: tasks.tss.as_ref().unwrap(),
             };
-            let mut step = self.cpu.step(&mut bus, &mmu, Inputs::default());
+            // Executor + LocalStore: fetch/read/execute takes four clocks.
+            // LSU adds a request and a response (plus synchronous SRAM read).
+            // Ordinary instruction costs exclude shared-store arbitration;
+            // fence waits on the accelerator's event timeline.
+            let cycles = match opcode {
+                0x03 => 7,
+                0x23 => 6,
+                0x7b => 5,
+                0x0f => (self.cpu.csrs.cycle + 4).max(accelerator.timing.complete) - self.cpu.csrs.cycle,
+                0x33 | 0x3b if instruction >> 25 == 1 => {
+                    if (instruction >> 12) & 7 < 4 {
+                        // Multiply performs eight radix-256 steps.
+                        14
+                    } else {
+                        let word = opcode == 0x3b;
+                        let mask = if word { u32::MAX as u64 } else { u64::MAX };
+                        let a = self.cpu.register(((instruction >> 15) & 31) as usize) & mask;
+                        let b = self.cpu.register(((instruction >> 20) & 31) as usize) & mask;
+                        let signed = instruction & (1 << 12) == 0;
+                        let minimum = (mask >> 1) + 1;
+                        // DivRem bypasses iteration for zero and signed overflow.
+                        6 + if b == 0 || (signed && a == minimum && b == mask) {
+                            0
+                        } else if word {
+                            32
+                        } else {
+                            64
+                        }
+                    }
+                }
+                _ => 4,
+            };
+            let mut step = self.cpu.step(
+                &mut bus,
+                &mmu,
+                Inputs {
+                    cycles,
+                    ..Inputs::default()
+                },
+            );
             if let Step::Custom(command) = step {
+                context.advance(self.cpu.csrs.cycle, 0);
                 assert_eq!(opcode, 0x7b);
                 let (csrs, privilege) = snapshot;
                 let privilege = if *privilege == crate::core::riscv::Privilege::Machine
@@ -194,14 +240,17 @@ impl Ant {
                         .unwrap(),
                     pmp: &csrs.pmp,
                 };
-                let memory = GuestAccess::new(
+                let mut memory = GuestAccess::new(
                     Port {
+                        cache: None,
                         devices: &core.platform,
                         memory: &core.memory,
                     },
                     &mmu,
                     translation,
+                    &core.transfers,
                 );
+                memory.local = core.thread_memory.get().map(|memory| (memory.as_ref(), index));
                 let value = execute::execute(
                     accelerator,
                     memory,
@@ -209,9 +258,10 @@ impl Ant {
                     if instruction & (1 << 13) != 0 { command.rs1 } else { 0 },
                     if instruction & (1 << 12) != 0 { command.rs2 } else { 0 },
                     pc,
-                    steps,
+                    self.cpu.csrs.cycle,
                 )
                 .expect("Ant NPU access failed");
+                self.cpu.csrs.cycle = self.cpu.csrs.cycle.max(accelerator.timing.accepted);
                 step = self
                     .cpu
                     .complete_custom(Ok((instruction & (1 << 14) != 0).then_some(value)));
@@ -220,12 +270,13 @@ impl Ant {
                 matches!(step, Step::Retired { .. }),
                 "Ant self failed at {pc:x}: {step:?}"
             );
-            if TRACE {
-                steps += 1;
+            quantum = quantum.wrapping_add(1);
+            if quantum & 31 == 0 {
+                context.advance(self.cpu.csrs.cycle, 0);
             }
             if accelerator.barrier_hit {
                 if !tasks.rendezvous(index) {
-                    return (0, steps);
+                    return (0, self.cpu.csrs.cycle);
                 }
                 accelerator.barrier_hit = false;
             }

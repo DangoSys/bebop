@@ -8,24 +8,13 @@ pub use runworkload::{
 
 // Runner steps - use path attribute to map module names to directories with numeric prefixes
 #[path = "0_flashbitstream/mod.rs"]
-mod flashbitstream_impl;
+pub mod flashbitstream;
 #[path = "1_init/mod.rs"]
-mod init_impl;
+pub mod init;
 #[path = "2_runworkload/mod.rs"]
-mod workload_impl;
-
-// Re-export as public modules with clean names
-pub mod flashbitstream {
-    pub use super::flashbitstream_impl::*;
-}
-pub mod init {
-    pub use super::init_impl::*;
-}
-pub mod workload {
-    pub use super::workload_impl::*;
-}
+pub mod workload;
 
 // Re-export step types for convenience
-pub use flashbitstream_impl::FlashBitstreamStep;
-pub use init_impl::InitStep;
-pub use workload_impl::RunWorkloadStep;
+pub use flashbitstream::FlashBitstreamStep;
+pub use init::InitStep;
+pub use workload::RunWorkloadStep;

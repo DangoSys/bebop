@@ -25,6 +25,7 @@ bebop-rtc = { path = "../lib/rtc" }
 bebop-bank-hash = { path = "../lib/bank-hash" }
 bebop-bemu-profile = { path = "../lib/bemu-profile" }
 bebop-uart = { path = "../lib/uart" }
+bebop-cycle-trace = { path = "../lib/cycle-trace" }
 
 [build-dependencies]
 prost-build = "0.13"

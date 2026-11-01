@@ -173,7 +173,7 @@ impl Hart {
             }
         }
         let low = bus
-            .read(address, Width::Half)
+            .fetch(address, Width::Half)
             .map_err(|_| Access::Fetch.fault(self.pc))? as u32;
         let instruction = if low & 3 != 3 {
             Instruction {
@@ -197,7 +197,7 @@ impl Hart {
                 upper
             };
             let high = bus
-                .read(upper_address, Width::Half)
+                .fetch(upper_address, Width::Half)
                 .map_err(|_| Access::Fetch.fault(self.pc.wrapping_add(2)))? as u32;
             let raw = low | high << 16;
             Instruction {
@@ -423,9 +423,11 @@ impl Hart {
         let b = self.x[rs2];
         let imm = ((insn as i32) >> 20) as u64;
         let illegal = Trap::illegal(insn);
-        if let Some(value) = crate::core::riscv::bitmanip::execute(insn, a, b, 64) {
-            self.set_register(rd, value);
-            return Ok(next);
+        if top != 0 && matches!(opcode, 0x13 | 0x1b | 0x33 | 0x3b) {
+            if let Some(value) = crate::core::riscv::bitmanip::execute(insn, a, b, 64) {
+                self.set_register(rd, value);
+                return Ok(next);
+            }
         }
         let value = match opcode {
             0x37 => (insn & 0xfffff000) as i32 as u64,

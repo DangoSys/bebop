@@ -17,9 +17,18 @@ fn build_runner(
     let design_dir = design_dir
         .canonicalize()
         .whatever_context("failed to locate design directory")?;
-    let output = design_dir.join("output");
+    let runner = std::env::current_exe().whatever_context("failed to locate the simulation runner")?;
+    let output = runner
+        .ancestors()
+        .find(|path| path.join("generated/design.pb").is_file())
+        .ok_or_else(|| Whatever::without_source("runner has no simulation output directory".to_string()))?;
+    if !output.starts_with(design_dir.join("output/sims")) {
+        return Err(Whatever::without_source(
+            "runner output does not belong to the selected design".to_string(),
+        ));
+    }
     let manifest = entry_dir.join("Cargo.toml");
-    let target = output.join("bebop").join(backend).join("target");
+    let target = output.join("emu").join(backend).join("target");
     let name = format!("bebop-{backend}");
     let mut command = cmd!(
         "cargo",
@@ -116,10 +125,10 @@ pub fn build(command: BuildCommand) -> Result<(), Whatever> {
                 features.push("bemu");
             }
             if itrace {
-                features.push("bebop-p2e/itrace");
+                features.push("bebop/p2e-itrace");
             }
             if mtrace {
-                features.push("bebop-p2e/mtrace");
+                features.push("bebop/p2e-mtrace");
             }
             let executable = build_runner(
                 &design_dir,

@@ -153,5 +153,5 @@ fn write_bucket(output: &mut String, name: &str, elapsed: Duration, total: Durat
 }
 
 fn format_duration(duration: Duration) -> String {
-    format!("{:.3}s", duration.as_secs_f64())
+    format!("{:.6}s", duration.as_secs_f64())
 }

@@ -13,7 +13,10 @@ impl Instruction for Mvin {
         let depth = rs1_iter(xs1);
         let (mem_addr, stride) = xs2_mem_stride(xs2);
 
-        crate::configs::is_shared_vbank(bank_id);
+        assert!(
+            !crate::configs::is_shared_vbank(bank_id),
+            "mvin: DDR DMA cannot access shared banks"
+        );
 
         if depth == 0 {
             panic!("mvin: depth must be > 0");
@@ -106,7 +109,12 @@ impl Instruction for Mvin {
         0
     }
 
-    fn latency(xs1: u64, _xs2: u64) -> u64 {
-        rs1_iter(xs1).max(1)
+    fn latency(xs1: u64, xs2: u64, ctx: &ExecContext) -> u64 {
+        ctx.memory.transfer_cycles(
+            ctx.cycle,
+            xs2 & ((1 << 39) - 1),
+            rs1_iter(xs1) * ctx.config(rs1_b2(xs1)).cols,
+            false,
+        )
     }
 }

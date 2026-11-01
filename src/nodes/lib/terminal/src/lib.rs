@@ -1,9 +1,8 @@
 mod app;
 mod cli;
 mod conn;
+mod entry;
 mod form;
 mod tui;
 
-pub fn run() -> Result<(), String> {
-    cli::parse().and_then(tui::run)
-}
+pub use entry::run;

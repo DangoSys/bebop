@@ -15,5 +15,6 @@ pub fn init_trace(log_dir: &Path, config: TraceConfig) -> io::Result<()> {
 }
 
 pub fn write_trace_summary(log_dir: &Path) -> io::Result<()> {
+    crate::cycle::finish_cycle_trace().map_err(io::Error::other)?;
     state::write_callback_summary(log_dir)
 }

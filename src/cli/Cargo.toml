@@ -1,0 +1,16 @@
+[package]
+name = "bebop-cli"
+version = "0.1.0"
+edition = "2021"
+autobins = false
+
+[lib]
+path = "lib.rs"
+
+[[bin]]
+name = "bebop-bemu"
+path = "../bin/bebop-bemu-cli.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+bebop-sim-build = { path = "../nodes/lib/sim-build" }

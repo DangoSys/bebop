@@ -150,6 +150,7 @@ impl Tasks {
     }
     fn run_worker(&self, index: usize, context: &Context, core: &Arc<CoreState>, model: ThreadModel) {
         let ThreadModel { ant, mut acc } = model;
+        let mut elapsed = std::time::Duration::ZERO;
         loop {
             let mut control = context.control.lock().unwrap();
             while !control.active && !self.stopped.load(Ordering::Acquire) {
@@ -159,28 +160,32 @@ impl Tasks {
                 break;
             }
             let descriptor = control.descriptor;
+            let start_cycle = control.start_cycle;
             let snapshot = control.dma.take().unwrap();
             drop(control);
-            let outcome = {
+            let started = std::time::Instant::now();
+            let (outcome, cycles) = {
                 let mut execution = ant.lock().unwrap();
                 execution.cpu = Hart::new(0, descriptor[1]);
+                execution.cpu.csrs.cycle = start_cycle;
                 execution.cpu.set_register(2, descriptor[4]);
                 let tls_base = execution.tls.base;
                 execution.cpu.set_register(4, tls_base);
                 execution.cpu.set_register(10, descriptor[3]);
-                acc.trace.task_event("begin", descriptor[0], 0);
-                let (outcome, steps) = if acc.trace.itrace {
-                    execution.execute::<true>(self, index, context, &mut acc, core, descriptor[2], &snapshot)
-                } else {
-                    execution.execute::<false>(self, index, context, &mut acc, core, descriptor[2], &snapshot)
-                };
-                acc.trace.task_event("end", descriptor[0], steps);
-                outcome
+                acc.timing.reset();
+                acc.trace.task_event("begin", descriptor[0], start_cycle);
+                let (outcome, cycles) =
+                    execution.execute(self, index, context, &mut acc, core, descriptor[2], &snapshot);
+                acc.trace.task_event("end", descriptor[0], cycles);
+                (outcome, cycles)
             };
+            elapsed += started.elapsed();
             if self.stopped.load(Ordering::Acquire) {
                 break;
             }
             let mut control = context.control.lock().unwrap();
+            control.finish_cycle = cycles;
+            context.progress.store(u64::MAX, Ordering::Release);
             control.value = if context.cancelled.load(Ordering::Acquire) {
                 0
             } else {
@@ -188,7 +193,11 @@ impl Tasks {
             };
             control.active = false;
             control.done = true;
+            context.ready.notify_all();
         }
         acc.finish_bank_frees();
+        if let Some(report) = acc.profile.report(elapsed, std::time::Duration::ZERO) {
+            eprintln!("BEMU Ant {}\n{}", context.thread, crate::format_profile_report(&report));
+        }
     }
 }

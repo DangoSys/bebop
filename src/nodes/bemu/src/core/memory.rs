@@ -5,20 +5,50 @@ use crate::core::riscv::{
 };
 use crate::device::platform::{Port, DRAM_BASE};
 
+pub trait ThreadMemory: Send + Sync {
+    fn transfer_cycles(&self, thread: usize, address: u64, rows: u64, write: bool) -> Option<u64>;
+    fn start(&self, thread: usize, task: u64);
+    fn control(&self, operation: u32, field: u64, value: u64) -> u64;
+    fn read(&self, thread: usize, address: u64, output: &mut [u8]) -> bool;
+    fn write(&self, thread: usize, address: u64, input: &[u8]) -> bool;
+}
+
 pub struct GuestAccess<'a> {
+    transfers: &'a std::sync::Mutex<crate::sim::timing::CoreTime>,
     pub(crate) platform: Port<'a>,
     pub(crate) mmu: &'a Mmu,
     pub(crate) translation: TranslationContext<'a>,
     checked: Vec<(u64, u64, usize, Access)>,
+    pub(crate) local: Option<(&'a dyn ThreadMemory, usize)>,
 }
 
 impl<'a> GuestAccess<'a> {
-    pub(crate) fn new(platform: Port<'a>, mmu: &'a Mmu, translation: TranslationContext<'a>) -> Self {
+    pub(crate) fn transfer_cycles(&self, start: u64, address: u64, rows: u64, write: bool) -> u64 {
+        let local = self
+            .local
+            .and_then(|(memory, thread)| memory.transfer_cycles(thread, address, rows, write));
+        self.transfers.lock().unwrap().transfer(
+            start,
+            rows,
+            self.checked.iter().map(|(_, physical, bytes, _)| (*physical, *bytes)),
+            local,
+            write,
+        )
+    }
+
+    pub(crate) fn new(
+        platform: Port<'a>,
+        mmu: &'a Mmu,
+        translation: TranslationContext<'a>,
+        transfers: &'a std::sync::Mutex<crate::sim::timing::CoreTime>,
+    ) -> Self {
         GuestAccess {
+            transfers,
             platform,
             mmu,
             translation,
             checked: Vec::new(),
+            local: None,
         }
     }
 
@@ -73,6 +103,12 @@ impl<'a> GuestAccess<'a> {
     }
 
     pub(crate) fn read_buffer(&mut self, mut address: u64, mut output: &mut [u8]) {
+        if self
+            .local
+            .is_some_and(|(memory, thread)| memory.read(thread, address, output))
+        {
+            return;
+        }
         while !output.is_empty() {
             let width = if address % 8 == 0 && output.len() >= 8 {
                 Width::Double
@@ -111,6 +147,12 @@ impl<'a> GuestAccess<'a> {
     }
 
     pub(crate) fn write_buffer(&mut self, mut address: u64, mut input: &[u8]) {
+        if self
+            .local
+            .is_some_and(|(memory, thread)| memory.write(thread, address, input))
+        {
+            return;
+        }
         while !input.is_empty() {
             let width = if address % 8 == 0 && input.len() >= 8 {
                 Width::Double
@@ -150,6 +192,13 @@ impl<'a> GuestAccess<'a> {
     }
 
     pub(crate) fn read(&mut self, address: u64) -> u8 {
+        let mut local = [0];
+        if self
+            .local
+            .is_some_and(|(memory, thread)| memory.read(thread, address, &mut local))
+        {
+            return local[0];
+        }
         let physical = self
             .mmu
             .translate(

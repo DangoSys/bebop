@@ -13,6 +13,10 @@
           (import ./scripts/nix/overlay.nix)
         ];
         pkgs = import nixpkgs { inherit system overlays; };
+        bemuInstall = pkgs.writeShellScript "bebop-install" ''
+          set -eu
+          exec nix develop .#bemu -c python3 "$PWD/scripts/install.py"
+        '';
         preCommitCfg = ./scripts/tools/pre-commit-config.yaml;
         preCommitInstall = pkgs.writeShellApplication {
           name = "bebop-pre-commit-install";
@@ -23,6 +27,21 @@
         };
       in
       {
+        apps.install = {
+          type = "app";
+          program = "${bemuInstall}";
+        };
+        devShells.bemu = pkgs.mkShell {
+          packages = [
+            pkgs.git pkgs.cargo pkgs.rustc pkgs.rustfmt pkgs.pkg-config
+            pkgs.protobuf pkgs.dtc
+            (pkgs.python3.withPackages (python: [ python.protobuf ]))
+          ];
+          buildInputs = [ pkgs.SDL2 ];
+          shellHook = ''
+            export PATH="$PWD/bin:$PATH"
+          '';
+        };
         devShells.default = pkgs.mkShell {
           buildInputs = [
             pkgs.cacert

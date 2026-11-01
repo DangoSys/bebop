@@ -36,3 +36,5 @@ xepic_waveform/
 
 test-artifacts/
 log/
+
+/bin/

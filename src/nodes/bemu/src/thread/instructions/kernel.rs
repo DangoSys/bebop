@@ -118,7 +118,7 @@ impl Instruction for MvinKernel {
         engine.load_constants(buffer, &image[24 + text_bytes..]);
         0
     }
-    fn latency(_xs1: u64, _xs2: u64) -> u64 {
+    fn latency(_xs1: u64, _xs2: u64, _ctx: &ExecContext) -> u64 {
         panic!("kernel latency requires the instruction-buffer and bank-access contract")
     }
 }
@@ -198,7 +198,7 @@ impl Instruction for RunKernel {
         write
     }
 
-    fn latency(_xs1: u64, _xs2: u64) -> u64 {
+    fn latency(_xs1: u64, _xs2: u64, _ctx: &ExecContext) -> u64 {
         panic!("kernel latency requires the instruction-buffer and bank-access contract")
     }
 }

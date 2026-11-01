@@ -19,12 +19,14 @@ pub struct MapEntry {
 #[derive(Clone, Debug)]
 pub struct BankMap {
     pub slots: Vec<MapEntry>,
+    pub allocation: Vec<std::ops::Range<usize>>,
 }
 
 impl BankMap {
     pub fn new(num_physical: usize) -> Self {
         Self {
             slots: vec![MapEntry::default(); num_physical],
+            allocation: vec![0..num_physical],
         }
     }
 
@@ -49,6 +51,10 @@ impl BankMap {
 
     pub fn first_free_pbank(&self) -> Option<usize> {
         self.slots.iter().position(|e| !e.valid)
+    }
+
+    pub fn first_free_for(&self, owner: usize) -> Option<usize> {
+        self.allocation[owner].clone().find(|&bank| !self.slots[bank].valid)
     }
 
     pub fn bind_group(&mut self, p: usize, v: u32, group: u32) {

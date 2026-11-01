@@ -20,11 +20,15 @@ pub(crate) struct PrivateState {
     pub(crate) bank_cfgs: Vec<BankConfig>,
     pub(crate) bank_map: BankMap,
     pub(crate) row_bytes: usize,
+    pub(crate) shared_vbank_base: usize,
+    pub(crate) max_private_vbank: usize,
 }
 
 /// A Ball accelerator: its banks, its Balls and the RVV kernel engine of its GP
 /// domain. A core attaches one to its RoCC port; a hardware thread owns one.
 pub struct Accelerator {
+    pub(crate) task: Option<Arc<crate::core::tasks::Context>>,
+    pub(crate) timing: super::timing::Timing,
     private: Arc<Mutex<PrivateState>>,
     pub(crate) kernel: Option<kernels::Engine>,
     pub(crate) shared_memory: Option<Arc<CoreState>>,
@@ -116,6 +120,8 @@ impl Accelerator {
             bank_cfgs: vec![BankConfig::default(); virtual_bank_num()],
             bank_map: BankMap::new(bank_num()),
             row_bytes: crate::configs::bank_row_bytes(),
+            shared_vbank_base: crate::configs::shared_vbank_base(),
+            max_private_vbank: crate::configs::max_private_vbank(),
         }));
         if let Some(core) = &shared_memory {
             if let Some(thread) = endpoint_index {
@@ -128,6 +134,18 @@ impl Accelerator {
             }
         }
         Ok(Self {
+            task: None,
+            timing: crate::configs::with_accelerator(|p| {
+                super::timing::Timing::new(
+                    p.ball_domain
+                        .balls
+                        .iter()
+                        .map(|ball| ball.id as usize + 1)
+                        .max()
+                        .unwrap_or(0),
+                    p.rob_entries,
+                )
+            }),
             private,
             kernel: crate::configs::gpdomain().map(|config| {
                 kernels::Engine::new(
@@ -203,15 +221,13 @@ pub(crate) fn execute(
         state.writes.issue(inst_id, !update);
     }
 
-    if state.trace.itrace {
+    let itrace = state.trace.itrace;
+    if itrace && funct7 == 13 {
         unsafe {
             with_trace_ptr(trace, || {
                 crate::thread::trace::itrace(crate::thread::trace::ITraceEvent {
                     cycle,
-                    modeled_cycles: match funct7 {
-                        44 | 79 => None,
-                        _ => Some(instructions::decode::cycles_after_issue(funct7 as u32, xs1, xs2)),
-                    },
+                    modeled_cycles: Some((((xs2 >> 32) & 0xffff) + 1) * 2),
                     funct: funct7 as u32,
                     pc,
                     rs1: xs1,
@@ -221,6 +237,12 @@ pub(crate) fn execute(
         };
     }
 
+    if funct7 == 1 {
+        assert!(
+            state.shared_memory.is_some(),
+            "Thread programs cannot issue inter-thread barriers"
+        );
+    }
     if funct7 == 13 {
         let core = state.shared_memory.as_ref().expect("mvover requires a CoreState");
         core.mvover(xs1, xs2).unwrap_or_else(|error| panic!("mvover: {error}"));
@@ -235,6 +257,8 @@ pub(crate) fn execute(
         ..
     } = &mut *private;
     let Accelerator {
+        task,
+        timing,
         kernel,
         shared_memory,
         execution_id,
@@ -272,6 +296,7 @@ pub(crate) fn execute(
                     cfgs,
                     map,
                     virtual_bank_count,
+                    ..
                 }) => (
                     crate::thread::banks::TrackedBanks::with_shared(
                         banks,
@@ -307,6 +332,30 @@ pub(crate) fn execute(
                 ball_id: crate::configs::ball_domain::instance_for_funct(funct7 as u32),
                 barrier_hit,
             };
+
+            let duration = match funct7 {
+                44 | 79 => None,
+                _ => {
+                    let (_, duration) = timing.issue(cycle, funct7, xs1, xs2, ctx.ball_id, |start| {
+                        ctx.cycle = start;
+                        instructions::decode::cycles_after_issue(funct7 as u32, xs1, xs2, &ctx)
+                    });
+                    Some(duration)
+                }
+            };
+            if let Some(task) = task {
+                task.advance(cycle.max(timing.accepted), timing.complete);
+            }
+            if itrace {
+                crate::thread::trace::itrace(crate::thread::trace::ITraceEvent {
+                    cycle: ctx.cycle,
+                    modeled_cycles: duration,
+                    funct: funct7 as u32,
+                    pc,
+                    rs1: xs1,
+                    rs2: xs2,
+                });
+            }
 
             instructions::decode::execute_known(funct7 as u32, xs1, xs2, &mut ctx)
                 .unwrap_or_else(|| panic!("unknown funct7: {}", funct7))
@@ -419,24 +468,11 @@ fn preflight(
         return Ok(());
     }
     let bank = if funct == 16 { rs1_b0(xs1) } else { rs1_b2(xs1) };
-    let (groups, bank_rows) = if crate::configs::is_shared_vbank(bank) {
-        let core = state.shared_memory.as_ref().expect("shared banks unavailable");
-        let shared = core.banks.lock().expect("shared banks poisoned");
-        let cfg = &shared.cfgs[state.endpoint_index.expect("shared bank requires compute thread")
-            * shared.virtual_bank_count
-            + bank as usize];
-        assert!(cfg.allocated, "DMA bank not allocated");
-        let group = if funct == 34 {
-            0
-        } else {
-            DmaRows::decode(xs1, xs2, cfg.cols.max(1)).selected_group.unwrap_or(0)
-        };
-        let physical = shared
-            .map
-            .resolve_hart_group(state.endpoint_index.unwrap(), bank as u32, group as u32)
-            .expect("DMA shared bank has no physical mapping");
-        (cfg.cols.max(1), shared.storage[physical].len() as u64 / 16)
-    } else {
+    assert!(
+        !crate::configs::is_shared_vbank(bank),
+        "DDR DMA cannot access shared banks"
+    );
+    let (groups, bank_rows) = {
         let private = state.private.lock().expect("private banks poisoned");
         let cfg = &private.bank_cfgs[bank as usize];
         assert!(cfg.allocated, "DMA bank not allocated");

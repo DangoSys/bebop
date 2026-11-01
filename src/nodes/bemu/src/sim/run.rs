@@ -54,7 +54,7 @@ pub struct Simulation {
 pub fn run(args: Args, simulation: &Simulation) -> Result<(), String> {
     crate::configs::load(simulation.design);
     let (ddr_base, ddr_bytes, _) = crate::configs::ddr();
-    let design = DeviceModel::new(ddr_bytes as usize, crate::configs::hart_capacity());
+    let design = DeviceModel::new(ddr_bytes as usize, crate::configs::hart_capacity(), &args.log_dir);
     if let Some(image) = &args.ddr_image {
         let mut file = std::fs::File::open(image).map_err(|error| format!("DDR image {}: {error}", image.display()))?;
         let mut chunk = vec![0u8; 1 << 20];
@@ -94,7 +94,7 @@ pub fn run(args: Args, simulation: &Simulation) -> Result<(), String> {
     }
     let mut threads = (simulation.instantiate)(&design, &args)?;
     let participants = threads.iter().map(|core| core.cpu().hart_id()).collect();
-    design.clint.coordinate(participants);
+    design.coordinate_harts(participants);
     let first = threads.first_mut().ok_or("design has no harts")?;
     first.cpu_mut().load_elf(&args.elf).map_err(|error| error.to_string())?;
     first
@@ -133,9 +133,11 @@ pub fn run(args: Args, simulation: &Simulation) -> Result<(), String> {
         for mut thread in threads {
             let cancelled = &cancelled;
             workers.push(scope.spawn(move || {
+                let started = std::time::Instant::now();
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     while !thread.cpu().finished() && !cancelled.load(std::sync::atomic::Ordering::Acquire) {
                         thread.step(256).map_err(|error| error.to_string())?;
+                        thread.cpu_mut().wait_for_event();
                         std::thread::yield_now();
                     }
                     match thread.cpu().exit_code() {
@@ -144,8 +146,17 @@ pub fn run(args: Args, simulation: &Simulation) -> Result<(), String> {
                     }
                 }))
                 .unwrap_or_else(|_| Err("design hart thread panicked".to_string()));
+                if let Some(report) = thread.profile_report(started.elapsed()) {
+                    let (instructions, cycles) = thread.cpu().counters();
+                    eprintln!(
+                        "BEMU hart {}: {instructions} instructions, {cycles} cycles\n{}",
+                        thread.cpu().hart_id(),
+                        crate::format_profile_report(&report)
+                    );
+                }
                 if result.is_err() {
                     cancelled.store(true, std::sync::atomic::Ordering::Release);
+                    thread.cpu().state().clint.halt();
                 }
                 result
             }));
@@ -166,7 +177,7 @@ pub fn run(args: Args, simulation: &Simulation) -> Result<(), String> {
         uart.join().map_err(|_| "design UART thread panicked".to_string())?;
         match failure {
             Some(error) => Err(error),
-            None => Ok(()),
+            None => design.platform.lock().expect("BEMU platform poisoned").trace.finish(),
         }
     })
 }

@@ -12,7 +12,7 @@ impl Instruction for Barrier {
         0
     }
 
-    fn latency(_xs1: u64, _xs2: u64) -> u64 {
+    fn latency(_xs1: u64, _xs2: u64, _ctx: &ExecContext) -> u64 {
         1
     }
 }

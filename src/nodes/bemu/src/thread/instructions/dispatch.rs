@@ -25,20 +25,20 @@ macro_rules! register_instructions {
             }
         }
 
-        pub fn cycles_after_issue(funct: u32, xs1: u64, xs2: u64) -> u64 {
+        pub fn cycles_after_issue(funct: u32, xs1: u64, xs2: u64, ctx: &ExecContext) -> u64 {
             assert_ne!(funct, 0, "funct7 zero is not a Buckyball instruction");
             match funct {
                 // Source read plus target write; mesh transport is modeled separately.
                 13 => (((xs2 >> 32) & 0xffff) + 1) * 2,
                 $(
                     <$inst as Instruction>::FUNCT => {
-                        <$inst as Instruction>::latency(xs1, xs2)
+                        <$inst as Instruction>::latency(xs1, xs2, ctx)
                     }
                 )*
                 _ => {
                     let ball_class = crate::configs::ball_domain::ball_class_for_funct(funct)
                         .unwrap_or_else(|| panic!("funct7 {funct} is not declared in BEMU ballISA TOML"));
-                    crate::ball::cycles_after_issue(&ball_class, funct, xs1, xs2)
+                    crate::ball::cycles_after_issue(&ball_class, funct, xs1, xs2, ctx)
                 },
             }
         }

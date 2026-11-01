@@ -198,6 +198,7 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     }
     console.poll_tx();
     let code = exit_code();
+    println!("Simulation cycles: {}", simulator.cycles());
 
     //===----------------------------------------------------------------------===//
     // Finish Simulation

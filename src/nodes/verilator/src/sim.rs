@@ -8,7 +8,6 @@ pub struct Simulator {
     context: *mut VerilatorContext,
     top: *mut VerilatorTop,
     trace: *mut VerilatorTrace,
-    #[cfg(bebop_parallel)]
     cycle: u64,
 }
 
@@ -52,7 +51,6 @@ impl Simulator {
                 context,
                 top,
                 trace,
-                #[cfg(bebop_parallel)]
                 cycle: 0,
             };
 
@@ -62,9 +60,9 @@ impl Simulator {
     }
 
     fn reset(&mut self) {
+        self.cycle = 0;
         #[cfg(bebop_parallel)]
         {
-            self.cycle = 0;
             bebop_rtl_trace::set_rtl_clk(0);
         }
         unsafe {
@@ -117,10 +115,7 @@ impl Simulator {
             verilator_top_set_clock(self.top, 0);
             self.step_and_dump();
 
-            #[cfg(bebop_parallel)]
-            {
-                self.cycle += 1;
-            }
+            self.cycle += 1;
             should_exit
         }
     }
@@ -134,6 +129,10 @@ impl Simulator {
                 verilator_trace_close(self.trace);
             }
         }
+    }
+
+    pub fn cycles(&self) -> u64 {
+        self.cycle
     }
 }
 

@@ -27,6 +27,7 @@ pub struct TraceConfig {
 }
 
 pub fn init(log_dir: &Path, config: TraceConfig) -> io::Result<()> {
+    crate::cycle::init_cycle_trace(log_dir);
     std::fs::create_dir_all(log_dir)?;
     let file = OpenOptions::new()
         .create(true)

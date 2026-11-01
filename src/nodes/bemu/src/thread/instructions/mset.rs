@@ -1,6 +1,6 @@
 //===- 32_mset.rs - MSET instruction (bank allocation) ---------------------===//
 
-use crate::thread::banks::{is_shared_vbank, BankConfig};
+use crate::thread::banks::{BankConfig, is_shared_vbank};
 use crate::thread::instructions::context::{ExecContext, Instruction};
 use crate::thread::instructions::decode::{rs1_b0, rs1_b2, xs2_mset};
 
@@ -79,12 +79,8 @@ impl Instruction for Mset {
         let shared_bank = is_shared_vbank(bank_id);
         let groups = if alloc == 1 && col == 0 {
             if shared_bank {
-                ctx.shared
-                    .as_ref()
-                    .expect("shared bank storage is unavailable")
-                    .bank_map
-                    .slots
-                    .len() as u64
+                let shared = ctx.shared.as_ref().expect("shared bank storage is unavailable");
+                shared.bank_map.allocation[shared.local_thread].len() as u64
             } else {
                 crate::configs::bank_num() as u64
             }
@@ -100,7 +96,7 @@ impl Instruction for Mset {
                 for group in 0..groups {
                     let p = shared
                         .bank_map
-                        .first_free_pbank()
+                        .first_free_for(shared.local_thread)
                         .unwrap_or_else(|| panic!("mset: no free shared physical bank"));
                     shared.bank_map.bind_hart_group(p, shared.local_thread, v, group as u32);
                     allocated.push(ctx.banks.shared_index(p));
@@ -142,7 +138,7 @@ impl Instruction for Mset {
         0
     }
 
-    fn latency(_xs1: u64, _xs2: u64) -> u64 {
-        1
+    fn latency(_xs1: u64, _xs2: u64, _ctx: &ExecContext) -> u64 {
+        5
     }
 }

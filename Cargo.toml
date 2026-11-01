@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "src/cli",
   ".",
   "src/nodes/bemu",
   "src/nodes/lib/bank-hash",
@@ -19,6 +20,7 @@ members = [
   "src/nodes/lib/rtl-trace",
   "src/nodes/lib/syscall",
   "src/nodes/lib/uart",
+  "src/nodes/lib/cycle-trace",
   "src/nodes/verilator",
   "src/nodes/vcs",
   "src/nodes/p2e",
@@ -76,6 +78,8 @@ required-features = ["bemu"]
 default = []
 verilator = ["dep:bebop-verilator"]
 p2e = ["dep:bebop-p2e", "bebop-bemu/p2e"]
+p2e-itrace = ["p2e", "bebop-p2e/itrace"]
+p2e-mtrace = ["p2e", "bebop-p2e/mtrace"]
 bemu = ["bebop-p2e?/diff"]
 
 [dependencies]

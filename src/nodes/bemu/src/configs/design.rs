@@ -4,10 +4,6 @@ use std::sync::OnceLock;
 
 include!(concat!(env!("OUT_DIR"), "/buckyball.config.rs"));
 
-pub mod parameters {
-    include!(concat!(env!("OUT_DIR"), "/ball_parameters.rs"));
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Endpoint {
     Core(usize),
@@ -43,6 +39,10 @@ fn device() -> &'static DeviceConfig {
     design().device.as_ref().expect("design device")
 }
 
+pub fn trace() -> &'static TraceHardware {
+    device().trace.as_ref().expect("design trace peripheral")
+}
+
 pub fn shared_bank_fabric() -> &'static SharedBankFabricConfig {
     device().shared_bank_fabric.as_ref().expect("design shared-bank fabric")
 }
@@ -74,6 +74,7 @@ fn accelerator(
     let bank = mem.bank.as_ref().expect("accelerator bank parameters");
     let mmio = mem.mmio.as_ref().expect("accelerator MMIO bank parameters");
     AcceleratorParams {
+        rob_entries: frontend.rob_entries as usize,
         virtual_bank_count: banks,
         gpdomain: gp.enable.expect("explicit GP enable").then(|| gp.clone()),
         mem_config: MemConfig {
@@ -118,16 +119,15 @@ pub fn accelerator_for(endpoint: Endpoint) -> Option<&'static AcceleratorParams>
                     assert!(threads.insert(index), "thread attached to multiple cores");
                     let thread = &design().threads[index as usize];
                     assert_eq!(thread.index, index);
-                    configs.insert(
-                        Endpoint::Thread(index as usize),
-                        accelerator(
-                            thread.mem.as_ref().expect("thread memory"),
-                            thread.frontend.as_ref().expect("thread frontend"),
-                            thread.gpdomain.as_ref().expect("thread GP"),
-                            thread.balldomain.as_ref().expect("thread BallDomain"),
-                            banks,
-                        ),
+                    let mut parameters = accelerator(
+                        thread.mem.as_ref().expect("thread memory"),
+                        thread.frontend.as_ref().expect("thread frontend"),
+                        thread.gpdomain.as_ref().expect("thread GP"),
+                        thread.balldomain.as_ref().expect("thread BallDomain"),
+                        banks,
                     );
+                    parameters.mem_config.shared_vbank_base = banks;
+                    configs.insert(Endpoint::Thread(index as usize), parameters);
                 }
             }
             configs
@@ -163,6 +163,15 @@ pub fn core_parameters(id: usize) -> CoreParams {
         })
         .collect();
     CoreParams {
+        data_cache_lines: core.memory.as_ref().expect("core memory").dcache.cache.lines as usize,
+        dma_cache_lines: core.dma_cache.as_ref().map(|cache| cache.lines as usize),
+        pipeline: match core.implementation.as_ref() {
+            None => super::types::CpuPipeline::Sequential,
+            Some(implementation) => match implementation.type_url.as_str() {
+                "type.googleapis.com/buckyball.components.rocket.Params" => super::types::CpuPipeline::Rocket,
+                other => panic!("unknown CPU timing implementation: {other}"),
+            },
+        },
         hart_id: core.hart_id as usize,
         endpoints,
         threads,

@@ -11,6 +11,9 @@ pub enum Width {
 pub struct BusError;
 
 pub trait Bus {
+    fn fetch(&mut self, address: u64, width: Width) -> Result<u64, BusError> {
+        self.read(address, width)
+    }
     fn read(&mut self, address: u64, width: Width) -> Result<u64, BusError>;
     fn write(&mut self, address: u64, width: Width, value: u64) -> Result<(), BusError>;
 

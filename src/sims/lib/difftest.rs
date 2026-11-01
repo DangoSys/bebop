@@ -29,7 +29,7 @@ impl DiffSession {
         let golden_result = (|| {
             let simulation = crate::SIMULATION.get().expect("difftest requires a simulation entry");
             bebop_bemu::configs::load(simulation.design);
-            let design = DeviceModel::new(memory_size, hart_capacity());
+            let design = DeviceModel::new(memory_size, hart_capacity(), &log_dir.join("golden"));
             let args = Args::try_parse_from([
                 "golden",
                 "--elf",

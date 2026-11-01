@@ -53,7 +53,7 @@ impl Instruction for MvinMmio {
         0
     }
 
-    fn latency(xs1: u64, _xs2: u64) -> u64 {
+    fn latency(xs1: u64, _xs2: u64, _ctx: &ExecContext) -> u64 {
         super::decode::rs1_iter(xs1).max(1)
     }
 }

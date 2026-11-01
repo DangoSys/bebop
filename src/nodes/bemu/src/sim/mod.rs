@@ -4,11 +4,8 @@ pub(crate) mod process;
 pub mod run;
 pub(crate) mod stdio;
 pub(crate) mod user_vm;
+pub(crate) mod timing;
 
-#[derive(Clone)]
-pub struct ModelOptions {
-    pub log_dir: std::path::PathBuf,
-    pub trace: crate::TraceConfig,
-    pub disasm: bool,
-    pub profile: bool,
-}
+mod options;
+
+pub use options::ModelOptions;

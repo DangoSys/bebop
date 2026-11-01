@@ -1,5 +1,5 @@
 use crate::thread::instructions::context::{ExecContext, Instruction};
-use crate::thread::instructions::decode::{pbank, rs1_iter};
+use crate::thread::instructions::decode::pbank;
 
 pub struct Mvin2d;
 
@@ -14,7 +14,10 @@ impl Instruction for Mvin2d {
         let depth = height * width;
         let dst_base = geometry.dst_base;
         let valid_bytes = geometry.valid_bytes;
-        crate::configs::is_shared_vbank(bank_id);
+        assert!(
+            !crate::configs::is_shared_vbank(bank_id),
+            "mvin_2d: DDR DMA cannot access shared banks"
+        );
         if !ctx.config(bank_id).allocated {
             panic!("mvin_2d: bank {bank_id} not allocated");
         }
@@ -54,7 +57,9 @@ impl Instruction for Mvin2d {
         0
     }
 
-    fn latency(xs1: u64, xs2: u64) -> u64 {
-        rs1_iter(xs1) * (((xs2 >> 59) & 0x7) + 1)
+    fn latency(xs1: u64, xs2: u64, ctx: &ExecContext) -> u64 {
+        let geometry = crate::thread::instructions::decode::Mvin2dGeometry::decode(xs1, xs2);
+        ctx.memory
+            .transfer_cycles(ctx.cycle, geometry.address, geometry.height * geometry.width, false)
     }
 }

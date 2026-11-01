@@ -118,12 +118,11 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     log::info!("  Bank DiffTest: {}", config.diff.is_some());
     log::info!("  Trace: {:?}", config.trace);
 
+    std::env::set_current_dir(&case_home).whatever_context("failed to enter P2E case directory")?;
     bebop_p2e::source_environment().whatever_context("failed to initialize P2E environment")?;
     bebop_p2e::configure_vvac_environment();
     bebop_p2e::ffi::reset_runtime_state();
     bebop_p2e::ffi::set_log_dir(config.log_dir.to_string_lossy().to_string());
-    bebop_p2e::ffi::init_cycle_trace(&config.log_dir)
-        .map_err(|e| Whatever::without_source(format!("failed to initialize P2E cycle trace collector: {e}")))?;
     init_trace(
         &config.log_dir,
         TraceConfig {
@@ -139,8 +138,6 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let console = ConsoleServer::start(&config.log_dir, ConsoleConfig::new("p2e"), bebop_p2e::ffi::push_uart_rx)
         .whatever_context("failed to start P2E console")?;
     bebop_p2e::ffi::set_console_tx(console.tx_sender());
-
-    std::env::set_current_dir(&case_home).whatever_context("failed to enter P2E case directory")?;
 
     let main_tcl = bebop_p2e::generate_main_tcl(
         &config.fpga_location,
@@ -242,8 +239,6 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     };
     let diff_finished = Instant::now();
     drop(console);
-    bebop_p2e::ffi::finish_cycle_trace()
-        .map_err(|e| Whatever::without_source(format!("failed to finalize P2E cycle trace: {e}")))?;
     write_trace_summary(&config.log_dir).whatever_context("failed to write P2E RTL trace summary")?;
 
     std::fs::write(&uart_log_path, &result.uart_log).whatever_context("failed to write P2E UART log")?;

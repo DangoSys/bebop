@@ -8,6 +8,7 @@ path = "src/lib.rs"
 
 [dependencies]
 bebop-bank-hash = { path = "../bank-hash" }
+bebop-cycle-trace = { path = "../cycle-trace" }
 
 [lints]
 workspace = true
