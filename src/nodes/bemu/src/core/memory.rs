@@ -6,6 +6,7 @@ use crate::core::riscv::{
 use crate::device::platform::{Port, DRAM_BASE};
 
 pub trait ThreadMemory: Send + Sync {
+    fn contains(&self, thread: usize, address: u64, bytes: usize, write: bool) -> bool;
     fn transfer_cycles(&self, thread: usize, address: u64, rows: u64, write: bool) -> Option<u64>;
     fn start(&self, thread: usize, task: u64);
     fn control(&self, operation: u32, field: u64, value: u64) -> u64;
@@ -54,6 +55,11 @@ impl<'a> GuestAccess<'a> {
 
     pub(crate) fn check_range(&mut self, mut address: u64, mut bytes: usize, access: Access) -> Result<(), Trap> {
         address.checked_add(bytes as u64).ok_or_else(|| access.fault(address))?;
+        if self.local.is_some_and(|(memory, thread)| {
+            memory.contains(thread, address, bytes, access == Access::Store)
+        }) {
+            return Ok(());
+        }
         let privilege = self.translation.effective_privilege(access);
         while bytes > 0 {
             let count = bytes.min(4096 - (address as usize & 4095));
