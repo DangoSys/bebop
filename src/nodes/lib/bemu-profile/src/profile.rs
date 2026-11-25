@@ -9,6 +9,7 @@ const FUNCT7_COUNT: usize = 128;
 struct OperationCounter {
     calls: u64,
     elapsed: Duration,
+    modeled_cycles: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -16,6 +17,7 @@ pub struct OperationProfile {
     pub funct7: u8,
     pub calls: u64,
     pub elapsed: Duration,
+    pub modeled_cycles: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -67,7 +69,7 @@ impl BemuProfile {
         self.enabled.then(Instant::now)
     }
 
-    pub fn end_npu(&mut self, funct7: u8, started: Option<Instant>) {
+    pub fn end_npu(&mut self, funct7: u8, started: Option<Instant>, modeled_cycles: u64) {
         let Some(started) = started else {
             return;
         };
@@ -76,6 +78,7 @@ impl BemuProfile {
         let counter = &mut self.operations[funct7 as usize];
         counter.calls = counter.calls.saturating_add(1);
         counter.elapsed = counter.elapsed.saturating_add(elapsed);
+        counter.modeled_cycles += modeled_cycles;
     }
 
     pub fn report(&self, total: Duration, cpu: Duration) -> Option<BemuProfileReport> {
@@ -92,6 +95,7 @@ impl BemuProfile {
                     funct7: funct7 as u8,
                     calls: counter.calls,
                     elapsed: counter.elapsed,
+                    modeled_cycles: counter.modeled_cycles,
                 })
             })
             .collect::<Vec<_>>();
@@ -127,6 +131,21 @@ pub fn format_report(report: &BemuProfileReport) -> String {
             operation.funct7,
             format_duration(operation.elapsed),
             operation.calls,
+        )
+        .unwrap();
+    }
+    writeln!(
+        output,
+        "[INFO] Modeled operation latency (overlapping operations are summed):"
+    )
+    .unwrap();
+    let mut operations = report.operations().iter().collect::<Vec<_>>();
+    operations.sort_unstable_by_key(|operation| std::cmp::Reverse(operation.modeled_cycles));
+    for operation in operations.iter().take(10) {
+        writeln!(
+            output,
+            "[INFO]   funct7={:<3} {:>14} cycles {:>9} calls",
+            operation.funct7, operation.modeled_cycles, operation.calls
         )
         .unwrap();
     }

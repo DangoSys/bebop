@@ -1,0 +1,15 @@
+[package]
+name = "bebop-bemu-generic"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustc_apfloat = "0.2.3"
+prost = "0.13"
+prost-types = "0.13"
+bebop-elf = { path = "../../lib/elf" }
+memory = { package = "bebop-memory", path = "../../lib/memory" }
+bebop-bank-hash = { path = "../../lib/bank-hash" }
+
+[build-dependencies]
+prost-build = "0.13"

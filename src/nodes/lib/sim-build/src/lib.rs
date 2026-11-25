@@ -6,4 +6,4 @@ mod paths;
 mod config;
 mod simulation;
 
-pub use simulation::{balls, runner_links, runner_manifest};
+pub use simulation::{balls, runner_links, runner_manifest, verilator_threads};

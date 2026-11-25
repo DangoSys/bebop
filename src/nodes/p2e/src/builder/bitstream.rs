@@ -28,12 +28,19 @@ impl BitstreamBuilder {
 
         self.verify_vvac_outputs()?;
 
+        // Freeze the system build inputs in this case before synthesis starts.
+        let vcom_source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/builder/2_vcom");
+        let vcom_tcl = self.build_dir.join("vcom_compile.tcl");
+        std::fs::copy(vcom_source.join("vcom_compile.tcl"), &vcom_tcl)
+            .map_err(|e| format!("Failed to snapshot vcom script: {e}"))?;
+        std::fs::copy(vcom_source.join("hw-config.hdf"), self.build_dir.join("hw-config.hdf"))
+            .map_err(|e| format!("Failed to snapshot hardware configuration: {e}"))?;
+
         // Step 1: vsyn
         let vsyn = VsynStep::new(self.build_dir.clone(), "xepic_vvac_top".to_string());
         vsyn.run()?;
 
         // Step 2: vcom
-        let vcom_tcl = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/builder/2_vcom/vcom_compile.tcl");
         let vcom = VcomStep::new(self.build_dir.clone(), "xepic_vvac_top".to_string(), vcom_tcl)?;
         vcom.run()?;
 

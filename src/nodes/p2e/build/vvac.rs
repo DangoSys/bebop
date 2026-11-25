@@ -2,7 +2,11 @@ use duct::cmd;
 use std::fs;
 use std::path::Path;
 
-pub fn run_vvac(out_dir: &Path, sourceme: &Path, flist: &Path, top: &str, diff: bool) {
+pub fn run_vvac(out_dir: &Path, sourceme: &Path, flist: &Path, top: &str, diff: bool, native_modules: &[String]) {
+    let native_args = native_modules
+        .iter()
+        .map(|module| format!(" -set_as_blackbox '{}'", module.replace('\'', "'\\''")))
+        .collect::<String>();
     let trace_args = if diff {
         fs::write(
             out_dir.join("p2e_trace_functions.cfg"),
@@ -46,11 +50,12 @@ export CXX="$cxx_bin"
 # AGNPTAR-2725: an assignment pattern to a single bit inside a generate
 # branch the configuration never takes (third-party HCI); VCS and Verilator
 # accept it, vvac's analyzer rejects it.
-vvac -bc -xlrm_downgrade -warn AGNPTAR-2725 -f {flist} -top {top}{trace_args}"#,
+vvac -bc -xlrm_downgrade -warn AGNPTAR-2725{native_args} -f {flist} -top {top}{trace_args}"#,
         sourceme = sourceme.display(),
         flist = flist.display(),
         top = top,
         trace_args = trace_args,
+        native_args = native_args,
     );
 
     cmd!("bash", "-c", &vvac_cmd)

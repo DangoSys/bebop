@@ -7,7 +7,7 @@ set top_module "xepic_vvac_top"
 design_read -netlist ./xepic_vvac_top.vm
 
 # Configure DDR4 controller as netlist macro
-# This tells vcom to treat xepic_ddr4_dc1 as a pre-compiled IP core
+# This tells vcom to treat xepic_ddr4_dc1 as a pre-compiled IP hart
 set nnmf_path "$env(HPE_HOME)/netlist_macro_packages"
 netlistmacro -instance ${top_module}.P2ETop.top.ddr -package ${nnmf_path}/xepic_ddr4_dc1 -location 0.A -channel 0
 
@@ -48,8 +48,8 @@ write_net -add {io_soc_hold}
 
 # Add CSR registers for runtime debugging and control
 # These allow us to enable/disable interrupts at runtime
-# write_net -add {P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0.csr.reg_mie}
-# write_net -add {P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0.csr.reg_mstatus_mie}
+# write_net -add {P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.harts_0.csr.reg_mie}
+# write_net -add {P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.harts_0.csr.reg_mstatus_mie}
 
 # Add BootROM registers for runtime debugging
 # These allow us to inspect and modify BootROM contents at runtime for debugging
@@ -67,8 +67,8 @@ read_net -add {io_soc_hold}
 #===--------------------------------------------------------===#
 
 # Add trace for waveform capture
-# trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.cores_0 -depth 5
-# The SoC/DDR AXI boundary exists on every chip.
+# trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile.harts_0 -depth 5
+# The SoC/DDR AXI boundary exists on every device.
 trace_net -add P2ETop.top.adapter -depth 2
 # trace_net -add P2ETop.top.soc.tile_prci_domain.element_reset_domain_bbtile -depth 5
 
@@ -96,8 +96,8 @@ create_clock -sig_name ${top_module}.P2ETop.top.user_clk -frequency 5Mhz
 # Enable design rule mode
 set_dr_mode -add enable
 
-# Enable this when this board is reousrces are limited for design
-memory_options -add {bram_balance SMART}
+# Preserve inferred block RAM unless a resource limit requires conversion.
+memory_options -add {bram_balance ADAPTIVE}
 
 # Restrict replication to long partition-crossing paths. The default two-hop
 # threshold expanded 114599 cut nets to 414238 and exhausted routing capacity.
@@ -109,6 +109,7 @@ design_edit
 design_generation
 
 # SDK multicycle constraints must name the generated slot_clk clocks.
+set ddr_clock_constraints 0
 foreach xdc [glob fpgaCompDir/part_b*_f*/ccu_timing.xdc] {
     set fd [open $xdc r]
     set constraints [read $fd]
@@ -117,7 +118,19 @@ foreach xdc [glob fpgaCompDir/part_b*_f*/ccu_timing.xdc] {
         error "Unexpected SDK slot clock constraints in $xdc"
     }
     set constraints [string map {{slot_clock*} {slot_clk*}} $constraints]
+    if {[string first {create_generated_clock -name ddr_ddr_dc1_clk } $constraints] >= 0} {
+        incr ddr_clock_constraints
+        # DUT RAM writes are scheduled from the same emulated clock as DDR AXI.
+        # Measure the logical cycle in fast memory-clock cycles, retaining hold.
+        append constraints {set_multicycle_path 1000 -setup -start -from [get_clocks slot_clk_mem] -to [get_clocks ddr_ddr_dc1_clk]}
+        append constraints "\n"
+        append constraints {set_multicycle_path 999 -hold -start -from [get_clocks slot_clk_mem] -to [get_clocks ddr_ddr_dc1_clk]}
+        append constraints "\n"
+    }
     set fd [open $xdc w]
     puts -nonewline $fd $constraints
     close $fd
+}
+if {$ddr_clock_constraints != 1} {
+    error "Expected one DDR AXI emulation clock constraint"
 }

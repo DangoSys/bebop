@@ -121,6 +121,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", build_dir.display());
 
     std::fs::create_dir_all(&out_dir).expect("create p2e out directory");
+    let native_modules = vsrc::preserve_native_sources(&out_dir, &mut vsrcs);
     let flist = out_dir.join("p2e_vvac_filelist.f");
     vsrc::write_flist(&flist, &build_dir, &vsrcs, diff, itrace, mtrace);
     println!("cargo:warning=P2E trace mode: {trace_mode}");
@@ -129,14 +130,14 @@ fn main() {
     vvac::remove_empty_module_instantiations(&build_dir);
 
     println!("cargo:warning=Running vvac (first pass) to generate empty module stubs...");
-    vvac::run_vvac(&out_dir, &sourceme, &flist, P2E_TOP, diff);
+    vvac::run_vvac(&out_dir, &sourceme, &flist, P2E_TOP, diff, &native_modules);
 
     println!("cargo:warning=Adding missing empty modules to VVAC filelist...");
     let needs_rebuild = vvac::add_missing_empty_modules(&out_dir);
 
     if needs_rebuild {
         println!("cargo:warning=Running vvac (second pass) with complete filelist...");
-        vvac::run_vvac(&out_dir, &sourceme, &flist, P2E_TOP, diff);
+        vvac::run_vvac(&out_dir, &sourceme, &flist, P2E_TOP, diff, &native_modules);
     }
 
     println!("cargo:warning=Copying libvCtb.so from vvac output...");

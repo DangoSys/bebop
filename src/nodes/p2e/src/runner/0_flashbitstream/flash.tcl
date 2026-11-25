@@ -2,7 +2,7 @@
 # This script is called by run.tcl
 
 proc voltage_fpga_id {fpga_location} {
-    if {![regexp {^([0-3])\.([A-E])$} $fpga_location -> board slot]} {
+    if {![regexp {^([0-9]+)\.([A-E])$} $fpga_location -> board slot]} {
         error "invalid FPGA location: $fpga_location"
     }
     return "$board.[expr {[scan $slot %c] - [scan A %c]}]"
@@ -17,7 +17,16 @@ proc flash_bitstream {fpga_location design_fpga {multi_fpga 0}} {
     # Connect to hardware server
     if {$multi_fpga} {
         set board [lindex [split $fpga_location .] 0]
-        hw_server . -location "$board-$board"
+        set design_boards {}
+        foreach part [glob -types d fpgaCompDir/part_b*_f*] {
+            regexp {^part_b([0-9]+)_f[0-9]+$} [file tail $part] -> design_board
+            lappend design_boards $design_board
+        }
+        set locations {}
+        foreach design_board [lsort -integer -unique $design_boards] {
+            lappend locations "$design_board-[expr {$board + $design_board}]"
+        }
+        hw_server . -location [join $locations ,]
     } else {
         hw_server . -location $fpga_location
     }

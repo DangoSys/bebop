@@ -203,10 +203,10 @@ pub fn source_environment() -> Result<(), String> {
 }
 
 pub fn configure_vvac_environment() {
-    std::env::set_var("VMRI_LOG_LEVEL", "0");
-    std::env::set_var("VVAC_LOG_LEVEL", "0");
-    std::env::set_var("RBMGR_LOG_LEVEL", "0");
-    std::env::set_var("RBMGR_DUMP_DATA", "1");
+    std::env::set_var("VMRI_LOG_LEVEL", "3");
+    std::env::set_var("VVAC_LOG_LEVEL", "3");
+    std::env::set_var("RBMGR_LOG_LEVEL", "3");
+    std::env::set_var("RBMGR_DUMP_DATA", "0");
     std::env::set_var("RTL_DBG_SIZE", "128");
     std::env::set_var("VMRI_WORK_MODE", "3");
     std::env::set_var("VVAC_WORK_MODE", "0");

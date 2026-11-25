@@ -3,7 +3,7 @@
 #*********************Example******************#
 #
 ena_auto_MPAR 0
-#ena_auto_PRT_opt 1
+ena_auto_PRT_opt 1
 #ena_pre_opt_cons_check_stop_PNR 0
 #MPAR_mode "hold_meet"
 #MPAR_ignore_WNS_THR -2.0
@@ -34,6 +34,7 @@ proc save_p2e_placement {command code result operation} {
         return
     }
     set top [current_design]
+    file mkdir "pnrDir/rptDir"
     write_checkpoint -force "pnrDir/${top}_place.dcp"
     report_timing_summary -delay_type min_max -max_paths 10 -input_pins \
         -file "pnrDir/rptDir/${top}_post_place_timing_summary.rpt"

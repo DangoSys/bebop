@@ -1,14 +1,14 @@
 use bebop_bank_hash::{cancel, failure, finish, progress, start, subject_counts, subject_matched};
-use bebop_bemu::{hart_capacity, CoreModel};
+use bebop_bemu::{hart_capacity, HartModel};
 use bebop_bemu::{sim::run::Args, DeviceModel};
 use clap::Parser;
-use snafu::{FromString, ResultExt, Whatever};
+use snafu::{FromString, Whatever};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Instant;
 
 struct GoldenHart {
-    bemu: Box<dyn CoreModel>,
+    bemu: Box<dyn HartModel>,
     hart_id: usize,
     waiting: bool,
 }
@@ -22,7 +22,7 @@ pub struct DiffSession {
 }
 
 impl DiffSession {
-    pub fn new(elf: &Path, log_dir: &Path, memory_size: usize) -> Result<Self, Whatever> {
+    pub fn new(elf: &Path, ddr_image: Option<&Path>, log_dir: &Path, memory_size: usize) -> Result<Self, Whatever> {
         let output = log_dir.join("diff.ndjson");
         start(output)?;
 
@@ -30,6 +30,9 @@ impl DiffSession {
             let simulation = crate::SIMULATION.get().expect("difftest requires a simulation entry");
             bebop_bemu::configs::load(simulation.design);
             let design = DeviceModel::new(memory_size, hart_capacity(), &log_dir.join("golden"));
+            if let Some(image) = ddr_image {
+                design.load_ddr_image(image).map_err(Whatever::without_source)?;
+            }
             let args = Args::try_parse_from([
                 "golden",
                 "--elf",
@@ -44,7 +47,12 @@ impl DiffSession {
             for mut bemu in (simulation.instantiate)(&design, &args).map_err(Whatever::without_source)? {
                 let hart_id = bemu.cpu().hart_id();
                 bemu.cpu_mut().load_elf(elf)?;
-                bemu.cpu_mut().init_hart()?;
+                if ddr_image.is_some() {
+                    // Boot the packed firmware with its embedded device tree.
+                    bemu.cpu_mut().init_firmware(None, None)?;
+                } else {
+                    bemu.cpu_mut().init_hart()?;
+                }
                 barriers.push(vec![golden.len()]);
                 golden.push(GoldenHart {
                     bemu,
@@ -52,7 +60,7 @@ impl DiffSession {
                     waiting: false,
                 });
             }
-            design.coordinate_harts(golden.iter().map(|hart| hart.hart_id).collect());
+            design.coordinate_harts(golden.iter().map(|hart| hart.hart_id).collect(), false);
             Ok::<_, Whatever>((golden, barriers, design))
         })();
         let (golden, barriers, device) = match golden_result {

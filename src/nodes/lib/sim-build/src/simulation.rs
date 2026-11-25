@@ -29,6 +29,19 @@ fn design_pb(out_dir: &Path) -> PathBuf {
         .expect("the simulation has no generated design.pb")
 }
 
+/// For the build script of the Verilator runner: the host threads the model of the
+/// simulation being built evaluates on, as its design.pb sets them.
+pub fn verilator_threads() -> usize {
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let design_pb = design_pb(&out);
+    println!("cargo:rerun-if-changed={}", design_pb.display());
+    let design = config::Design::decode(fs::read(&design_pb).unwrap().as_slice()).unwrap();
+    design
+        .sims
+        .expect("design.pb has no simulation parameters")
+        .verilator_threads as usize
+}
+
 /// For the build script of a simulation entry: copies the design.pb of the
 /// simulation being built to `$OUT_DIR/design.pb`, and writes `$OUT_DIR/balls.rs`,
 /// one module per Ball of the design, compiled from the model its `emu_lib`
@@ -43,14 +56,14 @@ pub fn balls() {
     let design = config::Design::decode(bytes.as_slice()).unwrap();
     let repo = paths::buckyball(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.."));
     let thread_balls = design.threads.iter().flat_map(|thread| &thread.balldomain);
-    let core_balls = design
+    let hart_balls = design
         .device
         .iter()
-        .flat_map(|device| &device.cores)
-        .flat_map(|core| &core.accelerator)
+        .flat_map(|device| &device.harts)
+        .flat_map(|hart| &hart.accelerator)
         .flat_map(|accelerator| &accelerator.balldomain);
     let mut schemas = Vec::new();
-    for ball in thread_balls.chain(core_balls).flat_map(|domain| &domain.balls) {
+    for ball in thread_balls.chain(hart_balls).flat_map(|domain| &domain.balls) {
         if ball.parameters.is_some() {
             let schema = repo
                 .join(&ball.source_path)
@@ -63,7 +76,10 @@ pub fn balls() {
         }
     }
     if !schemas.is_empty() {
-        let includes = schemas.iter().map(|schema| schema.parent().unwrap()).collect::<Vec<_>>();
+        let includes = schemas
+            .iter()
+            .map(|schema| schema.parent().unwrap())
+            .collect::<Vec<_>>();
         prost_build::compile_protos(&schemas, &includes).unwrap();
     }
     let mut modules = String::new();

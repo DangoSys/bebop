@@ -145,6 +145,8 @@ pub struct VerilatorArgs {
     pub ctrace: bool,
     #[arg(long, help = "Enable RTL bank trace")]
     pub banktrace: bool,
+    #[arg(long, help = "Print the CPU commit log (+disasm=1) into disasm.log")]
+    pub disasm: bool,
 }
 
 #[derive(Debug, Parser)]
@@ -173,6 +175,13 @@ pub struct P2eArgs {
     pub diff: bool,
     #[arg(long, value_name = "ELF", help = "ELF corresponding to --image")]
     pub image_elf: Option<PathBuf>,
+    #[arg(
+        long,
+        requires = "diff",
+        value_name = "FILE",
+        help = "DDR image loaded before the ELF in the BEMU golden model"
+    )]
+    pub ddr_image: Option<PathBuf>,
     #[arg(long, help = "Enable RTL instruction trace")]
     pub itrace: bool,
     #[arg(long, help = "Enable RTL memory trace")]
@@ -183,4 +192,38 @@ pub struct P2eArgs {
     pub ctrace: bool,
     #[arg(long, help = "Enable RTL bank trace")]
     pub banktrace: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn p2e_golden_ddr_image_is_explicit_and_requires_diff() {
+        let base = [
+            "p2e",
+            "--image",
+            "firmware.hex",
+            "--bitstream",
+            "design.bit",
+            "--log-dir",
+            "run",
+        ];
+        assert!(P2eArgs::try_parse_from(base.iter().copied().chain(["--ddr-image", "weights.bin"])).is_err());
+        let elf_only =
+            P2eArgs::try_parse_from(base.iter().copied().chain(["--diff", "--image-elf", "native.elf"])).unwrap();
+        assert!(elf_only.ddr_image.is_none());
+        let explicit = P2eArgs::try_parse_from(base.iter().copied().chain([
+            "--diff",
+            "--image-elf",
+            "native.elf",
+            "--ddr-image",
+            "base-weights.bin",
+        ]))
+        .unwrap();
+        assert_eq!(
+            explicit.ddr_image.as_deref(),
+            Some(std::path::Path::new("base-weights.bin"))
+        );
+    }
 }

@@ -8,42 +8,59 @@ import shutil
 import subprocess
 
 
+def bind_manifest(source, manifest, repo, bebop):
+    def bind(match):
+        path = Path(os.path.abspath(manifest.parent / match[1]))
+        if not path.is_relative_to(repo / "bebop"):
+            return match[0]
+        target = bebop / path.relative_to(repo / "bebop")
+        return f'path = "{os.path.relpath(target, manifest.parent)}"'
+
+    return re.sub(r'path\s*=\s*"([^"\n]+)"', bind, source)
+
+
 def main():
     bebop = Path(__file__).resolve().parent.parent
     if (bebop.parent / "bbdev").is_dir():
         repo = bebop.parent
     else:
         repo = bebop / "thirdparty/buckyball"
-        if not (repo / ".git").exists():
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(bebop),
-                    "submodule",
-                    "update",
-                    "--init",
-                    "thirdparty/buckyball",
-                ],
-                check=True,
+        if (repo / ".git").exists():
+            # Undo only our exact path rebinding before updating the pinned dependency.
+            # Other local edits stay intact; Git reports conflicting changes.
+            changed = subprocess.check_output(
+                ["git", "-C", str(repo), "diff", "--name-only", "-z"]
             )
-        # Source manifests in Buckyball point to its Bebop submodule in library
-        # mode. Bind those paths to this checkout; do not initialize another Bebop.
+            for name in changed.decode().split("\0"):
+                if not name.endswith("Cargo.toml"):
+                    continue
+                manifest = repo / name
+                original = subprocess.check_output(
+                    ["git", "-C", str(repo), "show", f"HEAD:{name}"]
+                ).decode()
+                if manifest.read_text() == bind_manifest(
+                    original, manifest, repo, bebop
+                ):
+                    manifest.write_text(original)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(bebop),
+                "submodule",
+                "update",
+                "--init",
+                "thirdparty/buckyball",
+            ],
+            check=True,
+        )
         files = subprocess.check_output(["git", "-C", str(repo), "ls-files", "-z"])
         for name in files.decode().split("\0"):
             if not name.endswith("Cargo.toml"):
                 continue
             manifest = repo / name
             source = manifest.read_text()
-
-            def bind(match):
-                path = Path(os.path.abspath(manifest.parent / match[1]))
-                if not path.is_relative_to(repo / "bebop"):
-                    return match[0]
-                target = bebop / path.relative_to(repo / "bebop")
-                return f'path = "{os.path.relpath(target, manifest.parent)}"'
-
-            bound = re.sub(r'path\s*=\s*"([^"\n]+)"', bind, source)
+            bound = bind_manifest(source, manifest, repo, bebop)
             if bound != source:
                 manifest.write_text(bound)
     # Fail before compiling if the pinned Buckyball does not provide the schema.

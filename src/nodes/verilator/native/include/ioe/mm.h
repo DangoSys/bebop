@@ -43,7 +43,7 @@ public:
                     bool aw_valid, uint64_t aw_addr, uint64_t aw_id,
                     uint64_t aw_size, uint64_t aw_len,
 
-                    bool w_valid, uint64_t w_strb, void *w_data, bool w_last,
+                    bool w_valid, const uint32_t *w_strb, void *w_data, bool w_last,
 
                     bool r_ready, bool b_ready) = 0;
 
@@ -53,7 +53,7 @@ public:
   virtual size_t get_word_size() { return word_size; }
   virtual size_t get_line_size() { return line_size; }
 
-  void write(uint64_t addr, uint8_t *data, uint64_t strb, uint64_t size);
+  void write(uint64_t addr, uint8_t *data, const uint32_t *strb, uint64_t size);
   std::vector<char> read(uint64_t addr);
 
   virtual ~mm_t();
@@ -111,7 +111,7 @@ public:
                     bool aw_valid, uint64_t aw_addr, uint64_t aw_id,
                     uint64_t aw_size, uint64_t aw_len,
 
-                    bool w_valid, uint64_t w_strb, void *w_data, bool w_last,
+                    bool w_valid, const uint32_t *w_strb, void *w_data, bool w_last,
 
                     bool r_ready, bool b_ready);
 

@@ -8,6 +8,7 @@ pub(crate) fn force_link() {
     let _ = crate::cycle::dpi_trace_write as extern "C" fn(u32, u32, u32, u32);
     let _ = dpi_bdb_set_clk as extern "C" fn(u64);
     let _ = dpi_ant_trace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32);
+    let _ = dpi_thread_monitor as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32);
     let _ = dpi_itrace as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
     let _ = dpi_mtrace
         as extern "C" fn(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
@@ -82,6 +83,48 @@ pub extern "C" fn dpi_ant_trace(
         rd,
         u64_from_words(data_lo, data_hi),
     ));
+}
+
+#[no_mangle]
+pub extern "C" fn dpi_thread_monitor(
+    event: u32,
+    code: u32,
+    a_lo: u32,
+    a_hi: u32,
+    b_lo: u32,
+    b_hi: u32,
+    c_lo: u32,
+    c_hi: u32,
+) {
+    state::record_itrace_callback();
+    if !state::itrace_enabled() {
+        return;
+    }
+    let line = if event == 2 {
+        format!(
+            r#"{{"type":"threadmonitor","clk":{},"event":"cpu","pc":"0x{:016x}","state":{}}}"#,
+            state::rtl_clk(),
+            u64_from_words(a_lo, a_hi),
+            code,
+        )
+    } else if event == 0 {
+        format!(
+            r#"{{"type":"threadmonitor","clk":{},"event":"command","pc":"0x{:016x}","funct":{},"rs1":"0x{:016x}","rs2":"0x{:016x}"}}"#,
+            state::rtl_clk(),
+            u64_from_words(a_lo, a_hi),
+            code,
+            u64_from_words(b_lo, b_hi),
+            u64_from_words(c_lo, c_hi),
+        )
+    } else {
+        format!(
+            r#"{{"type":"threadmonitor","clk":{},"event":"response","rd":{},"data":"0x{:016x}"}}"#,
+            state::rtl_clk(),
+            code,
+            u64_from_words(a_lo, a_hi),
+        )
+    };
+    state::write_trace(&line);
 }
 
 #[no_mangle]

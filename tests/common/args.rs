@@ -18,6 +18,10 @@ pub struct RegressionArgs {
     #[arg(long)]
     pub diff: bool,
 
+    /// Every trace the simulator has.
+    #[arg(long)]
+    pub all_trace: bool,
+
     #[arg(long)]
     pub workload_toml: Option<PathBuf>,
 

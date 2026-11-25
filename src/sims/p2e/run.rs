@@ -21,6 +21,7 @@ use crate::sims::lib::difftest::DiffSession;
 #[cfg(feature = "p2e")]
 pub struct P2eRunConfig {
     pub image: PathBuf,
+    pub image_elf: Option<PathBuf>,
     pub model: Option<(PathBuf, u64)>,
     pub bitstream: PathBuf,
     pub log_dir: PathBuf,
@@ -35,7 +36,7 @@ pub struct P2eRunConfig {
 #[derive(Debug)]
 #[cfg(feature = "p2e")]
 pub struct DiffConfig {
-    pub image_elf: PathBuf,
+    pub ddr_image: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -63,9 +64,16 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     if !config.bitstream.exists() {
         snafu::whatever!("bitstream not found: {}", config.bitstream.display());
     }
+    if let Some(elf) = &config.image_elf {
+        if !elf.exists() {
+            snafu::whatever!("P2E image ELF not found: {}", elf.display());
+        }
+    }
     if let Some(diff) = &config.diff {
-        if !diff.image_elf.exists() {
-            snafu::whatever!("P2E DiffTest image ELF not found: {}", diff.image_elf.display());
+        if let Some(image) = &diff.ddr_image {
+            if !image.is_file() {
+                snafu::whatever!("P2E DiffTest DDR image not found: {}", image.display());
+            }
         }
     }
     if !config.log_dir.exists() {
@@ -92,6 +100,19 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
         }
     }
     let image = config.image.canonicalize().whatever_context("P2E image not found")?;
+    let image_elf = config
+        .image_elf
+        .as_ref()
+        .map(|path| path.canonicalize())
+        .transpose()
+        .whatever_context("P2E image ELF not found")?;
+    let ddr_image = config
+        .diff
+        .as_ref()
+        .and_then(|diff| diff.ddr_image.as_ref())
+        .map(|path| path.canonicalize())
+        .transpose()
+        .whatever_context("P2E DiffTest DDR image not found")?;
     let model = config
         .model
         .as_ref()
@@ -122,6 +143,9 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     bebop_p2e::source_environment().whatever_context("failed to initialize P2E environment")?;
     bebop_p2e::configure_vvac_environment();
     bebop_p2e::ffi::reset_runtime_state();
+    if let Some(elf) = &image_elf {
+        bebop_p2e::ffi::initialize_output(elf).map_err(Whatever::without_source)?;
+    }
     bebop_p2e::ffi::set_log_dir(config.log_dir.to_string_lossy().to_string());
     init_trace(
         &config.log_dir,
@@ -170,7 +194,14 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     let mut diff_session = config
         .diff
         .as_ref()
-        .map(|diff| DiffSession::new(&diff.image_elf, &config.log_dir, bebop_p2e::DDR_SIZE as usize))
+        .map(|_| {
+            DiffSession::new(
+                image_elf.as_deref().expect("--diff requires --image-elf"),
+                ddr_image.as_deref(),
+                &config.log_dir,
+                bebop_p2e::DDR_SIZE as usize,
+            )
+        })
         .transpose()?;
     std::fs::write(&host_init_flag, "").whatever_context("failed to signal P2E host init")?;
 
@@ -187,6 +218,18 @@ pub fn run(config: P2eRunConfig) -> Result<(), Whatever> {
     .map_err(|error| Whatever::without_source(format!("P2E simulation failed: {error}")))?;
     let executable_timing = bebop_p2e::ffi::executable_timing();
     let simulation_finished = Instant::now();
+    if result.exit_code == 0 {
+        if let Some(elf) = &image_elf {
+            let output = bebop_p2e::ffi::captured_output().map_err(Whatever::without_source)?;
+            bebop_elf::check_memory(
+                elf,
+                Some(&config.log_dir.join("reference.elf")),
+                output.as_deref(),
+                |_, _| Err("P2E output checks require guest-streamed output records".into()),
+            )
+            .map_err(Whatever::without_source)?;
+        }
+    }
     #[cfg(feature = "bemu")]
     if let Some(diff) = diff_session.as_mut() {
         let drain_started = Instant::now();

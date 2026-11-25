@@ -55,7 +55,14 @@ pub fn scan_elf_files_by_names(
         if !path.is_file() || extension.is_some_and(|ext| path.extension() != Some(OsStr::new(ext))) {
             continue;
         }
-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        // A list names workloads; with an extension, their files carry it
+        // (P2E's <workload>.hex).
+        let Some(name) = (if extension.is_some() {
+            path.file_stem()
+        } else {
+            path.file_name()
+        })
+        .and_then(|name| name.to_str()) else {
             continue;
         };
         if requested.contains(name) {

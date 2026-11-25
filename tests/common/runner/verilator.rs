@@ -9,12 +9,17 @@ use crate::common::runner::backend::BackendRunner;
 #[derive(Clone, Debug, Default)]
 pub struct VerilatorBackend {
     diff: bool,
+    all_trace: bool,
     arch_config: Option<String>,
 }
 
 impl VerilatorBackend {
-    pub fn new(diff: bool, arch_config: Option<String>) -> Self {
-        Self { diff, arch_config }
+    pub fn new(diff: bool, all_trace: bool, arch_config: Option<String>) -> Self {
+        Self {
+            diff,
+            all_trace,
+            arch_config,
+        }
     }
 }
 
@@ -42,15 +47,17 @@ impl BackendRunner for VerilatorBackend {
     fn build_command(&self, cmd: &mut Command, _bebop_bin: &Path, elf_path: &Path, artifacts: &ArtifactManager) {
         cmd.arg("--elf").arg(elf_path);
         cmd.arg("--log-dir").arg(artifacts.log_dir());
-        cmd.arg("--no-wave").arg("--itrace").arg("--mtrace");
+        cmd.arg("--no-wave");
         if self.diff {
             cmd.arg("--diff");
+        }
+        if self.all_trace {
+            cmd.args(["--itrace", "--mtrace", "--pmctrace", "--ctrace", "--banktrace"]);
         }
     }
 
     fn timeout(&self) -> Duration {
-        // Full multicore RTL must also finish CPU-side workload verification.
-        Duration::from_secs(8 * 60 * 60)
+        Duration::from_secs(30 * 60)
     }
 
     fn match_case(&self, test_case: &ElfTestCase) -> bool {

@@ -6,8 +6,16 @@ use crate::common::artifacts::ArtifactManager;
 use crate::common::discovery::ElfTestCase;
 use crate::common::runner::backend::BackendRunner;
 
-#[derive(Clone, Debug, Default)]
-pub struct BemuBackend;
+#[derive(Clone, Debug)]
+pub struct BemuBackend {
+    all_trace: bool,
+}
+
+impl BemuBackend {
+    pub fn new(all_trace: bool) -> Self {
+        Self { all_trace }
+    }
+}
 
 impl BackendRunner for BemuBackend {
     fn binary_name(&self) -> &'static str {
@@ -29,7 +37,9 @@ impl BackendRunner for BemuBackend {
                 .eq("bebop-bemu"),
             "BEMU regression requires the design assembly runner"
         );
-        cmd.arg("--itrace").arg("--mtrace");
+        if self.all_trace {
+            cmd.args(["--itrace", "--mtrace", "--ctrace", "--banktrace"]);
+        }
     }
 
     fn timeout(&self) -> Duration {

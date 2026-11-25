@@ -59,6 +59,16 @@ pub fn bitstreams(case: &Path, parts: &[String]) -> Result<PathBuf, String> {
         for extension in ["bit", "bin"] {
             nonempty(&directory.join("pnrDir").join(format!("{top}.{extension}")))?;
         }
+        let timing = directory
+            .join("pnrDir/rptDir")
+            .join(format!("{top}_timing_summary.rpt"));
+        let report = std::fs::read_to_string(&timing).map_err(|e| format!("{}: {e}", timing.display()))?;
+        if !report.contains("All user specified timing constraints are met.") {
+            return Err(format!(
+                "{part}: timing constraints are not met; see {}",
+                timing.display()
+            ));
+        }
         if part == "part_b0_f0" {
             primary = Some(directory.join("pnrDir").join(format!("{top}.bit")));
         }
@@ -111,4 +121,34 @@ pub fn sta_command(case: &Path) -> Result<String, String> {
         return Err("Unsupported generated sta_report recipe".into());
     }
     Ok(recipe[0].to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bitstreams;
+
+    #[test]
+    fn rejects_timing_violations_even_when_bit_and_bin_exist() {
+        let case = std::env::temp_dir().join(format!("buckyball-p2e-timing-{}", std::process::id()));
+        let part = case.join("fpgaCompDir/part_b0_f0");
+        let reports = part.join("pnrDir/rptDir");
+        std::fs::create_dir_all(&reports).unwrap();
+        std::fs::write(part.join("Makefile"), "export FPGA_TOP = test_top\n").unwrap();
+        for extension in ["bit", "bin"] {
+            std::fs::write(part.join("pnrDir").join(format!("test_top.{extension}")), [1]).unwrap();
+        }
+        let report = reports.join("test_top_timing_summary.rpt");
+        let parts = ["part_b0_f0".to_string()];
+        assert!(bitstreams(&case, &parts).is_err());
+        std::fs::write(&report, "WNS=0.015 WHS=-0.007\nTiming constraints are not met.\n").unwrap();
+        let error = bitstreams(&case, &parts).unwrap_err();
+        assert!(error.contains("timing constraints are not met"));
+        std::fs::write(
+            &report,
+            "WNS=0.015 WHS=0.009\nAll user specified timing constraints are met.\n",
+        )
+        .unwrap();
+        assert_eq!(bitstreams(&case, &parts).unwrap(), part.join("pnrDir/test_top.bit"));
+        std::fs::remove_dir_all(case).unwrap();
+    }
 }

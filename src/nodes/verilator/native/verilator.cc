@@ -142,8 +142,12 @@ extern "C" int scu_uart_pop(uint32_t hart_id) {
   return byte;
 }
 
+extern "C" bool bbsim_output_word(uint32_t hart_id, uint32_t word);
+
 extern "C" void scu_sim_exit(uint32_t hart_id, uint32_t code) {
   std::lock_guard<std::mutex> lock(g_scu_mutex);
+  if (bbsim_output_word(hart_id, code))
+    return;
   g_exit_code = code;
   g_has_exit = true;
   printf("\n[SCU] sim_exit called: hart_id=%u, exit_code=%u\n", hart_id, code);

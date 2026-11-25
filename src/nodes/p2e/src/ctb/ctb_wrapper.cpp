@@ -64,10 +64,10 @@ void* ctb_builder_create_wrapper() {
 
     // CRITICAL: Set environment variables BEFORE calling create()
     // These must be set in C++ land, not Rust, because the library reads them during initialization
-    setenv("VMRI_LOG_LEVEL", "0", 1);
-    setenv("VVAC_LOG_LEVEL", "0", 1);
-    setenv("RBMGR_LOG_LEVEL", "0", 1);
-    setenv("RBMGR_DUMP_DATA", "1", 1);
+    setenv("VMRI_LOG_LEVEL", "3", 1);
+    setenv("VVAC_LOG_LEVEL", "3", 1);
+    setenv("RBMGR_LOG_LEVEL", "3", 1);
+    setenv("RBMGR_DUMP_DATA", "0", 1);
     setenv("RTL_DBG_SIZE", "128", 1);
     // Onboard mode
     setenv("VMRI_WORK_MODE", "3", 1);  

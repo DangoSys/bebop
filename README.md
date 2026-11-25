@@ -13,11 +13,19 @@ nix run .#install
 nix develop .#bemu
 ```
 
+Installation uses the pinned `thirdparty/buckyball` revision and binds its Cargo
+paths to this Bebop checkout. Reinstalling updates that dependency while preserving
+unrelated local edits; conflicting edits are reported by Git. In library mode,
+Bebop uses the enclosing Buckyball checkout instead.
+
+Executing an existing ELF does not require a stack checkout. Workloads and Linux
+images are built separately by stack.
+
 ## Build
 
 ```bash
-bebop-bemu config --design toy --device ToyVerilatorConfig
-bebop-bemu build --design toy --device ToyVerilatorConfig
+bebop-bemu config --config toy/devices/toy/configs/ToyDefaultConfig.toml --device toy
+bebop-bemu build --config toy/devices/toy/configs/ToyDefaultConfig.toml --device toy
 ```
 
 ## Run
@@ -25,5 +33,12 @@ bebop-bemu build --design toy --device ToyVerilatorConfig
 Run an existing workload ELF:
 
 ```bash
-bebop-bemu run --design toy --device ToyVerilatorConfig --elf /absolute/path/to/workload.elf
+bebop-bemu run --config toy/devices/toy/configs/ToyDefaultConfig.toml --device toy --elf /absolute/path/to/workload.elf
+```
+
+Pass model-runner options after `--`, for example:
+
+```bash
+bebop-bemu run --config toy/devices/toy/configs/ToyDefaultConfig.toml --device toy --elf /path/to/firmware.elf \
+  -- --ddr-image /path/to/ddr.img --tool-profile
 ```

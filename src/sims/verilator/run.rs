@@ -65,6 +65,8 @@ pub struct VerilatorRunConfig {
     pub wave: bool,
     pub diff: bool,
     pub fast: bool,
+    /// The CPU commit log (+disasm=1), written to disasm.log.
+    pub disasm: bool,
     pub trace: VerilatorTraceConfig,
 }
 
@@ -157,7 +159,11 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     println!("Console socket: {}", console.socket_path().display());
     println!("UART logs: {}", console.uart_log_dir().display());
 
-    let simulator_args = vec![format!("+elf={}", config.elf.display())];
+    bebop_verilator::initialize_output(&config.elf).map_err(Whatever::without_source)?;
+    let mut simulator_args = vec![format!("+elf={}", config.elf.display())];
+    if config.disasm {
+        simulator_args.push("+disasm=1".to_string());
+    }
     let mut simulator = Simulator::new(config.wave.then_some(fst_file.as_path()), &simulator_args)
         .map_err(|e| Whatever::without_source(format!("failed to create Verilator simulator: {e}")))?;
 
@@ -174,7 +180,7 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
                 )));
             }
             let bytes = usize::try_from(bytes).whatever_context("subject DDR exceeds host address space")?;
-            DiffSession::new(&config.elf, &config.log_dir, bytes)
+            DiffSession::new(&config.elf, None, &config.log_dir, bytes)
         })
         .transpose()?;
 
@@ -199,6 +205,16 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
     console.poll_tx();
     let code = exit_code();
     println!("Simulation cycles: {}", simulator.cycles());
+    if code == 0 {
+        let output = bebop_verilator::captured_output().map_err(Whatever::without_source)?;
+        bebop_elf::check_memory(
+            &config.elf,
+            Some(&config.log_dir.join("reference.elf")),
+            output.as_deref(),
+            |address, bytes| simulator.read_memory(address, bytes),
+        )
+        .map_err(Whatever::without_source)?;
+    }
 
     //===----------------------------------------------------------------------===//
     // Finish Simulation
@@ -221,7 +237,9 @@ pub fn run(config: VerilatorRunConfig) -> Result<(), Whatever> {
 
     write_trace_summary(&config.log_dir)
         .map_err(|error| Whatever::without_source(format!("failed to write RTL trace summary: {error}")))?;
-    write_disasm_log(&stderr_file)?;
+    if config.disasm {
+        write_disasm_log(&stderr_file)?;
+    }
 
     #[cfg(feature = "bemu")]
     if diff_passed {

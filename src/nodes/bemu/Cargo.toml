@@ -5,6 +5,15 @@ edition = "2021"
 autobins = false
 
 [dependencies]
+bebop-bemu-generic = { path = "generic" }
+bebop-bemu-ball = { path = "ball" }
+bebop-bemu-thread = { path = "thread" }
+bebop-bemu-hart = { path = "hart" }
+bebop-bemu-custom = { path = "custom" }
+bebop-bemu-tlp = { path = "tlp" }
+bebop-bemu-ilp = { path = "ilp" }
+bebop-bemu-mlp = { path = "mlp" }
+bebop-bemu-device = { path = "device" }
 rustc_apfloat = "0.2.3"
 linkme = "0.3"
 memory = { package = "bebop-memory", path = "../lib/memory" }
@@ -14,6 +23,8 @@ toml = "0.8"
 snafu = "0.8"
 prost = "0.13"
 prost-types = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 bebop-elf = { path = "../lib/elf" }
 bebop-syscall = { path = "../lib/syscall" }
 bebop-dtb = { path = "../lib/dtb" }
@@ -27,8 +38,6 @@ bebop-bemu-profile = { path = "../lib/bemu-profile" }
 bebop-uart = { path = "../lib/uart" }
 bebop-cycle-trace = { path = "../lib/cycle-trace" }
 
-[build-dependencies]
-prost-build = "0.13"
 
 [features]
 p2e = []

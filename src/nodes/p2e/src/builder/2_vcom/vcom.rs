@@ -31,22 +31,6 @@ impl VcomStep {
         let abs_tcl =
             std::fs::canonicalize(&self.vcom_tcl).map_err(|e| format!("Failed to resolve vcom_tcl path: {}", e))?;
 
-        // Copy hw-config.hdf to output directory
-        let hw_config_src = self
-            .vcom_tcl
-            .parent()
-            .ok_or("Failed to get vcom_tcl parent directory")?
-            .join("hw-config.hdf");
-        let hw_config_dst = self.output_dir.join("hw-config.hdf");
-
-        if hw_config_src.exists() {
-            std::fs::copy(&hw_config_src, &hw_config_dst)
-                .map_err(|e| format!("Failed to copy hw-config.hdf: {}", e))?;
-            log::info!("Copied hw-config.hdf to output directory");
-        } else {
-            log::warn!("hw-config.hdf not found at {:?}", hw_config_src);
-        }
-
         // Source sourceme.sh and run vcom
         let sourceme_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sourceme.sh");
         let vcom_cmd = format!(
@@ -65,6 +49,16 @@ impl VcomStep {
 
         if !status.success() {
             return Err("vcom system build failed".to_string());
+        }
+
+        let log = std::fs::read_to_string(self.output_dir.join("vcom.log"))
+            .map_err(|e| format!("Read VCOM loop-check results: {e}"))?;
+        for stage in ["pre_transform", "post_transform"] {
+            if !log.contains(&format!("No loop is detected at {stage}.")) {
+                return Err(format!(
+                    "P2E combinational-loop check failed at {stage}; inspect vcom.log and loop reports"
+                ));
+            }
         }
 
         let fpga_comp_dir = self.output_dir.join("fpgaCompDir");

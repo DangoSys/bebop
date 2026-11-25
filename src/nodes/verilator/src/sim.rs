@@ -66,6 +66,12 @@ impl Simulator {
             bebop_rtl_trace::set_rtl_clk(0);
         }
         unsafe {
+            // Establish the inactive level before asserting reset so gated
+            // clock domains also observe an asynchronous reset edge.
+            verilator_top_set_clock(self.top, 0);
+            verilator_top_set_reset(self.top, 0);
+            self.step_and_dump();
+
             // Chipyard reset synchronizers need multiple source-clock edges
             // before their downstream domains can leave reset. A single edge
             // leaves host-driven Frontend state indeterminate because there is
@@ -133,6 +139,13 @@ impl Simulator {
 
     pub fn cycles(&self) -> u64 {
         self.cycle
+    }
+
+    pub fn read_memory(&self, address: u64, bytes: &mut [u8]) -> Result<(), String> {
+        if !unsafe { bbsim_host_memory_read(0, address, bytes.as_mut_ptr(), bytes.len() as u64) } {
+            return Err(format!("cannot read simulator DDR at 0x{address:x}"));
+        }
+        Ok(())
     }
 }
 

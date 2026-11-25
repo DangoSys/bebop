@@ -50,6 +50,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             pmctrace,
             ctrace,
             banktrace,
+            disasm,
         }) => {
             #[cfg(feature = "verilator")]
             {
@@ -59,6 +60,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
                     wave: !no_wave,
                     diff,
                     fast,
+                    disasm,
                     trace: crate::sims::verilator::run::VerilatorTraceConfig {
                         itrace,
                         mtrace,
@@ -71,7 +73,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             #[cfg(not(feature = "verilator"))]
             {
                 let _ = (
-                    elf, log_dir, no_wave, diff, fast, itrace, mtrace, pmctrace, ctrace, banktrace,
+                    elf, log_dir, no_wave, diff, fast, itrace, mtrace, pmctrace, ctrace, banktrace, disasm,
                 );
                 crate::sims::verilator::run::run_unavailable()
             }
@@ -88,6 +90,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             wave_start,
             diff,
             image_elf,
+            ddr_image,
             itrace,
             mtrace,
             pmctrace,
@@ -98,6 +101,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
             {
                 crate::sims::p2e::run::run(crate::sims::p2e::run::P2eRunConfig {
                     image,
+                    image_elf,
                     model: model_image.zip(model_offset),
                     bitstream,
                     log_dir,
@@ -105,9 +109,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
                     multi_fpga,
                     wave,
                     wave_start,
-                    diff: diff.then(|| crate::sims::p2e::run::DiffConfig {
-                        image_elf: image_elf.expect("--diff requires --image-elf"),
-                    }),
+                    diff: diff.then(|| crate::sims::p2e::run::DiffConfig { ddr_image }),
                     trace: crate::sims::p2e::run::P2eTraceConfig {
                         itrace,
                         mtrace,
@@ -131,6 +133,7 @@ pub fn run(command: RunCommand) -> Result<(), Whatever> {
                     wave_start,
                     diff,
                     image_elf,
+                    ddr_image,
                     itrace,
                     mtrace,
                     pmctrace,

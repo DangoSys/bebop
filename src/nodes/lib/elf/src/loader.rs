@@ -162,7 +162,7 @@ struct ProgramHeaderScan {
     all_phdrs: Vec<Elf64Phdr>,
 }
 
-fn read_elf_header(file: &mut File) -> Result<Elf64Ehdr, String> {
+pub(crate) fn read_elf_header(file: &mut File) -> Result<Elf64Ehdr, String> {
     file.seek(SeekFrom::Start(0))
         .map_err(|e| format!("Failed to seek to ELF header: {}", e))?;
     let mut ehdr_bytes = [0u8; std::mem::size_of::<Elf64Ehdr>()];

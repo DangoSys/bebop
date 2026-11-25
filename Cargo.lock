@@ -118,6 +118,7 @@ dependencies = [
  "bebop-bemu",
  "bebop-bemu-profile",
  "bebop-dasm",
+ "bebop-elf",
  "bebop-fd-redirect",
  "bebop-p2e",
  "bebop-report",
@@ -159,7 +160,16 @@ name = "bebop-bemu"
 version = "0.1.0"
 dependencies = [
  "bebop-bank-hash",
+ "bebop-bemu-ball",
+ "bebop-bemu-custom",
+ "bebop-bemu-device",
+ "bebop-bemu-generic",
+ "bebop-bemu-hart",
+ "bebop-bemu-ilp",
+ "bebop-bemu-mlp",
  "bebop-bemu-profile",
+ "bebop-bemu-thread",
+ "bebop-bemu-tlp",
  "bebop-cycle-trace",
  "bebop-dasm",
  "bebop-dtb",
@@ -175,16 +185,112 @@ dependencies = [
  "clap",
  "linkme",
  "prost",
- "prost-build",
  "prost-types",
  "rustc_apfloat",
+ "serde",
+ "serde_json",
  "snafu",
  "toml",
 ]
 
 [[package]]
+name = "bebop-bemu-ball"
+version = "0.1.0"
+dependencies = [
+ "bebop-bemu-generic",
+ "linkme",
+]
+
+[[package]]
+name = "bebop-bemu-custom"
+version = "0.1.0"
+dependencies = [
+ "bebop-bank-hash",
+ "bebop-bemu-generic",
+ "bebop-bemu-hart",
+ "bebop-bemu-profile",
+]
+
+[[package]]
+name = "bebop-bemu-device"
+version = "0.1.0"
+dependencies = [
+ "bebop-bemu-generic",
+ "bebop-cycle-trace",
+ "bebop-elf",
+ "bebop-keyboard",
+ "bebop-microphone",
+ "bebop-rtc",
+ "bebop-speaker",
+ "bebop-vga",
+ "prost",
+]
+
+[[package]]
+name = "bebop-bemu-generic"
+version = "0.1.0"
+dependencies = [
+ "bebop-bank-hash",
+ "bebop-elf",
+ "bebop-memory",
+ "prost",
+ "prost-build",
+ "prost-types",
+ "rustc_apfloat",
+]
+
+[[package]]
+name = "bebop-bemu-hart"
+version = "0.1.0"
+dependencies = [
+ "bebop-bank-hash",
+ "bebop-bemu-generic",
+ "bebop-bemu-profile",
+ "bebop-dasm",
+ "bebop-dtb",
+ "bebop-elf",
+ "bebop-memory",
+ "bebop-syscall",
+ "linkme",
+ "serde",
+ "serde_json",
+ "snafu",
+]
+
+[[package]]
+name = "bebop-bemu-ilp"
+version = "0.1.0"
+dependencies = [
+ "bebop-bemu-generic",
+ "bebop-bemu-mlp",
+]
+
+[[package]]
+name = "bebop-bemu-mlp"
+version = "0.1.0"
+dependencies = [
+ "bebop-bemu-generic",
+]
+
+[[package]]
 name = "bebop-bemu-profile"
 version = "0.1.0"
+
+[[package]]
+name = "bebop-bemu-thread"
+version = "0.1.0"
+dependencies = [
+ "bebop-bank-hash",
+ "bebop-bemu-generic",
+ "bebop-bemu-profile",
+]
+
+[[package]]
+name = "bebop-bemu-tlp"
+version = "0.1.0"
+dependencies = [
+ "bebop-bemu-generic",
+]
 
 [[package]]
 name = "bebop-cli"
@@ -236,6 +342,7 @@ version = "0.1.0"
 name = "bebop-p2e"
 version = "0.1.0"
 dependencies = [
+ "bebop-elf",
  "bebop-memory",
  "bebop-rtl-trace",
  "bebop-uart",
@@ -319,8 +426,10 @@ name = "bebop-verilator"
 version = "0.1.0"
 dependencies = [
  "bebop-dasm",
+ "bebop-elf",
  "bebop-fd-redirect",
  "bebop-rtl-trace",
+ "bebop-sim-build",
  "bebop-uart",
  "libc",
  "snafu",

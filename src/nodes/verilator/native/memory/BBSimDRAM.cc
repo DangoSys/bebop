@@ -92,6 +92,38 @@ static std::string default_dramsim3_config_dir() {
   return "result/share/dramsim3/configs";
 }
 
+template <typename Ehdr, typename Phdr>
+static size_t load_elf_segments(const uint8_t *file_buf, uint8_t *data,
+                                uint64_t mem_base, uint64_t mem_size) {
+  const auto *ehdr = reinterpret_cast<const Ehdr *>(file_buf);
+  const auto *phdrs = reinterpret_cast<const Phdr *>(file_buf + ehdr->e_phoff);
+  size_t loaded = 0;
+  for (int i = 0; i < ehdr->e_phnum; i++) {
+    const Phdr *ph = &phdrs[i];
+    if (ph->p_type != PT_LOAD)
+      continue;
+    if (ph->p_filesz == 0)
+      continue;
+
+    uint64_t vaddr = ph->p_paddr;
+    if (vaddr < mem_base || vaddr + ph->p_memsz > mem_base + mem_size) {
+      fprintf(stderr,
+              "[BBSimDRAM] Segment paddr=0x%lx size=0x%lx outside mem [0x%lx, "
+              "0x%lx)\n",
+              vaddr, static_cast<uint64_t>(ph->p_memsz), mem_base, mem_base + mem_size);
+      abort();
+    }
+
+    uint64_t offset = vaddr - mem_base;
+    memcpy(data + offset, file_buf + ph->p_offset, ph->p_filesz);
+    if (ph->p_memsz > ph->p_filesz)
+      memset(data + offset + ph->p_filesz, 0, ph->p_memsz - ph->p_filesz);
+    loaded += ph->p_filesz;
+  }
+
+  return loaded;
+}
+
 static void load_elf_to_mem(const char *path, uint8_t *data, uint64_t mem_base,
                             uint64_t mem_size) {
   int fd = open(path, O_RDONLY);
@@ -115,39 +147,21 @@ static void load_elf_to_mem(const char *path, uint8_t *data, uint64_t mem_base,
     abort();
   }
 
-  Elf64_Ehdr *ehdr = (Elf64_Ehdr *)file_buf;
-  if (memcmp(ehdr->e_ident, ELFMAG, SELFMAG) != 0) {
+  if (memcmp(file_buf, ELFMAG, SELFMAG) != 0) {
     fprintf(stderr, "[BBSimDRAM] Not a valid ELF file: %s\n", path);
     abort();
   }
-  if (ehdr->e_ident[EI_CLASS] != ELFCLASS64) {
-    fprintf(stderr, "[BBSimDRAM] Only ELF64 supported\n");
+  size_t loaded;
+  switch (file_buf[EI_CLASS]) {
+  case ELFCLASS32:
+    loaded = load_elf_segments<Elf32_Ehdr, Elf32_Phdr>(file_buf, data, mem_base, mem_size);
+    break;
+  case ELFCLASS64:
+    loaded = load_elf_segments<Elf64_Ehdr, Elf64_Phdr>(file_buf, data, mem_base, mem_size);
+    break;
+  default:
+    fprintf(stderr, "[BBSimDRAM] Unsupported ELF class: %u\n", file_buf[EI_CLASS]);
     abort();
-  }
-
-  Elf64_Phdr *phdrs = (Elf64_Phdr *)(file_buf + ehdr->e_phoff);
-  size_t loaded = 0;
-  for (int i = 0; i < ehdr->e_phnum; i++) {
-    Elf64_Phdr *ph = &phdrs[i];
-    if (ph->p_type != PT_LOAD)
-      continue;
-    if (ph->p_filesz == 0)
-      continue;
-
-    uint64_t vaddr = ph->p_paddr;
-    if (vaddr < mem_base || vaddr + ph->p_memsz > mem_base + mem_size) {
-      fprintf(stderr,
-              "[BBSimDRAM] Segment paddr=0x%lx size=0x%lx outside mem [0x%lx, "
-              "0x%lx)\n",
-              vaddr, ph->p_memsz, mem_base, mem_base + mem_size);
-      abort();
-    }
-
-    uint64_t offset = vaddr - mem_base;
-    memcpy(data + offset, file_buf + ph->p_offset, ph->p_filesz);
-    if (ph->p_memsz > ph->p_filesz)
-      memset(data + offset + ph->p_filesz, 0, ph->p_memsz - ph->p_filesz);
-    loaded += ph->p_filesz;
   }
 
   munmap(file_buf, file_size);
@@ -217,14 +231,14 @@ extern "C" void bbsim_memory_tick(
     unsigned char *ar_ready, long long int ar_addr, int ar_id, int ar_size,
     int ar_len, unsigned char aw_valid, unsigned char *aw_ready,
     long long int aw_addr, int aw_id, int aw_size, int aw_len,
-    unsigned char w_valid, unsigned char *w_ready, int w_strb, const svBitVecVal *w_data,
+    unsigned char w_valid, unsigned char *w_ready, const svBitVecVal *w_strb, const svBitVecVal *w_data,
     unsigned char w_last, unsigned char *r_valid, unsigned char r_ready,
     int *r_id, int *r_resp, svBitVecVal *r_data, unsigned char *r_last,
     unsigned char *b_valid, unsigned char b_ready, int *b_id, int *b_resp) {
   std::lock_guard<std::mutex> lock(memory_mutex);
   mm_t *mm = (mm_t *)channel;
   mm->tick(reset, ar_valid, ar_addr, ar_id, ar_size, ar_len, aw_valid, aw_addr,
-           aw_id, aw_size, aw_len, w_valid, static_cast<uint32_t>(w_strb), const_cast<svBitVecVal *>(w_data), w_last, r_ready,
+           aw_id, aw_size, aw_len, w_valid, w_strb, const_cast<svBitVecVal *>(w_data), w_last, r_ready,
            b_ready);
   *ar_ready = mm->ar_ready();
   *aw_ready = mm->aw_ready();
@@ -232,7 +246,7 @@ extern "C" void bbsim_memory_tick(
   *r_valid = mm->r_valid();
   *r_id = mm->r_id();
   *r_resp = mm->r_resp();
-  memset(r_data, 0, 16);
+  memset(r_data, 0, 128);
   memcpy(r_data, mm->r_data(), mm->get_word_size());
   *r_last = mm->r_last();
   *b_valid = mm->b_valid();

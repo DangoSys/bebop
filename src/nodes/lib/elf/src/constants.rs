@@ -22,6 +22,7 @@ pub const DT_RELAENT: i64 = 9;
 // Section header types
 pub const SHT_SYMTAB: u32 = 2;
 pub const SHT_RELA: u32 = 4;
+pub const SHT_NOBITS: u32 = 8;
 
 // Relocation types
 pub const R_RISCV_IRELATIVE: u32 = 58;

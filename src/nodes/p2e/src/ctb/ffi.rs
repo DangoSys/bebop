@@ -43,6 +43,7 @@ struct RuntimeState {
     initialized: bool,
     uart_log: Vec<u8>,
     exit_code: Option<i32>,
+    output: Option<bebop_elf::OutputCapture>,
     uart_files: HashMap<u32, File>,
     log_dir: Option<String>,
     uart_rx_read_files: HashMap<u32, File>,
@@ -65,6 +66,21 @@ fn state() -> &'static Mutex<RuntimeState> {
 
 pub fn reset_runtime_state() {
     *state().lock().unwrap() = RuntimeState::default();
+}
+
+pub fn initialize_output(path: &std::path::Path) -> Result<(), String> {
+    state().lock().unwrap().output = bebop_elf::OutputCapture::from_elf(path)?;
+    Ok(())
+}
+
+pub fn captured_output() -> Result<Option<Vec<u8>>, String> {
+    state()
+        .lock()
+        .unwrap()
+        .output
+        .as_ref()
+        .map(|output| output.data().map(<[u8]>::to_vec))
+        .transpose()
 }
 
 pub fn set_log_dir(log_dir: String) {
@@ -381,19 +397,103 @@ fn append_console_debug(guard: &RuntimeState, args: std::fmt::Arguments<'_>) {
 
 #[no_mangle]
 pub extern "C" fn scu_sim_exit(hart_id: u32, code: u32) {
-    // CRITICAL: This function may be called during ctb_mgr->init()
-    // Add defensive checks to prevent crashes
-
-    use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(format!("/tmp/scu_uart_{hart_id}.log"))
+    let mut guard = state().lock().unwrap();
+    if guard
+        .output
+        .as_mut()
+        .is_some_and(|output| output.push(hart_id as usize, code).expect("invalid output capture"))
     {
-        let _ = writeln!(f, "[DPI-C] scu_sim_exit called: hart_id={}, code=0x{:x}", hart_id, code);
+        return;
     }
+    guard.exit_code = Some(code as i32);
+}
 
-    let _ = host_mmio_write(SIM_EXIT_ADDR, code as u64);
+#[cfg(test)]
+mod output_tests {
+    use super::*;
+
+    #[test]
+    fn streamed_output_is_checked_before_the_real_exit() {
+        let path = std::env::temp_dir().join(format!("p2e-output-{}.elf", std::process::id()));
+        let names = b"\0.shstrtab\0.bbsim.check_output\0.reference\0";
+        let expected = [0x55, 0x4f, 0x42, 0x42, 0x34, 0x12];
+        let mut image = vec![0_u8; 422];
+        image[..7].copy_from_slice(b"\x7fELF\x02\x01\x01");
+        image[16..18].copy_from_slice(&2_u16.to_le_bytes());
+        image[18..20].copy_from_slice(&243_u16.to_le_bytes());
+        image[20..24].copy_from_slice(&1_u32.to_le_bytes());
+        image[40..48].copy_from_slice(&64_u64.to_le_bytes());
+        image[52..54].copy_from_slice(&64_u16.to_le_bytes());
+        image[58..60].copy_from_slice(&64_u16.to_le_bytes());
+        image[60..62].copy_from_slice(&4_u16.to_le_bytes());
+        image[62..64].copy_from_slice(&1_u16.to_le_bytes());
+        for (index, name, kind, address, offset, bytes) in [
+            (1, 1, 3, 0, 320, names.len() as u64),
+            (2, 11, 1, 0, 384, 24),
+            (3, 31, 1, 0x1000, 416, 6),
+        ] {
+            let at = 64 + index * 64;
+            image[at..at + 4].copy_from_slice(&(name as u32).to_le_bytes());
+            image[at + 4..at + 8].copy_from_slice(&(kind as u32).to_le_bytes());
+            image[at + 16..at + 24].copy_from_slice(&(address as u64).to_le_bytes());
+            image[at + 24..at + 32].copy_from_slice(&(offset as u64).to_le_bytes());
+            image[at + 32..at + 40].copy_from_slice(&bytes.to_le_bytes());
+        }
+        image[320..320 + names.len()].copy_from_slice(names);
+        image[384..392].copy_from_slice(&0x2000_u64.to_le_bytes());
+        image[392..400].copy_from_slice(&0x1000_u64.to_le_bytes());
+        image[400..408].copy_from_slice(&6_u64.to_le_bytes());
+        image[416..].copy_from_slice(&expected);
+        std::fs::write(&path, &image).unwrap();
+
+        reset_runtime_state();
+        initialize_output(&path).unwrap();
+        scu_sim_exit(2, bebop_elf::OUTPUT_START);
+        assert!(!check_exit());
+        assert!(captured_output().is_err());
+        scu_sim_exit(2, bebop_elf::OUTPUT_START);
+        scu_sim_exit(2, 0xdead1234);
+        assert!(!check_exit());
+        assert_eq!(captured_output().unwrap().unwrap(), expected);
+        scu_sim_exit(2, 0);
+        assert!(check_exit());
+        assert_eq!(exit_code(), 0);
+        let output = captured_output().unwrap();
+        bebop_elf::check_memory(&path, None, output.as_deref(), |_, _| {
+            panic!("streamed output must not read DDR")
+        })
+        .unwrap();
+        image[416] ^= 1;
+        std::fs::write(&path, &image).unwrap();
+        assert!(bebop_elf::check_memory(&path, None, output.as_deref(), |_, _| {
+            panic!("streamed output must not read DDR")
+        })
+        .is_err());
+
+        let reference = path.with_extension("reference.elf");
+        let capture_name = b".bbsim.capture_output\0";
+        image[331..331 + capture_name.len()].copy_from_slice(capture_name);
+        std::fs::write(&path, &image).unwrap();
+        bebop_elf::check_memory(&path, Some(&reference), output.as_deref(), |_, _| {
+            panic!("streamed output must not read DDR")
+        })
+        .unwrap();
+        bebop_elf::check_memory(&reference, None, output.as_deref(), |_, _| {
+            panic!("streamed output must not read DDR")
+        })
+        .unwrap();
+
+        reset_runtime_state();
+        image[60..62].copy_from_slice(&0_u16.to_le_bytes());
+        std::fs::write(&path, image).unwrap();
+        initialize_output(&path).unwrap();
+        assert!(captured_output().unwrap().is_none());
+        scu_sim_exit(0, 9);
+        assert_eq!(exit_code(), 9);
+        reset_runtime_state();
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(reference).unwrap();
+    }
 }
 
 //===-----------------------------------------------------------------===//

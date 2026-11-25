@@ -128,13 +128,19 @@ where
         })
         .collect();
 
-    let available = std::thread::available_parallelism()
-        .expect("query host CPU capacity")
-        .get();
+    // The cores of the host, each counted once whatever its hyperthreads.
+    let cores = std::fs::read_dir("/sys/devices/system/cpu")
+        .expect("list host CPUs")
+        .filter_map(|cpu| std::fs::read_to_string(cpu.unwrap().path().join("topology/thread_siblings_list")).ok())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
     let host_threads = backend.host_threads();
-    let workers = args.jobs.min((available / host_threads).max(1));
+    // The host threads of a model spin while they wait for each other: two on the hyperthreads
+    // of one core, or on a host with no core to spare, preempt each other and every workload
+    // crawls. Half the cores stay free.
+    let workers = args.jobs.min((cores / host_threads / 2).max(1));
     println!(
-        "Regression workers: {workers} (requested {}, {host_threads} host threads per workload, {available} CPUs available)",
+        "Regression workers: {workers} (requested {}, {host_threads} host threads per workload, {cores} cores)",
         args.jobs
     );
     let mut libtest_args = vec![harness_binary_name.to_string()];

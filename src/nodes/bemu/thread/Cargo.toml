@@ -1,0 +1,9 @@
+[package]
+name = "bebop-bemu-thread"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+generic = { package = "bebop-bemu-generic", path = "../generic" }
+bebop-bank-hash = { path = "../../lib/bank-hash" }
+bebop-bemu-profile = { path = "../../lib/bemu-profile" }

@@ -1,0 +1,10 @@
+[package]
+name = "bebop-bemu-custom"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+generic = { package = "bebop-bemu-generic", path = "../generic" }
+hart = { package = "bebop-bemu-hart", path = "../hart" }
+bebop-bank-hash = { path = "../../lib/bank-hash" }
+bebop-bemu-profile = { path = "../../lib/bemu-profile" }

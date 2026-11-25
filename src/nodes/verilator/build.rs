@@ -56,6 +56,9 @@ const VERILATOR_ARGS: &[&str] = &[
     "-Wno-BLKANDNBLK",
     "-Wno-style",
     "--timing",
+    // Every RTL printf (the CPU commit log, a line a cycle) only when run
+    // with +disasm: bebop-verilator --disasm.
+    "+define+PRINTF_COND=$test$plusargs(\"disasm\")",
 ];
 
 fn main() {
@@ -66,14 +69,9 @@ fn main() {
 
     let build_dir = entry_rtl(&out_dir);
     let jobs = requested_jobs();
-    let threads = if build_dir.join("hierarchy.vlt").is_file() {
-        std::thread::available_parallelism()
-            .expect("query host CPU capacity")
-            .get()
-            .min(16)
-    } else {
-        1
-    };
+    // The host threads the model evaluates on are the design's choice: a small model is
+    // fastest on few, a device of many harts or threads needs many.
+    let threads = bebop_sim_build::verilator_threads();
     fs::write(
         out_dir.join("model_threads.rs"),
         format!("pub const HOST_THREADS: usize = {threads};\n"),
@@ -292,15 +290,24 @@ fn run_verilator(
         .arg("--Mdir")
         .arg(obj_dir);
 
+    let flags = build_dir.join("verilator.f");
+    if flags.is_file() {
+        cmd.arg("-F").arg(flags);
+    }
+
     let hierarchy = build_dir.join("hierarchy.vlt");
     if hierarchy.is_file() {
+        // The blocks declare what their updates cost in hierarchy.vlt; every other DPI import is a
+        // small trace call and keeps the default weight, or the thread partitioner would balance
+        // trace calls and not logic.
         cmd.arg("--hierarchical").arg(hierarchy);
+        // The update of a block is one task the scheduler places on a thread. Under the default
+        // limit it merges several blocks into a task, which then evaluates them one after another.
+        cmd.arg("--threads-max-mtasks").arg("512");
     }
     cmd.arg("--threads").arg(threads.to_string());
     if threads > 1 {
         cmd.arg("--threads-dpi").arg("all").arg("+define+BEBOP_PARALLEL");
-        // A hierarchy DPI call evaluates an entire core, not a small imported routine.
-        cmd.arg("--instr-count-dpi").arg("1000000");
     }
     cmd.arg("-CFLAGS").arg(format!(
         "-std=c++17 -fcoroutines -pthread -DBEBOP_VERILATOR_THREADS={threads}"
@@ -313,9 +320,13 @@ fn run_verilator(
         cmd.arg("-CFLAGS").arg(format!("-I{}", directory.display()));
     }
 
-    for src in vsrcs {
-        cmd.arg(src);
-    }
+    // The RTL sources go in a file list: a large hart (XiangShan, 1.7k files)
+    // exceeds the argument length the verilator wrapper passes to /bin/sh.
+    let sources = obj_dir.join("sources.f");
+    let list: String = vsrcs.iter().map(|src| format!("{}\n", src.display())).collect();
+    std::fs::create_dir_all(obj_dir).expect("create the Verilator object directory");
+    std::fs::write(&sources, list).expect("write Verilator source list");
+    cmd.arg("-f").arg(&sources);
     for src in csrcs {
         cmd.arg(src);
     }

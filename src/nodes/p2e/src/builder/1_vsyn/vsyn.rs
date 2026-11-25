@@ -25,6 +25,43 @@ impl VsynStep {
         if !filelist.exists() {
             return Err(format!("vvac filelist not found: {:?}", filelist));
         }
+        // VVAC merges compilation-unit imports from the complete source set.
+        // Read every package before that unit, then the modules using its imports.
+        let mut packages = Vec::new();
+        let mut units = Vec::new();
+        let mut modules = Vec::new();
+        let native: Vec<(String, PathBuf)> = serde_json::from_slice(
+            &std::fs::read(self.build_dir.join("native_sources.json")).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        for (_, source) in &native {
+            packages.push(source.to_str().unwrap().to_string());
+        }
+        for file in std::fs::read_to_string(&filelist).map_err(|e| e.to_string())?.lines() {
+            let path = filelist.parent().unwrap().join(file);
+            if native
+                .iter()
+                .any(|(module, _)| path.file_name().unwrap() == format!("work_{module}.sv").as_str())
+            {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+            if source.lines().any(|line| line.trim_start().starts_with("package ")) {
+                packages.push(file.to_string());
+            } else if path.file_name().unwrap().to_str().unwrap().contains("$unit") {
+                units.push(file.to_string());
+            } else {
+                modules.push(file.to_string());
+            }
+        }
+        let ordered = packages
+            .into_iter()
+            .chain(units)
+            .chain(modules)
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        std::fs::write(&filelist, ordered).map_err(|e| e.to_string())?;
 
         let output_vm = self.build_dir.join(format!("{}.vm", self.vvac_top_module));
 

@@ -1,0 +1,10 @@
+[package]
+name = "bebop-bemu-ilp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+generic = { package = "bebop-bemu-generic", path = "../generic" }
+
+[dev-dependencies]
+mlp = { package = "bebop-bemu-mlp", path = "../mlp" }

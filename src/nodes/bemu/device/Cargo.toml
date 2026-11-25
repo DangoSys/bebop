@@ -1,0 +1,15 @@
+[package]
+name = "bebop-bemu-device"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+generic = { package = "bebop-bemu-generic", path = "../generic" }
+prost = "0.13"
+bebop-elf = { path = "../../lib/elf" }
+bebop-microphone = { path = "../../lib/microphone" }
+bebop-speaker = { path = "../../lib/speaker" }
+bebop-keyboard = { path = "../../lib/keyboard" }
+bebop-vga = { path = "../../lib/vga" }
+bebop-rtc = { path = "../../lib/rtc" }
+bebop-cycle-trace = { path = "../../lib/cycle-trace" }

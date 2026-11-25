@@ -103,6 +103,10 @@ impl Builder {
                 "BBSimVcsHarness",
                 "-debug_access+all",
                 "-hsopt=off",
+                // Registers and memories without reset start random, as
+                // Verilator's --x-initial, instead of X.
+                "+define+RANDOMIZE_REG_INIT",
+                "+define+RANDOMIZE_MEM_INIT",
             ])
             .arg("-j")
             .arg(self.jobs.to_string())

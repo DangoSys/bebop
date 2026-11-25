@@ -251,8 +251,25 @@ pub fn finish() -> Result<(), Whatever> {
     Ok(())
 }
 
+/// A stopped run (timeout, exit flag): the records still unpaired go to the output, and per execution the
+/// first one BEMU produced but the RTL did not is the instruction the RTL stopped at.
 pub fn cancel() {
-    session().lock().unwrap().take();
+    let Some(mut state) = session().lock().unwrap().take() else {
+        return;
+    };
+    let remaining = compare_offline(state.subject.into_values(), state.golden.into_values());
+    let mut reported = BTreeSet::new();
+    for comparison in &remaining {
+        if write(&mut state.writer, &state.output, comparison).is_err() {
+            return;
+        }
+        if comparison.result == CompareResult::MissingSubject && reported.insert(comparison.hart_id) {
+            eprintln!(
+                "Bank DiffTest stopped: hart={} has not completed inst={}",
+                comparison.hart_id, comparison.inst_id
+            );
+        }
+    }
 }
 
 fn write(writer: &mut BufWriter<File>, output: &PathBuf, comparison: &Comparison) -> Result<(), Whatever> {

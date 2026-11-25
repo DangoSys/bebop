@@ -1,0 +1,18 @@
+[package]
+name = "bebop-bemu-hart"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+generic = { package = "bebop-bemu-generic", path = "../generic" }
+linkme = "0.3"
+snafu = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+memory = { package = "bebop-memory", path = "../../lib/memory" }
+bebop-dasm = { path = "../../lib/dasm" }
+bebop-elf = { path = "../../lib/elf" }
+bebop-syscall = { path = "../../lib/syscall" }
+bebop-dtb = { path = "../../lib/dtb" }
+bebop-bemu-profile = { path = "../../lib/bemu-profile" }
+bebop-bank-hash = { path = "../../lib/bank-hash" }
